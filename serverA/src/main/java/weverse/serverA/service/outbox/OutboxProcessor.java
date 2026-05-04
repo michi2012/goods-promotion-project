@@ -42,14 +42,11 @@ public class OutboxProcessor {
 
             // DB 레벨에서 락을 걸고 업데이트를 시도한 뒤, 성공한 행(Row)의 개수를 반환합니다.
             int updatedRows = goodsRepository.decreaseStockAtomically(outbox.getGoodsId(), outbox.getQuantity());
-
-            // 업데이트된 행이 0개라는 것은 = 조건(stock >= quantity)을 만족하지 못해 차감에 실패했다는 뜻 (품절)
             if (updatedRows == 0) {
                 eventNotifier.notifySoldOutToServerB(outbox.getGoodsId()); // 서버 B에 즉시 알림
-                throw new SoldOutException();
+                throw new SoldOutException(); // 예외를 던져서 catch 블록으로 넘깁니다.
             }
 
-            // 방금 내 차감으로 인해 재고가 딱 0이 되었는지 확인하고 이벤트 발송
             int currentStock = goodsRepository.findStockById(outbox.getGoodsId());
             if (currentStock == 0) {
                 eventNotifier.notifySoldOutToServerB(outbox.getGoodsId());
@@ -57,10 +54,12 @@ public class OutboxProcessor {
 
             // 모든 로직 통과 시 성공 마킹
             outbox.markAsSuccess();
+            outboxRepository.save(outbox); // 👈 [추가] 미아가 된 객체를 다시 저장하여 UPDATE 쿼리 유발!
 
         } catch (BusinessException e) {
             // 비즈니스 로직 실패(중복, 품절)는 FAIL 마킹
             outbox.markAsFail();
+            outboxRepository.save(outbox); // 👈 [추가] 여기도 잊지 말고 추가!
             throw e;
         }
     }

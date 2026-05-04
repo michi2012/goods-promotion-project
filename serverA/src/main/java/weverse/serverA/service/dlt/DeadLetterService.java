@@ -52,8 +52,9 @@ public class DeadLetterService {
         // Outbox 동기화 역시 멱등성을 보장하는 원자적 쿼리로 통일성 있게 처리
         outboxRepository.markAsCompensatedAtomically(dlt.getTraceId());
 
-        // DLT 해결 상태로 변경 (이건 JPA 엔티티의 더티 체킹을 그대로 활용)
+        // DLT 해결 상태로 변경
         dlt.markAsResolved();
+        deadLetterRepository.save(dlt); // 여기도 더티 체킹이 안 먹히므로 명시적 저장 필요
 
         log.info("🛠️ [Admin] DLT 수동 복구 및 Outbox 동기화 완료. DLT ID: {}", dltId);
     }
