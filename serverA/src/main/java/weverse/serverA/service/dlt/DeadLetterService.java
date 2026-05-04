@@ -1,0 +1,60 @@
+package weverse.serverA.service.dlt;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import weverse.serverA.entity.DeadLetter;
+import weverse.serverA.entity.DltStatus;
+import weverse.serverA.exception.AlreadyResolvedDltException;
+import weverse.serverA.exception.GoodsNotFoundException;
+import weverse.serverA.repository.DeadLetterRepository;
+import weverse.serverA.repository.GoodsRepository;
+import weverse.serverA.repository.OutboxRepository;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class DeadLetterService {
+
+    private final DeadLetterRepository deadLetterRepository;
+    private final GoodsRepository goodsRepository;
+    private final OutboxRepository outboxRepository;
+
+    // 💡 1. 격리 저장 (본 트랜잭션이 롤백되어도 이 기록은 남음)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void saveDeadLetter(String traceId, Long goodsId, int quantity, String reason) {
+        deadLetterRepository.save(DeadLetter.builder()
+                                            .traceId(traceId)
+                                            .goodsId(goodsId)
+                                            .quantity(quantity)
+                                            .reason(reason)
+                                            .build());
+    }
+
+    // 💡 2. Admin 전용 재처리 로직 (수동 복구)
+    @Transactional
+    public void retryDeadLetter(Long dltId) {
+        DeadLetter dlt = deadLetterRepository.findById(dltId)
+                                             .orElseThrow(() -> new IllegalArgumentException("DLT 기록 없음"));
+
+        if (dlt.getStatus() == DltStatus.RESOLVED) {
+            throw new AlreadyResolvedDltException();
+        }
+
+        // 단일 원자적 쿼리로 재고 강제 복구
+        int updatedRows = goodsRepository.increaseStockAtomically(dlt.getGoodsId(), dlt.getQuantity());
+        if (updatedRows == 0) {
+            throw new GoodsNotFoundException();
+        }
+
+        // Outbox 동기화 역시 멱등성을 보장하는 원자적 쿼리로 통일성 있게 처리
+        outboxRepository.markAsCompensatedAtomically(dlt.getTraceId());
+
+        // DLT 해결 상태로 변경 (이건 JPA 엔티티의 더티 체킹을 그대로 활용)
+        dlt.markAsResolved();
+
+        log.info("🛠️ [Admin] DLT 수동 복구 및 Outbox 동기화 완료. DLT ID: {}", dltId);
+    }
+}
