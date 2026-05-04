@@ -76,4 +76,33 @@ public class RequestOutbox extends BaseTimeEntity {
         this.status = status;
     }
 
+    public void markAsSuccess() {
+        if (this.status != OutboxStatus.PENDING && this.status != OutboxStatus.PUBLISHING) {
+            throw new IllegalStateException("PENDING 또는 PUBLISHING 상태에서만 SUCCESS로 변경할 수 있습니다.");
+        }
+        this.status = OutboxStatus.SUCCESS;
+    }
+
+    public void markAsFail() {
+        this.status = OutboxStatus.FAIL;
+    }
+
+    public void markAsPublishing() {
+        if (this.status != OutboxStatus.SUCCESS) {
+            throw new IllegalStateException("SUCCESS 상태에서만 PUBLISHING으로 변경할 수 있습니다.");
+        }
+        this.status = OutboxStatus.PUBLISHING;
+    }
+
+    public void markAsSent() {
+        if (this.status != OutboxStatus.PUBLISHING) {
+            throw new IllegalStateException("PUBLISHING 상태에서만 SENT로 변경할 수 있습니다.");
+        }
+        this.status = OutboxStatus.SENT;
+    }
+
+    public void markAsCompensated() {
+        this.status = OutboxStatus.COMPENSATED;
+    }
+
 }
