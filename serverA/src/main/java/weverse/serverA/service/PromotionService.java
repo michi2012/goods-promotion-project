@@ -35,13 +35,15 @@ public class PromotionService {
     // 1차 메모리 중복 방어용
     private final ConcurrentMap<Long, String> userCache = new ConcurrentHashMap<>();
 
-    // A. API 수신 및 대기
-    public CompletableFuture<ResponseEntity<String>> acceptPurchase(PurchaseMessage message) {
-        CompletableFuture<ResponseEntity<String>> future = new CompletableFuture<>();
-        if (!memoryQueue.offer(new PurchaseTask(message, future))) {
-            future.complete(ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("서버가 혼잡합니다."));
+    // A. API 수신 및 즉시 응답
+    public ResponseEntity<String> acceptPurchase(PurchaseMessage message) {
+        if (!memoryQueue.offer(new PurchaseTask(message, null))) {
+            log.warn("[큐 진입 실패] 서버 과부하 | TraceId: {}", message.traceId());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("서버가 혼잡합니다.");
         }
-        return future;
+
+        //  큐에 들어갔다면 DB 저장을 기다리지 않고 즉시 응답
+        return ResponseEntity.accepted().body("접수 대기 중입니다.");
     }
 
     // B. Flusher 스레드 (0.1초마다 실행)
@@ -53,18 +55,14 @@ public class PromotionService {
         memoryQueue.drainTo(tasks, 500);
 
         try {
-            // 💡 1. 분리된 서비스 호출 (이 안에서 트랜잭션이 작동)
             outboxBatchService.batchInsert(tasks);
-
-            // 💡 2. 성공 시 대기 중이던 톰캣 스레드 500개에 202 응답
-            tasks.forEach(task -> task.future().complete(ResponseEntity.accepted().body("접수 완료")));
+            log.info("[Outbox 배치 성공] 처리 완료: {}건", tasks.size());
 
         } catch (Exception e) {
-            // DB가 롤백되었으므로 사용자들에게 500 에러를 줘서 스레드를 해방시킵니다.
-            log.error("🚨 DB 벌크 인서트 실패. 500건 롤백 및 사용자 에러 응답 처리", e);
-            tasks.forEach(task -> task.future().complete(
-                    ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("서버 일시적 오류로 접수에 실패했습니다.")
-            ));
+            log.error("[Outbox 배치 실패] 🚨 DB 인서트 에러! 데이터 유실 방지를 위해 Fallback 파일에 기록합니다. 사유: {}", e.getMessage());
+
+            // 💡 유실 방지: DB가 죽었다면 파일(로그)로 남겨서 나중에 수동으로 복구(Retry)할 수 있게 격리합니다. (DLQ 패턴)
+            fallbackToLogFile(tasks);
         }
     }
 
@@ -72,13 +70,18 @@ public class PromotionService {
     @Scheduled(fixedDelay = 50)
     public void processPendingRequests() {
         List<RequestOutbox> pendings = outboxRepository.findByStatus(OutboxStatus.PENDING, PageRequest.of(0, 500));
+        if (pendings.isEmpty()) return;
+
+        log.info("[재고 차감 워커 시작] PENDING 데이터 조회 건수: {}건", pendings.size());
 
         for (RequestOutbox outbox : pendings) {
             // 💡 1. 1차 메모리 방어막 (이벤트 끝날 때까지 유지)
             String existingTraceId = userCache.putIfAbsent(outbox.getUserId(), outbox.getTraceId());
 
             if (existingTraceId != null && !existingTraceId.equals(outbox.getTraceId())) {
-                // 이미 캐시에 박제된 유저의 중복 요청 -> DB까지 안 가고 메모리에서 즉시 컷!
+                // 이미 캐시에 박제된 유저의 중복 요청 -> DB까지 안 가고 메모리에서 즉시 컷
+                log.warn("[중복 요청 차단] 메모리 캐시 탐지 | UserId: {} | 기존Trace: {} | 신규Trace: {}",
+                        outbox.getUserId(), existingTraceId, outbox.getTraceId());
                 outboxProcessor.markAsFailDirectly(outbox.getId());
                 continue;
             }
@@ -89,21 +92,34 @@ public class PromotionService {
                 // 2. 단일 원자적 쿼리로 검증 및 재고 차감 시도
                 outboxProcessor.processSingleItem(outbox.getId());
                 isSuccess = true; // 무사히 통과했다면 성공 플래그 ON
+                log.info("[재고 차감 성공] TraceId: {} | UserId: {} | GoodsId: {}",
+                        outbox.getTraceId(), outbox.getUserId(), outbox.getGoodsId());
 
             } catch (BusinessException e) {
-                log.warn("검증 실패 (품절 등) - traceId: {}, 사유: {}", outbox.getTraceId(), e.getMessage());
-                // 품절 등의 비즈니스 실패 처리
+                log.warn("[재고 차감 거절] 비즈니스 로직 실패 | TraceId: {} | 사유: {}", outbox.getTraceId(), e.getMessage());
 
             } catch (Exception e) {
-                log.error("시스템 에러로 검증 영구 실패 처리 - traceId: {}", outbox.getTraceId(), e);
+                log.error("[재고 차감 실패] 🚨 시스템 예외 발생 | TraceId: {} | 메시지: {}", outbox.getTraceId(), e.getMessage(), e);
                 outboxProcessor.markAsFailDirectly(outbox.getId());
 
             } finally {
                 // 시스템 에러나 품절 등으로 '결제에 실패'해서 유저가 나중에 다시 시도해야 할 수도 있다면 캐시를 비워줍니다.
                 if (!isSuccess) {
                     userCache.remove(outbox.getUserId());
+                    log.debug("[캐시 롤백] 실패 처리로 인한 메모리 캐시 삭제 | UserId: {}", outbox.getUserId());
                 }
             }
         }
     }
+
+    // 💡 별도의 파일이나 로그로 실패 데이터를 안전하게 백업
+    private void fallbackToLogFile(List<PurchaseTask> failedTasks) {
+        for (PurchaseTask task : failedTasks) {
+            PurchaseMessage msg = task.message();
+            // 현업에서는 SLF4J의 별도 로거(Appender)를 만들어 failed-orders.log 같은 파일에만 JSON 형태로 예쁘게 기록합니다.
+            log.error("DEAD_LETTER_LOG | TraceId: {} | UserId: {} | GoodsId: {} | Payload: {}",
+                    msg.traceId(), msg.userId(), msg.goodsId(), msg);
+        }
+    }
+
 }

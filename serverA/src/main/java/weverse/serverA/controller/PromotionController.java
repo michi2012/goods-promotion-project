@@ -1,5 +1,6 @@
 package weverse.serverA.controller;
 
+import lombok.extern.slf4j.Slf4j;
 import weverse.serverA.dto.PurchaseMessage;
 import weverse.serverA.dto.PurchaseRequest;
 import weverse.serverA.service.PromotionService;
@@ -12,19 +13,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/v1/promotions")
 @RequiredArgsConstructor
+@Slf4j
 public class PromotionController {
 
     private final PromotionService promotionService;
 
     @PostMapping("/purchase")
-    public CompletableFuture<ResponseEntity<String>> purchase(@Valid @RequestBody PurchaseRequest request) {
-        // TraceId 발급 후 Message로 변환
+    public ResponseEntity<String> purchase(@Valid @RequestBody PurchaseRequest request) {
         String traceId = UUID.randomUUID().toString();
+        log.info("[주문 수신] TraceId: {} | UserId: {} | GoodsId: {} | 결제수단: {}",
+                traceId, request.userId(), request.goodsId(), request.paymentMethod());
         PurchaseMessage message = PurchaseMessage.from(request, traceId);
 
         return promotionService.acceptPurchase(message);
