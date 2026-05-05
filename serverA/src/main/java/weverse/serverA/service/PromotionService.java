@@ -18,6 +18,7 @@ import weverse.serverA.service.outbox.OutboxBatchService;
 import weverse.serverA.service.outbox.OutboxProcessor;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -55,6 +56,9 @@ public class PromotionService {
         List<PurchaseTask> tasks = new ArrayList<>();
         memoryQueue.drainTo(tasks, 500);
 
+        // DB 데드락 방지를 위해 Unique Index(traceId) 기준으로 정렬
+        tasks.sort(Comparator.comparing(task -> task.message().traceId()));
+
         try {
             outboxBatchService.batchInsert(tasks);
             log.info("[Outbox 배치 성공] 처리 완료: {}건", tasks.size());
@@ -68,7 +72,7 @@ public class PromotionService {
     }
 
     // C. 비동기 비즈니스 워커 (재고 차감)
-    @Scheduled(fixedDelay = 50)
+    @Scheduled(fixedDelay = 1000)
     public void processPendingRequests() {
         List<RequestOutbox> pendings = outboxRepository.findByStatus(OutboxStatus.PENDING, PageRequest.of(0, 500));
         if (pendings.isEmpty()) return;
