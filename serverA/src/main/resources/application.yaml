@@ -1,5 +1,6 @@
 server:
   port: 8080
+  shutdown: graceful
   tomcat:
     threads:
       max: 200 # 톰캣 기본 스레드
@@ -15,6 +16,8 @@ spring:
       ddl-auto: update
       jdbc.batch_size: 500
       order_inserts: true
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 logging:
   level:

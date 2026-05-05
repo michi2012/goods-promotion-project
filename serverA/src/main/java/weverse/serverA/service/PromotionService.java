@@ -1,5 +1,6 @@
 package weverse.serverA.service;
 
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -109,6 +110,33 @@ public class PromotionService {
                     log.debug("[캐시 롤백] 실패 처리로 인한 메모리 캐시 삭제 | UserId: {}", outbox.getUserId());
                 }
             }
+        }
+    }
+
+    @PreDestroy
+    public void tearDown() {
+        if (memoryQueue.isEmpty()) {
+            log.info("[Shutdown] 큐가 비어있어 안전하게 종료합니다.");
+            return;
+        }
+
+        log.info("[Shutdown] 서버 종료 감지: 메모리 큐의 남은 데이터({})를 DB로 플러시합니다.", memoryQueue.size());
+
+        List<PurchaseTask> remainingTasks = new ArrayList<>();
+
+        try {
+            // 큐의 데이터를 리스트로 이동
+            memoryQueue.drainTo(remainingTasks);
+
+            if (!remainingTasks.isEmpty()) {
+                // DB 연결이 살아있는지 확인하며 인서트 시도
+                outboxBatchService.batchInsert(remainingTasks);
+                log.info("[Shutdown] 큐 플러시 완료: {}건 저장됨.", remainingTasks.size());
+            }
+        } catch (Exception e) {
+            // DB가 이미 닫혔더라도 여기서 파일로 기록(DLQ)하여 유실을 방지합니다.
+            log.error("[Shutdown] 🚨 종료 중 DB 저장 실패! Fallback 파일 기록을 시작합니다. 사유: {}", e.getMessage());
+            fallbackToLogFile(remainingTasks);
         }
     }
 
