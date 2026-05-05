@@ -1,11 +1,12 @@
 package weverse.serverA.service;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import weverse.serverA.client.ExternalApiClient;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -15,7 +16,7 @@ import java.util.concurrent.ConcurrentMap;
 @Slf4j
 public class EventNotifier {
 
-    private final RestTemplate restTemplate;
+    private final ExternalApiClient externalApiClient;
 
     @Value("${external.server-b.url}")
     private String serverBUrl;
@@ -46,13 +47,17 @@ public class EventNotifier {
 
         try {
             String url = serverBUrl + "/api/v1/b/goods/" + goodsId + "/sold-out";
-            restTemplate.postForEntity(url, null, String.class);
-            log.info("📢 [이벤트 전송] 서버 B에 상품 [{}] 품절 알림 완료 (원자적 방어 성공)", goodsId);
-
+            externalApiClient.sendSoldOutEvent(url);
         } catch (Exception e) {
-            log.error("🚨 서버 B로 품절 알림 전송 실패 (상품 ID: {})", goodsId, e);
-            // 실패 시 다음 스레드가 즉시 쏠 수 있도록 맵에서 제거
-            recentlyNotified.remove(goodsId);
+            // 서킷 브레이커에 의해 차단된 에러인지 확인
+            if (e.getCause() instanceof CallNotPermittedException
+                    || e.getMessage().contains("Circuit Breaker OPEN")) {
+                log.warn("🛑 [CB OPEN] 서버 B 장애로 인해 알림 발송을 중단하고 쿨다운을 유지합니다.");
+                // remove를 하지 않음으로써 NOTIFY_INTERVAL 동안 추가 스레드 진입 차단
+            } else {
+                log.error("🚨 단순 통신 실패: 즉시 재시도를 위해 맵에서 제거합니다.");
+                recentlyNotified.remove(goodsId);
+            }
         }
     }
 }

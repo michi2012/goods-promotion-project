@@ -25,6 +25,17 @@ logging:
   level:
     root: WARN
 
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      slidingWindowSize: 10
+      failureRateThreshold: 50
+      waitDurationInOpenState: 10000
+      permittedNumberOfCallsInHalfOpenState: 3
+  instances:
+    serverBClient:
+      baseConfig: default
+
 external:
   server-b:
     url: http://localhost:8081
