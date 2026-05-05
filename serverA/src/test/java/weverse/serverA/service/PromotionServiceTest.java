@@ -15,6 +15,7 @@ import weverse.serverA.dto.PurchaseMessage;
 import weverse.serverA.dto.PurchaseTask;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
+import weverse.serverA.exception.QueueFullException;
 import weverse.serverA.repository.OutboxRepository;
 import weverse.serverA.service.outbox.OutboxBatchService;
 import weverse.serverA.service.outbox.OutboxProcessor;
@@ -25,6 +26,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -47,18 +49,19 @@ class PromotionServiceTest {
     }
 
     @Test
-    @DisplayName("API 수신: 큐가 꽉 찼을 경우 503 에러로 즉시 응답을 반환한다.")
+    @DisplayName("API 수신: 큐가 꽉 찼을 경우 QueueFullException이 발생한다.")
     void acceptPurchase_QueueFull() {
         // Given
+        // 딱 1자리만 있는 큐를 만들고 미리 채워둠
         BlockingQueue<PurchaseTask> tinyQueue = new ArrayBlockingQueue<>(1);
         tinyQueue.offer(new PurchaseTask(mock(PurchaseMessage.class), null));
         ReflectionTestUtils.setField(promotionService, "memoryQueue", tinyQueue);
 
-        // When
-        ResponseEntity<String> response = promotionService.acceptPurchase(mock(PurchaseMessage.class));
-
-        // Then
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        // When & Then
+        // ResponseEntity를 반환받는 대신, 특정 예외가 던져지는지 검증
+        assertThatThrownBy(() -> promotionService.acceptPurchase(mock(PurchaseMessage.class)))
+                .isInstanceOf(QueueFullException.class)
+                .hasMessageContaining("대기열 합류에 실패했습니다");
     }
 
     @Test

@@ -11,6 +11,7 @@ import weverse.serverA.dto.PurchaseTask;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.exception.BusinessException;
+import weverse.serverA.exception.QueueFullException;
 import weverse.serverA.repository.OutboxRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,14 +39,14 @@ public class PromotionService {
     private final ConcurrentMap<Long, String> userCache = new ConcurrentHashMap<>();
 
     // A. API 수신 및 즉시 응답
-    public ResponseEntity<String> acceptPurchase(PurchaseMessage message) {
+    public void acceptPurchase(PurchaseMessage message) {
         if (!memoryQueue.offer(new PurchaseTask(message, null))) {
             log.warn("[큐 진입 실패] 서버 과부하 | TraceId: {}", message.traceId());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("서버가 혼잡합니다.");
+            throw new QueueFullException();
         }
 
         //  큐에 들어갔다면 DB 저장을 기다리지 않고 즉시 응답
-        return ResponseEntity.accepted().body("접수 대기 중입니다.");
+        log.info("[대기열 진입 성공] TraceId: {}", message.traceId());
     }
 
     // B. Flusher 스레드 (0.1초마다 실행)
@@ -64,9 +65,7 @@ public class PromotionService {
             log.info("[Outbox 배치 성공] 처리 완료: {}건", tasks.size());
 
         } catch (Exception e) {
-            log.error("[Outbox 배치 실패] 🚨 DB 인서트 에러! 데이터 유실 방지를 위해 Fallback 파일에 기록합니다. 사유: {}", e.getMessage());
-
-            // 💡 유실 방지: DB가 죽었다면 파일(로그)로 남겨서 나중에 수동으로 복구(Retry)할 수 있게 격리합니다. (DLQ 패턴)
+            log.error("[Outbox 배치 실패] 🚨 DB 인서트 에러! Fallback 파일에 기록합니다. 사유: {}", e.getMessage());
             fallbackToLogFile(tasks);
         }
     }
@@ -144,12 +143,12 @@ public class PromotionService {
         }
     }
 
-    // 💡 별도의 파일이나 로그로 실패 데이터를 안전하게 백업
+    // 장애 추적 및 CS 보상: 선착순 특성상 지연 처리는 불가하지만, 시스템 에러로 누락된 유저를 식별하여 CS 사후 처리(보상 등)를 진행하기 위해 Audit 로그를 남깁니다.
     private void fallbackToLogFile(List<PurchaseTask> failedTasks) {
         for (PurchaseTask task : failedTasks) {
             PurchaseMessage msg = task.message();
             // 현업에서는 SLF4J의 별도 로거(Appender)를 만들어 failed-orders.log 같은 파일에만 JSON 형태로 예쁘게 기록합니다.
-            log.error("DEAD_LETTER_LOG | TraceId: {} | UserId: {} | GoodsId: {} | Payload: {}",
+            log.error("SYSTEM_ERROR_AUDIT | TraceId: {} | UserId: {} | GoodsId: {} | Payload: {}",
                     msg.traceId(), msg.userId(), msg.goodsId(), msg);
         }
     }
