@@ -2,10 +2,12 @@ server:
   port: 8080
   shutdown: graceful
   tomcat:
-    threads:
-      max: 200 # 톰캣 기본 스레드
+    accept-count: 1000
 
 spring:
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: jdbc:mysql://localhost:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
     username: root
@@ -13,7 +15,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create
       jdbc.batch_size: 500
       order_inserts: true
   lifecycle:
@@ -21,7 +23,7 @@ spring:
 
 logging:
   level:
-    root: INFO
+    root: WARN
 
 external:
   server-b:
