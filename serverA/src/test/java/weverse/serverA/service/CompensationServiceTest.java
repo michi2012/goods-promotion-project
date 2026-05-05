@@ -6,7 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import weverse.serverA.dto.CompensationRequest;
+import weverse.serverA.dto.request.CompensationRequest;
 import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OutboxRepository;
 import weverse.serverA.service.dlt.DeadLetterService;

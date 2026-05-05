@@ -3,7 +3,7 @@ package weverse.serverA.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import weverse.serverA.dto.CompensationRequest;
+import weverse.serverA.dto.request.CompensationRequest;
 import weverse.serverA.service.CompensationService;
 
 import java.util.List;
