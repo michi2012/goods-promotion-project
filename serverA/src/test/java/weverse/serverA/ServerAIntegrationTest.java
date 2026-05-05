@@ -6,8 +6,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestTemplate;
 import weverse.serverA.dto.PurchaseMessage;
@@ -22,6 +20,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 
 @SpringBootTest
 class ServerAIntegrationTest {
@@ -65,8 +64,8 @@ class ServerAIntegrationTest {
                 "서울시 강남구", "12345", "010-1234-5678", "test@test.com", "빨리주세요", "127.0.0.1"
         );
 
-        ResponseEntity<String> response = promotionService.acceptPurchase(message);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThatCode(() -> promotionService.acceptPurchase(message))
+                .doesNotThrowAnyException();
 
         // 아직 플러시 전이므로 DB에는 반영되지 않아야 함
         assertThat(outboxRepository.findAll()).isEmpty();
