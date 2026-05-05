@@ -1,0 +1,116 @@
+services:
+  # 1. MySQL
+  mysql:
+    image: mysql:8.0
+    container_name: weverse-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: weverse_promo
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck: # 💡 DB 엔진이 완전히 부팅되었는지 검사
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - promo-network
+
+  # 2. Redis
+  redis:
+    image: redis:7.0-alpine
+    container_name: weverse-redis
+    ports:
+      - "6379:6379"
+    environment:
+      TZ: Asia/Seoul
+    networks:
+      - promo-network
+
+  # 3. SERVER C (최종 저장)
+  server-c:
+    build:
+      context: ./serverC
+      dockerfile: Dockerfile
+    container_name: weverse-server-c
+    ports:
+      - "8082:8082"
+    environment:
+      TZ: Asia/Seoul
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - promo-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # 4. SERVER B (파이프라인)
+  server-b:
+    build:
+      context: ./serverB
+      dockerfile: Dockerfile
+    container_name: weverse-server-b
+    ports:
+      - "8081:8081"
+    environment:
+      TZ: Asia/Seoul
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      EXTERNAL_SERVER_C_URL: http://server-c:8082
+      EXTERNAL_SERVER_A_URL: http://server-a:8080
+    depends_on:
+      - redis
+      - server-c
+    networks:
+      - promo-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # 5. SERVER A (동시성 제어 입구)
+  server-a:
+    build:
+      context: ./serverA
+      dockerfile: Dockerfile
+    container_name: weverse-server-a
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Seoul
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      EXTERNAL_SERVER_B_URL: http://server-b:8081
+    depends_on:
+      mysql:
+        condition: service_healthy # Hibernate Dialect 에러 방지를 위해 DB 대기
+      server-b:
+        condition: service_started
+    networks:
+      - promo-network
+    restart: on-failure
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+networks:
+  promo-network:
+    driver: bridge
