@@ -29,7 +29,10 @@ public class PromotionController {
                 traceId, request.userId(), request.goodsId(), request.paymentMethod());
         PurchaseMessage message = PurchaseMessage.from(request, traceId);
 
-        return promotionService.acceptPurchase(message);
+        promotionService.acceptPurchase(message);
+
+        return ResponseEntity.accepted()
+                             .body("처리 대기중입니다. 잠시 뒤 확인해주세요.");
     }
 
 }
