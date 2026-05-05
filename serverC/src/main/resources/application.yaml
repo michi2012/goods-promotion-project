@@ -1,0 +1,22 @@
+server:
+  port: 8082
+  tomcat:
+    accept-count: 1000
+
+spring:
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:mysql://localhost:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+    username: root
+    password: worldcup7!
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
