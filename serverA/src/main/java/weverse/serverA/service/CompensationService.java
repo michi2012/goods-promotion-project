@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import weverse.serverA.client.ExternalApiClient;
 import weverse.serverA.dto.request.CompensationRequest;
 import weverse.serverA.exception.GoodsNotFoundException;
 import weverse.serverA.repository.GoodsRepository;
@@ -18,13 +19,20 @@ import java.util.List;
 public class CompensationService {
 
     private final GoodsRepository goodsRepository;
-    private final OutboxRepository outboxRepository; // 💡 주입 추가
+    private final OutboxRepository outboxRepository;
     private final DeadLetterService deadLetterService;
+    private final ExternalApiClient externalApiClient;
 
     @Transactional
     public void compensate(List<CompensationRequest> requests) {
         for (CompensationRequest req : requests) {
             try {
+                if (externalApiClient.checkPaymentStatusAtServerC(req.traceId())) {
+                    outboxRepository.updateStatus(req.traceId(), "SUCCESS");
+                    log.info("🛡️ [지연 성공 감지] Server C 결제 확인됨. 보상을 취소하고 SUCCESS로 동기화합니다. TraceId: {}", req.traceId());
+                    continue;
+                }
+
                 // 💡 1. [멱등성 방어선] 아웃박스 상태를 원자적으로 COMPENSATED로 변경
                 int outboxUpdatedRows = outboxRepository.markAsCompensatedAtomically(req.traceId());
 
