@@ -1,4 +1,4 @@
-package weverse.serverB.dto;
+package weverse.serverC.dto;
 
 public record PurchaseMessage(
         String traceId,        // 분산 추적 및 서버 C 멱등성 검증용 키

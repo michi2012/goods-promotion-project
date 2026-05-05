@@ -1,5 +1,4 @@
-package weverse.serverB.dto;
-
+package weverse.serverC.dto;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
