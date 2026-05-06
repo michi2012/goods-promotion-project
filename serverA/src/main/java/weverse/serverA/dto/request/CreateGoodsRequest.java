@@ -2,6 +2,6 @@ package weverse.serverA.dto.request;
 
 public record CreateGoodsRequest(
         String name,
-        int stock
+        Integer stock
 ) {
 }
