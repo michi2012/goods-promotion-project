@@ -64,4 +64,13 @@ public class FinalOrderRepository {
 
         jdbcTemplate.update(sql, params.toArray());
     }
+
+    public boolean existsByTraceId(String traceId) {
+        String sql = "SELECT COUNT(1) FROM final_order WHERE trace_id = ?";
+
+        // queryForObject를 사용하여 count가 1 이상인지 확인합니다.
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, traceId);
+
+        return count != null && count > 0;
+    }
 }

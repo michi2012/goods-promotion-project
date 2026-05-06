@@ -16,7 +16,7 @@ public class FinalOrder {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "trace_id", nullable = false, updatable = false)
+    @Column(name = "trace_id", nullable = false, updatable = false, unique = true)
     private String traceId;
 
     @Column(name = "user_id", nullable = false, updatable = false)
