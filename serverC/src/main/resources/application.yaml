@@ -20,3 +20,14 @@ spring:
 logging:
   level:
     root: WARN
+
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      slidingWindowSize: 10
+      failureRateThreshold: 50
+      waitDurationInOpenState: 10000
+      permittedNumberOfCallsInHalfOpenState: 3
+  instances:
+    pgClientCb:
+      baseConfig: default
