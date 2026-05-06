@@ -19,3 +19,15 @@ external:
 logging:
   level:
     root: WARN
+
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      slidingWindowSize: 10
+      failureRateThreshold: 50
+      waitDurationInOpenState: 10000
+  instances:
+    serverCClient:
+      baseConfig: default
+    serverAClient:
+      baseConfig: default
