@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import weverse.serverB.client.ExternalApiClient;
 import weverse.serverB.dto.PurchaseMessage;
 import weverse.serverB.dto.ServerCResponse;
 
@@ -26,6 +27,7 @@ import java.util.List;
 public class QueueToCWorker {
     private final StringRedisTemplate redisTemplate;
     private final RestTemplate restTemplate;
+    private final ExternalApiClient externalApiClient;
     private final ObjectMapper objectMapper;
 
     @Value("${external.server-c.url}")
@@ -110,8 +112,8 @@ public class QueueToCWorker {
 
         try {
             log.info("[QueueToCWorker] Server C Bulk API 호출 시도: 유효 데이터 건수 = {}", payloads.size());
-            ResponseEntity<ServerCResponse> response = restTemplate.postForEntity(
-                    serverCUrl + "/api/v1/c/orders/bulk", payloads, ServerCResponse.class);
+            ResponseEntity<ServerCResponse> response = externalApiClient.sendBulkToServerC(
+                    serverCUrl + "/api/v1/c/orders/bulk", payloads);
 
             // 확실한 응답(2xx)을 받았을 때만 비로소 ACK 수행
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
@@ -160,9 +162,8 @@ public class QueueToCWorker {
         weverse.serverB.dto.CompensationRequest req = null;
         try {
             req = objectMapper.readValue(json, weverse.serverB.dto.CompensationRequest.class);
-            restTemplate.postForEntity(serverAUrl + "/api/v1/internal/compensate", List.of(req), String.class);
+            externalApiClient.sendCompensationToServerA(serverAUrl + "/api/v1/internal/compensate", List.of(req));
             log.info("⏪ [재시도 성공] 서버 A로 재고 롤백 지시 완료. TraceId: {}", req.traceId());
-
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             log.error("🚨 [재시도 영구 실패] 보상 데이터 JSON 파싱 실패. 폐기 처리합니다: {}", json);
 
@@ -204,8 +205,7 @@ public class QueueToCWorker {
                                                                              )).toList();
 
         try {
-            restTemplate.postForEntity(serverAUrl + "/api/v1/internal/compensate", compRequests, String.class);
-            log.info("⏪ 서버 A로 재고 롤백(보상 트랜잭션) 지시 성공");
+            externalApiClient.sendCompensationToServerA(serverAUrl + "/api/v1/internal/compensate", compRequests);            log.info("⏪ 서버 A로 재고 롤백(보상 트랜잭션) 지시 성공");
         } catch (Exception e) {
             log.error("🚨 서버 A 통신 실패! 최종 일관성 보장을 위해 재시도 큐(Redis)에 적재합니다.", e);
             fallbackToRedisRetryQueue(compRequests);
