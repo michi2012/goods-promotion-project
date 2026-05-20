@@ -3,8 +3,6 @@ package weverse.serverA.service;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import weverse.serverA.dto.PurchaseMessage;
 import weverse.serverA.dto.PurchaseTask;
@@ -19,7 +17,6 @@ import weverse.serverA.service.outbox.OutboxBatchService;
 import weverse.serverA.service.outbox.OutboxProcessor;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -56,9 +53,6 @@ public class PromotionService {
 
         List<PurchaseTask> tasks = new ArrayList<>();
         memoryQueue.drainTo(tasks, 500);
-
-        // DB 데드락 방지를 위해 Unique Index(traceId) 기준으로 정렬
-        tasks.sort(Comparator.comparing(task -> task.message().traceId()));
 
         try {
             outboxBatchService.batchInsert(tasks);

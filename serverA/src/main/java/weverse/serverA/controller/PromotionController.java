@@ -1,5 +1,6 @@
 package weverse.serverA.controller;
 
+import com.fasterxml.uuid.Generators;
 import lombok.extern.slf4j.Slf4j;
 import weverse.serverA.dto.PurchaseMessage;
 import weverse.serverA.dto.request.PurchaseRequest;
@@ -12,8 +13,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.UUID;
-
 @RestController
 @RequestMapping("/api/v1/promotions")
 @RequiredArgsConstructor
@@ -24,9 +23,11 @@ public class PromotionController {
 
     @PostMapping("/purchase")
     public ResponseEntity<String> purchase(@Valid @RequestBody PurchaseRequest request) {
-        String traceId = UUID.randomUUID().toString();
+        String traceId = Generators.timeBasedEpochGenerator().generate().toString();
+
         log.info("[주문 수신] TraceId: {} | UserId: {} | GoodsId: {} | 결제수단: {}",
                 traceId, request.userId(), request.goodsId(), request.paymentMethod());
+
         PurchaseMessage message = PurchaseMessage.from(request, traceId);
 
         promotionService.acceptPurchase(message);
