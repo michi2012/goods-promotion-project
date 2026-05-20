@@ -8,7 +8,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.RestTemplate;
+import weverse.serverA.client.ExternalApiClient;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -27,7 +27,7 @@ class EventNotifierTest {
     private EventNotifier eventNotifier;
 
     @Mock
-    private RestTemplate restTemplate;
+    private ExternalApiClient externalApiClient;
 
     @BeforeEach
     void setUp() {
@@ -55,7 +55,7 @@ class EventNotifierTest {
         }
         latch.await();
 
-        // Then: RestTemplate.postForEntity는 단 1번만 호출되어야 함! (원자적 방어 성공)
-        verify(restTemplate, times(1)).postForEntity(anyString(), any(), eq(String.class));
+        // Then: sendSoldOutEvent는 단 1번만 호출되어야 함! (원자적 방어 성공)
+        verify(externalApiClient, times(1)).sendSoldOutEvent(anyString());
     }
 }

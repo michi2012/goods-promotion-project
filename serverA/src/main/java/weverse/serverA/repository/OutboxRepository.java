@@ -24,7 +24,7 @@ public interface OutboxRepository extends JpaRepository<RequestOutbox, Long> {
     int updateStatusByIds(@Param("status") OutboxStatus status, @Param("ids") List<Long> ids);
 
     @Modifying(clearAutomatically = true)
-    @Query("UPDATE RequestOutbox r SET r.status = 'COMPENSATED' WHERE r.traceId = :traceId AND r.status = 'PUBLISHING'")
+    @Query("UPDATE RequestOutbox r SET r.status = 'COMPENSATED' WHERE r.traceId = :traceId AND r.status IN ('PUBLISHING', 'SENT')")
     int markAsCompensatedAtomically(@Param("traceId") String traceId);
 
     // PESSIMISTIC_WRITE로 락을 걸고, "-2"(SKIP LOCKED) 힌트를 주어

@@ -5,10 +5,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,6 +22,9 @@ class OutboxRepositoryTest {
 
     @Autowired
     private OutboxRepository outboxRepository;
+
+    @Autowired
+    private TestEntityManager testEntityManager;
 
     @Test
     @DisplayName("특정 유저가 주어진 상태의 주문을 가지고 있는지 확인한다.")
@@ -66,7 +71,7 @@ class OutboxRepositoryTest {
         // Given
         String traceId = UUID.randomUUID().toString();
         RequestOutbox box = outboxRepository.save(RequestOutbox.builder()
-                                                               .traceId(traceId).userId(1L).goodsId(1L).status(OutboxStatus.SUCCESS).build());
+                                                               .traceId(traceId).userId(1L).goodsId(1L).status(OutboxStatus.SENT).build());
 
         // When
         int updatedRows = outboxRepository.markAsCompensatedAtomically(traceId);
@@ -90,6 +95,70 @@ class OutboxRepositoryTest {
 
         // Then
         assertThat(records).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("좀비 복구: PUBLISHING 상태이면서 thresholdTime 이전에 업데이트된 레코드를 PENDING으로 복구한다.")
+    void recoverZombieMessages_restoresPendingStatus() {
+        // Given: PUBLISHING 상태로 저장 후 DB에 반영
+        RequestOutbox publishing = outboxRepository.save(createOutbox(99L, OutboxStatus.PUBLISHING));
+        testEntityManager.flush();
+
+        // updated_at을 60초 전으로 강제 변경 (JPA Auditing이 현재 시각으로 세팅하므로 직접 조작)
+        testEntityManager.getEntityManager()
+                         .createNativeQuery("UPDATE request_outbox SET updated_at = :time WHERE id = :id")
+                         .setParameter("time", LocalDateTime.now().minusSeconds(60))
+                         .setParameter("id", publishing.getId())
+                         .executeUpdate();
+        testEntityManager.clear(); // L1 캐시 초기화 → 다음 읽기가 DB에서 가져오도록
+
+        // When
+        int recovered = outboxRepository.recoverZombieMessages(LocalDateTime.now());
+
+        // Then
+        assertThat(recovered).isEqualTo(1);
+        assertThat(outboxRepository.findById(publishing.getId()).get().getStatus())
+                .isEqualTo(OutboxStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("좀비 복구: 방금 생성된(thresholdTime보다 최신) PUBLISHING 레코드는 복구 대상에서 제외된다.")
+    void recoverZombieMessages_doesNotRestoreRecentMessages() {
+        // Given: 방금 저장된 PUBLISHING 레코드 (updated_at ≈ now())
+        outboxRepository.save(createOutbox(98L, OutboxStatus.PUBLISHING));
+
+        // When: 30초 전 기준으로 복구 시도 → 방금 만든 레코드는 해당 없음
+        int recovered = outboxRepository.recoverZombieMessages(LocalDateTime.now().minusSeconds(30));
+
+        // Then
+        assertThat(recovered).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("좀비 복구: PUBLISHING 상태만 복구 대상이고, SUCCESS·FAIL 상태 레코드는 변경되지 않는다.")
+    void recoverZombieMessages_onlyRestoresPublishingStatus() {
+        // Given: 다양한 상태의 레코드 저장
+        RequestOutbox successBox = outboxRepository.save(createOutbox(1L, OutboxStatus.SUCCESS));
+        RequestOutbox failBox = outboxRepository.save(createOutbox(2L, OutboxStatus.FAIL));
+        RequestOutbox publishingBox = outboxRepository.save(createOutbox(3L, OutboxStatus.PUBLISHING));
+        testEntityManager.flush();
+
+        // PUBLISHING 레코드의 updated_at만 과거로 변경
+        testEntityManager.getEntityManager()
+                         .createNativeQuery("UPDATE request_outbox SET updated_at = :time WHERE id = :id")
+                         .setParameter("time", LocalDateTime.now().minusSeconds(60))
+                         .setParameter("id", publishingBox.getId())
+                         .executeUpdate();
+        testEntityManager.clear();
+
+        // When
+        int recovered = outboxRepository.recoverZombieMessages(LocalDateTime.now());
+
+        // Then: PUBLISHING만 PENDING으로 변경, 나머지 상태는 그대로
+        assertThat(recovered).isEqualTo(1);
+        assertThat(outboxRepository.findById(publishingBox.getId()).get().getStatus()).isEqualTo(OutboxStatus.PENDING);
+        assertThat(outboxRepository.findById(successBox.getId()).get().getStatus()).isEqualTo(OutboxStatus.SUCCESS);
+        assertThat(outboxRepository.findById(failBox.getId()).get().getStatus()).isEqualTo(OutboxStatus.FAIL);
     }
 
     // 테스트 데이터 생성용 헬퍼 메서드 (필수 값인 traceId 자동 생성)

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import weverse.serverA.client.ExternalApiClient;
 import weverse.serverA.dto.request.CompensationRequest;
 import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OutboxRepository;
@@ -30,12 +31,14 @@ class CompensationServiceTest {
     @Mock private GoodsRepository goodsRepository;
     @Mock private OutboxRepository outboxRepository;
     @Mock private DeadLetterService deadLetterService;
+    @Mock private ExternalApiClient externalApiClient;
 
     @Test
     @DisplayName("보상 성공: 아웃박스 상태 변경 후 재고를 성공적으로 복구한다.")
     void compensate_Success() {
         // Given
         CompensationRequest request = new CompensationRequest("trace-1", 1L, 2, "잔액 부족");
+        given(externalApiClient.checkPaymentStatusAtServerC("trace-1")).willReturn(false);
         given(outboxRepository.markAsCompensatedAtomically("trace-1")).willReturn(1);
         given(goodsRepository.increaseStockAtomically(1L, 2)).willReturn(1);
 
@@ -53,6 +56,7 @@ class CompensationServiceTest {
     void compensate_SkipWhenAlreadyCompensated() {
         // Given
         CompensationRequest request = new CompensationRequest("trace-1", 1L, 2, "잔액 부족");
+        given(externalApiClient.checkPaymentStatusAtServerC("trace-1")).willReturn(false);
         // 이미 처리되어서 업데이트된 행이 0개라고 가정
         given(outboxRepository.markAsCompensatedAtomically("trace-1")).willReturn(0);
 
@@ -69,6 +73,7 @@ class CompensationServiceTest {
     void compensate_FailsAndMovesToDlt() {
         // Given
         CompensationRequest request = new CompensationRequest("trace-1", 1L, 2, "잔액 부족");
+        given(externalApiClient.checkPaymentStatusAtServerC("trace-1")).willReturn(false);
         given(outboxRepository.markAsCompensatedAtomically("trace-1")).willReturn(1);
         given(goodsRepository.increaseStockAtomically(1L, 2)).willReturn(0); // 재고 복구 실패 (예외 발생 조건)
 

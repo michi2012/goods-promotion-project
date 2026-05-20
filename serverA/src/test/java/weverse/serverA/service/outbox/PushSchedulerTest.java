@@ -11,7 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestTemplate;
+import weverse.serverA.client.ExternalApiClient;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.repository.OutboxRepository;
@@ -32,7 +32,7 @@ class PushSchedulerTest {
     private PushScheduler pushScheduler;
 
     @Mock
-    private RestTemplate restTemplate;
+    private ExternalApiClient externalApiClient;
 
     @Mock
     private OutboxRepository outboxRepository;
@@ -57,7 +57,7 @@ class PushSchedulerTest {
     void pushToServerB_Success() {
         // Given
         given(outboxClaimer.claimSuccessRecords()).willReturn(mockPublishingList);
-        given(restTemplate.postForEntity(anyString(), anyList(), eq(String.class)))
+        given(externalApiClient.pushBulkToServerB(anyString(), anyList()))
                 .willReturn(new ResponseEntity<>("OK", HttpStatus.OK));
 
         // When
@@ -72,7 +72,7 @@ class PushSchedulerTest {
     void pushToServerB_BadRequest_ChangesToFail() {
         // Given
         given(outboxClaimer.claimSuccessRecords()).willReturn(mockPublishingList);
-        given(restTemplate.postForEntity(anyString(), anyList(), eq(String.class)))
+        given(externalApiClient.pushBulkToServerB(anyString(), anyList()))
                 .willThrow(HttpClientErrorException.BadRequest.class);
 
         // When
@@ -87,7 +87,7 @@ class PushSchedulerTest {
     void pushToServerB_Exception_AppliesBackpressureAndRollbacks() {
         // Given
         given(outboxClaimer.claimSuccessRecords()).willReturn(mockPublishingList);
-        given(restTemplate.postForEntity(anyString(), anyList(), eq(String.class)))
+        given(externalApiClient.pushBulkToServerB(anyString(), anyList()))
                 .willThrow(new RuntimeException("Connection Timeout"));
 
         // When

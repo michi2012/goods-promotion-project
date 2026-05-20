@@ -79,6 +79,10 @@ public class PushScheduler {
         } catch (HttpClientErrorException.TooManyRequests e) {
             // Server B가 429를 던질 때 (Resilience4j와 별개로 작동하는 배압)
             applyBackpressureAndRollback("Server B 429 수신", targetIds, 3000);
+        } catch (HttpClientErrorException.BadRequest e) {
+            // 잘못된 요청(400) → 재시도해도 동일 오류 반복이므로 FAIL 처리 (좀비 방지)
+            log.warn("⚠️ [400 Bad Request] 잘못된 요청으로 FAIL 처리합니다. TraceId 목록: {}", targetIds);
+            outboxRepository.updateStatusByIds(OutboxStatus.FAIL, targetIds);
         } catch (Exception e) {
             // 타임아웃 등 기타 장애
             applyBackpressureAndRollback("Server B 기타 장애", targetIds, 3000);
