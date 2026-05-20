@@ -89,9 +89,7 @@ class OutboxRepositoryTest {
         outboxRepository.save(createOutbox(2L, OutboxStatus.PENDING));
 
         // When (동시성 락 테스트는 단위 테스트에서 어렵지만, 쿼리 문법 자체가 올바른지 검증)
-        List<RequestOutbox> records = outboxRepository.findClaimableRecords(
-                OutboxStatus.PENDING, PageRequest.of(0, 10)
-        );
+        List<RequestOutbox> records = outboxRepository.findClaimableRecords(OutboxStatus.PENDING.name(), 10);
 
         // Then
         assertThat(records).hasSize(2);

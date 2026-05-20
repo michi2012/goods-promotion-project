@@ -18,9 +18,7 @@ import weverse.serverA.repository.OutboxRepository;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
@@ -38,7 +36,7 @@ class OutboxServicesTest {
     void claimSuccessRecords() {
         // Given
         RequestOutbox outbox = RequestOutbox.builder().status(OutboxStatus.SUCCESS).build();
-        given(outboxRepository.findClaimableRecords(eq(OutboxStatus.SUCCESS), any(PageRequest.class)))
+        given(outboxRepository.findClaimableRecords(eq(OutboxStatus.SUCCESS.name()), anyInt()))
                 .willReturn(List.of(outbox));
 
         // When

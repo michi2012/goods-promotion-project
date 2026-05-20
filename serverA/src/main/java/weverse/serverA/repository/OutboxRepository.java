@@ -27,12 +27,13 @@ public interface OutboxRepository extends JpaRepository<RequestOutbox, Long> {
     @Query("UPDATE RequestOutbox r SET r.status = 'COMPENSATED' WHERE r.traceId = :traceId AND r.status IN ('PUBLISHING', 'SENT')")
     int markAsCompensatedAtomically(@Param("traceId") String traceId);
 
-    // PESSIMISTIC_WRITE로 락을 걸고, "-2"(SKIP LOCKED) 힌트를 주어
-    // 다른 트랜잭션이 선점한 Row는 대기하지 않고 즉시 무시(Skip)한 뒤 다음 Row를 읽습니다.
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
-    @Query("SELECT r FROM RequestOutbox r WHERE r.status = :status")
-    List<RequestOutbox> findClaimableRecords(OutboxStatus status, Pageable pageable);
+    @Query(value = "SELECT * FROM request_outbox " +
+            "WHERE status = :status " +
+            "ORDER BY trace_id ASC " +
+            "LIMIT :limit " +
+            "FOR UPDATE SKIP LOCKED",
+            nativeQuery = true)
+    List<RequestOutbox> findClaimableRecords(@Param("status") String status, @Param("limit") int limit);
 
     @Modifying(clearAutomatically = true)
     @Query("UPDATE RequestOutbox r SET r.status = :status WHERE r.traceId = :traceId")
