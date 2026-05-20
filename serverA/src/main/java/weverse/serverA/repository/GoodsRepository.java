@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
+
 public interface GoodsRepository extends JpaRepository<Goods, Long> {
 
     @Modifying(clearAutomatically = true)
@@ -18,5 +20,8 @@ public interface GoodsRepository extends JpaRepository<Goods, Long> {
 
     @Query("SELECT g.stock FROM Goods g WHERE g.id = :goodsId")
     int findStockById(@Param("goodsId") Long goodsId);
+
+    @Query("SELECT g.id FROM Goods g WHERE g.stock <= 0")
+    List<Long> findSoldOutGoodsIds();
 
 }

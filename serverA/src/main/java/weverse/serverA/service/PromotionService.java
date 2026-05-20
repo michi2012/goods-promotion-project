@@ -10,6 +10,7 @@ import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.exception.BusinessException;
 import weverse.serverA.exception.QueueFullException;
+import weverse.serverA.exception.SoldOutException;
 import weverse.serverA.repository.OutboxRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class PromotionService {
     // Bounded Queue
     private final BlockingQueue<PurchaseTask> memoryQueue = new ArrayBlockingQueue<>(10000);
 
+    private final GoodsService goodsService;
     private final OutboxProcessor outboxProcessor;
     private final OutboxRepository outboxRepository;
     private final OutboxBatchService outboxBatchService;
@@ -37,12 +39,18 @@ public class PromotionService {
 
     // A. API 수신 및 즉시 응답
     public void acceptPurchase(PurchaseMessage message) {
+
+        // 큐 진입 전, GoodsService에게 품절 여부를 질의
+        if (goodsService.isSoldOut(message.goodsId())) {
+            log.info("[조기 차단] 이미 품절된 상품입니다. GoodsId: {}", message.goodsId());
+            throw new SoldOutException();
+        }
+
         if (!memoryQueue.offer(new PurchaseTask(message, null))) {
-            log.warn("[큐 진입 실패] 서버 과부하 | TraceId: {}", message.traceId());
+            log.warn("[큐 진입 실패] 선착순에 실패 했습니다. | TraceId: {}", message.traceId());
             throw new QueueFullException();
         }
 
-        //  큐에 들어갔다면 DB 저장을 기다리지 않고 즉시 응답
         log.info("[대기열 진입 성공] TraceId: {}", message.traceId());
     }
 
