@@ -40,3 +40,8 @@ out/
 logs/
 !**/src/main/**/logs/
 !**/src/test/**/logs/
+
+# Claude Code - Local AI configurations & Logs
+.claude/edit-log.txt
+.claude/settings.local.json
+CLAUDE.local.md
