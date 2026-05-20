@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo [작업 전 점검] 가정을 표면화했는가 / 요청 범위 내로 작업이 한정되는가 / 검증 기준이 정의되었는가"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -Command \"Add-Content -Path .claude\\edit-log.txt -Value ([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss') + ' - 파일 편집 발생')\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gradlew.bat test 2>&1 | findstr /R \"PASSED FAILED BUILD\" && echo [완료 전 자가 점검] 요청한 것만 변경했는가 / N+1 확인했는가 / 트랜잭션 경계 적절한가 / checklist.md 업데이트했는가"
+          }
+        ]
+      }
+    ]
+  }
+}
