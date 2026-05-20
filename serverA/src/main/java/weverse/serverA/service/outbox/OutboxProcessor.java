@@ -1,9 +1,11 @@
 package weverse.serverA.service.outbox;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import weverse.serverA.dto.SoldOutEvent;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.exception.BusinessException;
@@ -22,6 +24,7 @@ public class OutboxProcessor {
     private final OutboxRepository outboxRepository;
     private final GoodsRepository goodsRepository;
     private final EventNotifier eventNotifier;
+    private final ApplicationEventPublisher eventPublisher;
 
     // 💡 REQUIRES_NEW를 통해 무조건 독립된 새로운 트랜잭션을 시작함 (재시도 시 최신 DB 상태 조회용)
     // 💡 noRollbackFor 추가: 비즈니스 실패 시 상태 변경(FAIL)은 DB에 반영되어야 함
@@ -43,13 +46,13 @@ public class OutboxProcessor {
             // DB 레벨에서 락을 걸고 업데이트를 시도한 뒤, 성공한 행(Row)의 개수를 반환합니다.
             int updatedRows = goodsRepository.decreaseStockAtomically(outbox.getGoodsId(), outbox.getQuantity());
             if (updatedRows == 0) {
-                eventNotifier.notifySoldOutToServerB(outbox.getGoodsId()); // 서버 B에 즉시 알림
-                throw new SoldOutException(); // 예외를 던져서 catch 블록으로 넘깁니다.
+                eventPublisher.publishEvent(new SoldOutEvent(outbox.getGoodsId()));
+                throw new SoldOutException();
             }
 
             int currentStock = goodsRepository.findStockById(outbox.getGoodsId());
             if (currentStock == 0) {
-                eventNotifier.notifySoldOutToServerB(outbox.getGoodsId());
+                eventPublisher.publishEvent(new SoldOutEvent(outbox.getGoodsId()));
             }
 
             // 모든 로직 통과 시 성공 마킹

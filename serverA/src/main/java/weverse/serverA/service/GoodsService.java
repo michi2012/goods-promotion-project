@@ -2,9 +2,11 @@ package weverse.serverA.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import weverse.serverA.dto.SoldOutEvent;
 import weverse.serverA.dto.request.CreateGoodsRequest;
 import weverse.serverA.dto.response.CreateGoodsResponse;
 import weverse.serverA.entity.Goods;
@@ -49,18 +51,10 @@ public class GoodsService {
         return soldOutCache.getOrDefault(goodsId, false);
     }
 
-    @Scheduled(fixedDelay = 1000)
-    public void syncSoldOutStatus() {
-        try {
-            List<Long> soldOutGoodsIds = goodsRepository.findSoldOutGoodsIds();
-
-            for (Long goodsId : soldOutGoodsIds) {
-                if (soldOutCache.putIfAbsent(goodsId, true) == null) {
-                    log.info("[GoodsService] 상품 ID: {} 품절 로컬 캐시 동기화 완료", goodsId);
-                }
-            }
-        } catch (Exception e) {
-            log.error("[GoodsService] 품절 상태 동기화 중 에러 발생: {}", e.getMessage());
-        }
+    @EventListener
+    public void handleSoldOutEvent(SoldOutEvent event) {
+        log.info("🛡️ [Server A 방어] 품절 이벤트 수신. GoodsId: {}", event.goodsId());
+        soldOutCache.put(event.goodsId(), true);
     }
+
 }
