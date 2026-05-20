@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
+import weverse.serverB.client.ExternalApiClient;
 import weverse.serverB.dto.PurchaseMessage;
 import weverse.serverB.dto.ServerCResponse;
 
@@ -38,7 +39,8 @@ class QueueToCWorkerTest {
 
     @InjectMocks private QueueToCWorker worker;
     @Mock private StringRedisTemplate redisTemplate;
-    @Mock private RestTemplate restTemplate;
+    @Mock private RestTemplate restTemplate;          // QueueToCWorker 생성자 파라미터 (직접 사용 안 함)
+    @Mock private ExternalApiClient externalApiClient;
     @Mock private ObjectMapper objectMapper;
     @Mock private StreamOperations<String, Object, Object> streamOperations;
     @Mock private ListOperations<String, String> listOperations;
@@ -67,20 +69,15 @@ class QueueToCWorkerTest {
         PurchaseMessage msg = new PurchaseMessage("fail-trace", 1L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
         given(objectMapper.readValue("json", PurchaseMessage.class)).willReturn(msg);
 
-        // 가짜 RestTemplate이 서버 C인 척하고 200 OK 응답을 주도록 세팅
         ServerCResponse cResponse = new ServerCResponse(false, "부분 실패 발생", List.of("fail-trace"));
-        given(restTemplate.postForEntity(contains("server-c"), anyList(), eq(ServerCResponse.class)))
+        given(externalApiClient.sendBulkToServerC(anyString(), anyList()))
                 .willReturn(new ResponseEntity<>(cResponse, HttpStatus.OK));
 
         // When
         worker.dispatchToServerC();
 
-        // Then
-        verify(restTemplate).postForEntity(
-                eq("http://server-a/api/v1/internal/compensate"),
-                anyList(),
-                eq(String.class)
-        );
+        // Then: 실패한 건에 대해 서버 A로 보상 지시가 전달되어야 함
+        verify(externalApiClient).sendCompensationToServerA(anyString(), anyList());
         verify(streamOperations).acknowledge(anyString(), anyString(), any(RecordId[].class));
     }
 
@@ -105,11 +102,11 @@ class QueueToCWorkerTest {
         given(objectMapper.writeValueAsString(any())).willReturn("retry-json");
 
         ServerCResponse cResponse = new ServerCResponse(false, "부분 실패 발생", List.of("fail-trace"));
-        given(restTemplate.postForEntity(contains("server-c"), anyList(), eq(ServerCResponse.class)))
+        given(externalApiClient.sendBulkToServerC(anyString(), anyList()))
                 .willReturn(new ResponseEntity<>(cResponse, HttpStatus.OK));
 
-        // 서버 A로 롤백 요청을 보낼 때 RuntimeException 발생 (테스트용)
-        given(restTemplate.postForEntity(contains("server-a"), anyList(), eq(String.class)))
+        // 서버 A로 보상 지시를 보낼 때 RuntimeException 발생 (테스트용)
+        given(externalApiClient.sendCompensationToServerA(anyString(), anyList()))
                 .willThrow(new RuntimeException("Server A Down"));
 
         // When
@@ -137,7 +134,7 @@ class QueueToCWorkerTest {
         given(objectMapper.readValue("json", PurchaseMessage.class)).willReturn(msg);
 
         ServerCResponse cResponse = new ServerCResponse(true, "성공", List.of());
-        given(restTemplate.postForEntity(contains("server-c"), anyList(), eq(ServerCResponse.class)))
+        given(externalApiClient.sendBulkToServerC(anyString(), anyList()))
                 .willReturn(new ResponseEntity<>(cResponse, HttpStatus.OK));
 
         // When

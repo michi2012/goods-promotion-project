@@ -18,6 +18,12 @@ spring:
       hibernate:
         format_sql: false
 
+external:
+  server-c:
+    url: http://localhost:8082
+  server-a:
+    url: http://localhost:8080
+
 scheduling:
   enabled: false
 
