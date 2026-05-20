@@ -20,6 +20,7 @@ import weverse.serverA.service.outbox.OutboxBatchService;
 import weverse.serverA.service.outbox.OutboxProcessor;
 
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -98,6 +99,15 @@ public class PromotionService {
     // C. 비동기 비즈니스 워커 (재고 차감)
     @Scheduled(fixedDelay = 1000)
     public void processPendingRequests() {
+        // 품절 확정된 goodsId의 PENDING 레코드를 DB 조회 없이 한 방에 FAIL 처리
+        Set<Long> soldOutIds = goodsService.getSoldOutGoodsIds();
+        if (!soldOutIds.isEmpty()) {
+            int failed = outboxRepository.bulkFailPendingByGoodsIds(new ArrayList<>(soldOutIds));
+            if (failed > 0) {
+                log.info("[품절 일괄 FAIL] goodsIds={}, 처리 건수={}", soldOutIds, failed);
+            }
+        }
+
         List<RequestOutbox> pendings = outboxRepository.findByStatus(OutboxStatus.PENDING, PageRequest.of(0, 500));
         if (pendings.isEmpty()) return;
 

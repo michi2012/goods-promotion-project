@@ -21,6 +21,7 @@ import weverse.serverA.service.outbox.OutboxBatchService;
 import weverse.serverA.service.outbox.OutboxProcessor;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
@@ -120,6 +121,40 @@ class PromotionServiceTest {
                 ((PurchaseTask) list.get(0)).message().traceId().equals("trace-valid")
         ));
         assertThat(queue).isEmpty();
+    }
+
+    @Test
+    @DisplayName("팬딩 처리: 품절 goodsId가 있으면 DB 조회 이전에 해당 PENDING 레코드를 bulk FAIL 처리한다.")
+    void processPendingRequests_BulkFailsSoldOutGoods() {
+        // Given: 품절 goodsId=1 존재
+        given(goodsService.getSoldOutGoodsIds()).willReturn(Set.of(1L));
+        given(outboxRepository.bulkFailPendingByGoodsIds(anyList())).willReturn(5);
+        given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
+                .willReturn(List.of()); // bulk FAIL 후 남은 PENDING 없음
+
+        // When
+        promotionService.processPendingRequests();
+
+        // Then: bulk FAIL 먼저, 그 다음 findByStatus
+        var inOrder = inOrder(outboxRepository);
+        inOrder.verify(outboxRepository).bulkFailPendingByGoodsIds(List.of(1L));
+        inOrder.verify(outboxRepository).findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class));
+        verify(outboxProcessor, never()).processSingleItem(anyLong());
+    }
+
+    @Test
+    @DisplayName("팬딩 처리: 품절 goodsId가 없으면 bulk FAIL 없이 바로 PENDING 조회한다.")
+    void processPendingRequests_SkipsBulkFailWhenNoSoldOut() {
+        // Given: 품절 goodsId 없음
+        given(goodsService.getSoldOutGoodsIds()).willReturn(Set.of());
+        given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
+                .willReturn(List.of());
+
+        // When
+        promotionService.processPendingRequests();
+
+        // Then: bulkFail 호출 안 됨
+        verify(outboxRepository, never()).bulkFailPendingByGoodsIds(anyList());
     }
 
     @Test

@@ -38,6 +38,11 @@ public interface OutboxRepository extends JpaRepository<RequestOutbox, Long> {
     @Query("UPDATE RequestOutbox r SET r.status = :status WHERE r.traceId = :traceId")
     void updateStatus(@Param("traceId") String traceId, @Param("status") String status);
 
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("UPDATE RequestOutbox r SET r.status = 'FAIL' WHERE r.status = 'PENDING' AND r.goodsId IN :goodsIds")
+    int bulkFailPendingByGoodsIds(@Param("goodsIds") List<Long> goodsIds);
+
     @Modifying
     @Transactional
     @Query(value = "DELETE FROM request_outbox WHERE status IN ('SUCCESS', 'FAIL') AND created_at < :targetTime LIMIT :limitCount", nativeQuery = true)

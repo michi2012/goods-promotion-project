@@ -98,6 +98,26 @@ class OutboxRepositoryTest {
     }
 
     @Test
+    @DisplayName("품절 일괄 FAIL: 품절 goodsId의 PENDING 레코드를 한 번의 쿼리로 전부 FAIL 처리한다.")
+    void bulkFailPendingByGoodsIds_failsOnlySoldOutGoods() {
+        // Given: goodsId=1(품절 대상) PENDING 2건, goodsId=2(정상) PENDING 1건, SUCCESS 1건
+        RequestOutbox soldOut1 = outboxRepository.save(createOutboxWithGoods(1L, 1L, OutboxStatus.PENDING));
+        RequestOutbox soldOut2 = outboxRepository.save(createOutboxWithGoods(2L, 1L, OutboxStatus.PENDING));
+        RequestOutbox normal   = outboxRepository.save(createOutboxWithGoods(3L, 2L, OutboxStatus.PENDING));
+        RequestOutbox success  = outboxRepository.save(createOutboxWithGoods(4L, 1L, OutboxStatus.SUCCESS));
+
+        // When: goodsId=1만 품절 처리
+        int failed = outboxRepository.bulkFailPendingByGoodsIds(List.of(1L));
+
+        // Then
+        assertThat(failed).isEqualTo(2);
+        assertThat(outboxRepository.findById(soldOut1.getId()).get().getStatus()).isEqualTo(OutboxStatus.FAIL);
+        assertThat(outboxRepository.findById(soldOut2.getId()).get().getStatus()).isEqualTo(OutboxStatus.FAIL);
+        assertThat(outboxRepository.findById(normal.getId()).get().getStatus()).isEqualTo(OutboxStatus.PENDING);  // 유지
+        assertThat(outboxRepository.findById(success.getId()).get().getStatus()).isEqualTo(OutboxStatus.SUCCESS); // 유지
+    }
+
+    @Test
     @DisplayName("좀비 복구: PUBLISHING 상태이면서 thresholdTime 이전에 업데이트된 레코드를 PENDING으로 복구한다.")
     void recoverZombieMessages_restoresPendingStatus() {
         // Given: PUBLISHING 상태로 저장 후 DB에 반영
@@ -167,6 +187,16 @@ class OutboxRepositoryTest {
                             .traceId(UUID.randomUUID().toString())
                             .userId(userId)
                             .goodsId(1L)
+                            .quantity(1)
+                            .status(status)
+                            .build();
+    }
+
+    private RequestOutbox createOutboxWithGoods(Long userId, Long goodsId, OutboxStatus status) {
+        return RequestOutbox.builder()
+                            .traceId(UUID.randomUUID().toString())
+                            .userId(userId)
+                            .goodsId(goodsId)
                             .quantity(1)
                             .status(status)
                             .build();

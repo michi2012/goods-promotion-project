@@ -13,6 +13,7 @@ import weverse.serverA.dto.response.CreateGoodsResponse;
 import weverse.serverA.entity.Goods;
 import weverse.serverA.repository.GoodsRepository;
 
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -51,6 +52,10 @@ public class GoodsService {
 
     public boolean isSoldOut(Long goodsId) {
         return Boolean.TRUE.equals(soldOutCache.getIfPresent(goodsId));
+    }
+
+    public Set<Long> getSoldOutGoodsIds() {
+        return Set.copyOf(soldOutCache.asMap().keySet());
     }
 
     @EventListener
