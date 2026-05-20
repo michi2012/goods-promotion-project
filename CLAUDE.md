@@ -74,8 +74,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## 작업 시작 시
 - 모든 작업 시작 전 `docs/checklist.md`를 먼저 읽고 현재 진행 상황을 파악할 것.
 - 변경 파일이 2개 이상인 작업은 반드시 `/plan` 명령어부터 실행할 것. 곧바로 코딩 시작 금지.
-- 백엔드/API/DB 작업 시 `.claude/skills/backend` 매뉴얼을 활용할 것.
-- 프론트엔드/UI 작업 시 `.claude/skills/frontend` 매뉴얼을 활용할 것.
+- API/컨트롤러/DTO 작업 시 `.claude/skills/api` 매뉴얼을 활용할 것.
+- 엔티티/리포지토리/쿼리/트랜잭션 작업 시 `.claude/skills/jpa` 매뉴얼을 활용할 것.
+- 예외 처리/에러 응답 작업 시 `.claude/skills/exception` 매뉴얼을 활용할 것.
+- 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
+
+## Spring Boot 공통 규칙
+- Controller → Service → Repository 레이어 분리. Controller에 비즈니스 로직 금지.
+- Entity를 Controller에서 직접 반환 금지. 반드시 DTO 변환.
+- Controller에 @Transactional 금지. Service에만.
+- Entity에 @Data/@Setter 금지. @Getter + 도메인 행위 메서드.
+- open-in-view: false 필수. findAll() 후 in-memory 필터링 금지.
+- 민감 정보(비밀번호, 토큰) 로그/응답 노출 금지.
 
 ## 절대 금지 사항
 - `.env` 파일은 절대 읽거나 수정하지 말 것.
