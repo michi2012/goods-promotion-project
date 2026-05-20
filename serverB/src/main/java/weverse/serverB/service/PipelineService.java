@@ -9,6 +9,8 @@ import org.springframework.data.redis.connection.stream.StreamRecords;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import weverse.serverB.dto.PurchaseMessage;
 
@@ -35,50 +37,46 @@ public class PipelineService {
                                                             .expireAfterWrite(1, TimeUnit.SECONDS)
                                                             .build();
 
+    // 💡 1. 멱등성 검증, 상태 변경, 스트림 적재를 하나로 묶은 원자적 Lua 스크립트
+    private static final String ATOMIC_PROCESS_SCRIPT =
+            "if redis.call('SETNX', KEYS[1], 'OK') == 1 then\n" +       // 1) 최초 요청인지(멱등성) 원자적 확인
+                    "    redis.call('EXPIRE', KEYS[1], ARGV[1])\n" +            // 2) 멱등성 키 TTL 설정
+                    "    redis.call('HSET', KEYS[2], 'status', 'PROCESSING')\n" + // 3) 유저 상태 PROCESSING 변경
+                    "    redis.call('XADD', KEYS[3], '*', 'payload', ARGV[2])\n" +// 4) Server C 전송용 큐 적재
+                    "    return 1\n" + // 신규 처리 성공
+                    "else\n" +
+                    "    return 0\n" + // 중복 요청 (Skipped)
+                    "end";
+
     public void processBulkData(List<PurchaseMessage> messages) {
-        log.info("[PipelineService] 벌크 데이터 처리 시작: 수신된 메시지 수 = {}", messages.size());
+        if (messages.isEmpty()) return;
 
-        // 1. 멱등성 검증
-        // 서버 A의 재시도로 인한 중복 메시지인지 MGET으로 한 번에 확인
-        List<String> traceKeys = messages.stream().map(msg -> "trace:" + msg.traceId()).toList();
-        List<String> existingTraces = redisTemplate.opsForValue().multiGet(traceKeys);
+        log.info("[PipelineService] 벌크 데이터 원자적 파이프라인 처리 시작: {}건", messages.size());
 
-        List<PurchaseMessage> newMessages = new ArrayList<>();
-        for (int i = 0; i < messages.size(); i++) {
-            if (existingTraces.get(i) == null) {
-                newMessages.add(messages.get(i));
-            } else {
-                log.warn("🛡️ 중복 수신 방어 (멱등성 적용): TraceId {}", messages.get(i).traceId());
-            }
-        }
+        RedisScript<Long> script = new DefaultRedisScript<>(ATOMIC_PROCESS_SCRIPT, Long.class);
 
-        if (newMessages.isEmpty()) {
-            log.info("[PipelineService] 처리할 새로운 메시지가 없습니다.");
-            return;
-        }
-
-        log.info("[PipelineService] 멱등성 검증 완료: 파이프라인으로 처리할 새 메시지 수 = {}", newMessages.size());
-
-        // 2. 검증된 새로운 메시지만 파이프라인 처리
-        redisTemplate.executePipelined(new SessionCallback<Object>() {
+        // 💡 2. 파이프라이닝 안에 Lua 스크립트 지시를 묶어서 1RTT로 전송 (네트워크 최적화 + 원자성)
+        List<Object> results = redisTemplate.executePipelined(new SessionCallback<Object>() {
             @Override
             public Object execute(RedisOperations operations) {
-
-                for (PurchaseMessage msg : newMessages) {
-                    operations.opsForHash().put("user:" + msg.userId() + ":order", "status", "PROCESSING");
-                    operations.opsForValue().set("trace:" + msg.traceId(), "OK", java.time.Duration.ofHours(1));
-
-                    operations.opsForStream().add(
-                            StreamRecords.newRecord()
-                                         .in("queue:to_server_c")
-                                         .ofMap(Map.of("payload", toJson(msg)))
+                for (PurchaseMessage msg : messages) {
+                    List<String> keys = List.of(
+                            "trace:" + msg.traceId(),             // KEYS[1]
+                            "user:" + msg.userId() + ":order",    // KEYS[2]
+                            "queue:to_server_c"                   // KEYS[3]
                     );
+                    String payload = toJson(msg);                 // ARGV[2]
+
+                    operations.execute(script, keys, "3600", payload);
                 }
                 return null;
             }
         });
 
-        log.info("[PipelineService] 파이프라인 처리 및 서버 C 전송용 큐 적재 완료");
+        // 💡 3. Lua 스크립트가 반환한 1(성공)과 0(중복)을 카운팅하여 정확한 메트릭 로깅
+        long successCount = results.stream().filter(res -> (Long) res == 1L).count();
+        log.info("[PipelineService] 처리 완료. 총 수신: {}건 / 신규 정상 처리: {}건 / 중복 필터링: {}건",
+                messages.size(), successCount, messages.size() - successCount);
     }
 
     public String getUserOrderStatus(Long userId) {

@@ -32,41 +32,36 @@ class PipelineServiceTest {
     @Mock private ValueOperations<String, String> valueOperations;
 
     @Test
-    @DisplayName("멱등성: Redis에 이미 존재하는 traceId는 무시하고, 새로운 데이터만 파이프라인에 태운다.")
-    void processBulkData_FiltersDuplicates() {
+    @DisplayName("멱등성: 모든 데이터는 파이프라인을 통해 레디스로 전송되며, Lua 스크립트 내부에서 신규(1)와 중복(0)이 원자적으로 걸러진다.")
+    void processBulkData_ExecutesPipelineAndFiltersViaScript() {
         // Given
         PurchaseMessage msg1 = new PurchaseMessage("trace-new", 1L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
         PurchaseMessage msg2 = new PurchaseMessage("trace-dup", 2L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
         List<PurchaseMessage> messages = List.of(msg1, msg2);
 
-        given(redisTemplate.opsForValue()).willReturn(valueOperations);
-
-        // trace-new는 null(없음), trace-dup은 "OK"(있음) 반환 시뮬레이션
-        given(valueOperations.multiGet(anyList())).willReturn(Arrays.asList(null, "OK"));
+        // Lua 스크립트가 반환할 결과를 모킹 (1L은 성공, 0L은 중복 처리됨을 의미)
+        given(redisTemplate.executePipelined(any(SessionCallback.class)))
+                .willReturn(Arrays.asList(1L, 0L));
 
         // When
         pipelineService.processBulkData(messages);
 
         // Then
-        // executePipelined가 한 번 호출되어야 함 (새로운 데이터가 있으므로)
+        // 데이터가 존재하므로 파이프라인은 무조건 1번 호출되어야 함
         verify(redisTemplate, times(1)).executePipelined(any(SessionCallback.class));
     }
 
     @Test
-    @DisplayName("멱등성: 모든 데이터가 이미 존재하는 중복 데이터라면 파이프라인 처리를 아예 수행하지 않는다.")
-    void processBulkData_SkipsIfAllDuplicates() {
+    @DisplayName("멱등성: 입력된 데이터가 없으면 파이프라인 연산을 아예 수행하지 않는다.")
+    void processBulkData_SkipsIfEmpty() {
         // Given
-        PurchaseMessage msg1 = new PurchaseMessage("trace-dup1", 1L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
-        List<PurchaseMessage> messages = List.of(msg1);
-
-        given(redisTemplate.opsForValue()).willReturn(valueOperations);
-        given(valueOperations.multiGet(anyList())).willReturn(List.of("OK")); // 이미 존재함
+        List<PurchaseMessage> messages = List.of();
 
         // When
         pipelineService.processBulkData(messages);
 
         // Then
-        // 처리할 새 데이터가 없으므로 파이프라인 메서드가 호출되지 않아야 함
+        // 빈 리스트가 들어오면 바로 리턴되므로 파이프라인이 호출되지 않아야 함
         verify(redisTemplate, never()).executePipelined(any(SessionCallback.class));
     }
 
