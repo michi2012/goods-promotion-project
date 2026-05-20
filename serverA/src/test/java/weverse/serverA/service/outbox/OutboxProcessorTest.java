@@ -6,6 +6,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
+import weverse.serverA.dto.SoldOutEvent;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.exception.DuplicateOrderException;
@@ -38,6 +40,9 @@ class OutboxProcessorTest {
 
     @Mock
     private EventNotifier eventNotifier;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @Test
     @DisplayName("성공: 재고가 충분하고 중복 결제가 아닐 경우 성공(SUCCESS) 처리된다.")
@@ -96,6 +101,6 @@ class OutboxProcessorTest {
                 .isInstanceOf(SoldOutException.class);
 
         assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.FAIL);
-        verify(eventNotifier).notifySoldOutToServerB(1L); // 알림 발송 검증
+        verify(eventPublisher).publishEvent(any(SoldOutEvent.class)); // 품절 이벤트 발행 검증
     }
 }

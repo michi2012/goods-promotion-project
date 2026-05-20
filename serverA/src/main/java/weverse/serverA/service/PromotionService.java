@@ -67,13 +67,31 @@ public class PromotionService {
         List<PurchaseTask> tasks = new ArrayList<>();
         memoryQueue.drainTo(tasks, 500);
 
+        // 품절 확정된 상품 요청은 DB I/O 없이 조기 제거 (audit 로그 보존)
+        List<PurchaseTask> validTasks = new ArrayList<>();
+        List<PurchaseTask> soldOutTasks = new ArrayList<>();
+        for (PurchaseTask task : tasks) {
+            if (goodsService.isSoldOut(task.message().goodsId())) {
+                soldOutTasks.add(task);
+            } else {
+                validTasks.add(task);
+            }
+        }
+
+        if (!soldOutTasks.isEmpty()) {
+            log.info("[품절 조기 제거] 큐 드랍: {}건", soldOutTasks.size());
+            fallbackToLogFile(soldOutTasks);
+        }
+
+        if (validTasks.isEmpty()) return;
+
         try {
-            outboxBatchService.batchInsert(tasks);
-            log.info("[Outbox 배치 성공] 처리 완료: {}건", tasks.size());
+            outboxBatchService.batchInsert(validTasks);
+            log.info("[Outbox 배치 성공] 처리 완료: {}건", validTasks.size());
 
         } catch (Exception e) {
             log.error("[Outbox 배치 실패] 🚨 DB 인서트 에러! Fallback 파일에 기록합니다. 사유: {}", e.getMessage());
-            fallbackToLogFile(tasks);
+            fallbackToLogFile(validTasks);
         }
     }
 

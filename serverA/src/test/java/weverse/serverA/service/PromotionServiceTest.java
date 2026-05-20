@@ -97,6 +97,32 @@ class PromotionServiceTest {
     }
 
     @Test
+    @DisplayName("큐 플러시: 품절 확정된 상품 요청은 DB 삽입 없이 드랍하고, 정상 요청만 배치 삽입한다.")
+    void flushToOutbox_DropsSoldOutTasks() {
+        // Given: 품절 상품(goodsId=1)과 정상 상품(goodsId=2) 혼재
+        PurchaseMessage soldOutMsg = new PurchaseMessage("trace-sold", 1L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
+        PurchaseMessage validMsg   = new PurchaseMessage("trace-valid", 2L, 2L, 1, "C", "A", "1", "0", "E", "M", "I");
+
+        given(goodsService.isSoldOut(1L)).willReturn(true);   // 품절
+        given(goodsService.isSoldOut(2L)).willReturn(false);  // 정상
+
+        promotionService.acceptPurchase(validMsg);    // isSoldOut=false 통과
+        // soldOutMsg는 acceptPurchase 시점엔 품절 아니었다고 가정하고 직접 큐에 삽입
+        BlockingQueue<PurchaseTask> queue = (BlockingQueue<PurchaseTask>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
+        queue.offer(new PurchaseTask(soldOutMsg, null));
+
+        // When
+        promotionService.flushToOutbox();
+
+        // Then: validMsg만 batchInsert 호출, 품절 메시지는 드랍
+        verify(outboxBatchService).batchInsert(argThat(list ->
+                list.size() == 1 &&
+                ((PurchaseTask) list.get(0)).message().traceId().equals("trace-valid")
+        ));
+        assertThat(queue).isEmpty();
+    }
+
+    @Test
     @DisplayName("팬딩 처리: 메모리 캐시에 이미 등록된 유저의 다른 TraceId 요청이 오면 DB 접근 없이 즉시 FAIL 처리한다.")
     void processPendingRequests_MemoryDuplicateBlock() {
         // Given

@@ -13,7 +13,6 @@ import weverse.serverA.exception.DuplicateOrderException;
 import weverse.serverA.exception.SoldOutException;
 import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OutboxRepository;
-import weverse.serverA.service.EventNotifier;
 
 import java.util.List;
 
@@ -23,7 +22,6 @@ public class OutboxProcessor {
 
     private final OutboxRepository outboxRepository;
     private final GoodsRepository goodsRepository;
-    private final EventNotifier eventNotifier;
     private final ApplicationEventPublisher eventPublisher;
 
     // 💡 REQUIRES_NEW를 통해 무조건 독립된 새로운 트랜잭션을 시작함 (재시도 시 최신 DB 상태 조회용)
