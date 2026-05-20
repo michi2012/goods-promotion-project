@@ -1,5 +1,7 @@
 package weverse.serverA.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -35,7 +37,10 @@ public class PromotionService {
     private final OutboxBatchService outboxBatchService;
 
     // 1차 메모리 중복 방어용
-    private final ConcurrentMap<Long, String> userCache = new ConcurrentHashMap<>();
+    private final Cache<Long, String> userCache = Caffeine.newBuilder()
+                                                          .maximumSize(200000) // 최대 20만 명 보관 (메모리 방어)
+                                                          .expireAfterWrite(1, TimeUnit.HOURS) // 1시간 뒤 자동 만료 (이벤트 종료 후 누수 방지)
+                                                          .build();
 
     // A. API 수신 및 즉시 응답
     public void acceptPurchase(PurchaseMessage message) {
@@ -82,7 +87,7 @@ public class PromotionService {
 
         for (RequestOutbox outbox : pendings) {
             // 💡 1. 1차 메모리 방어막 (이벤트 끝날 때까지 유지)
-            String existingTraceId = userCache.putIfAbsent(outbox.getUserId(), outbox.getTraceId());
+            String existingTraceId = userCache.asMap().putIfAbsent(outbox.getUserId(), outbox.getTraceId());
 
             if (existingTraceId != null && !existingTraceId.equals(outbox.getTraceId())) {
                 // 이미 캐시에 박제된 유저의 중복 요청 -> DB까지 안 가고 메모리에서 즉시 컷
@@ -111,7 +116,7 @@ public class PromotionService {
             } finally {
                 // 시스템 에러나 품절 등으로 '결제에 실패'해서 유저가 나중에 다시 시도해야 할 수도 있다면 캐시를 비워줍니다.
                 if (!isSuccess) {
-                    userCache.remove(outbox.getUserId());
+                    userCache.invalidate(outbox.getUserId());
                     log.debug("[캐시 롤백] 실패 처리로 인한 메모리 캐시 삭제 | UserId: {}", outbox.getUserId());
                 }
             }

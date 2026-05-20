@@ -1,9 +1,10 @@
 package weverse.serverA.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import weverse.serverA.dto.SoldOutEvent;
@@ -12,9 +13,7 @@ import weverse.serverA.dto.response.CreateGoodsResponse;
 import weverse.serverA.entity.Goods;
 import weverse.serverA.repository.GoodsRepository;
 
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -24,7 +23,10 @@ public class GoodsService {
 
     private final GoodsRepository goodsRepository;
 
-    private final ConcurrentMap<Long, Boolean> soldOutCache = new ConcurrentHashMap<>();
+    private final Cache<Long, Boolean> soldOutCache = Caffeine.newBuilder()
+                                                              .maximumSize(1000)
+                                                              .expireAfterWrite(1, TimeUnit.HOURS)
+                                                              .build();
 
     @Transactional
     public CreateGoodsResponse createGoods(CreateGoodsRequest createGoodsRequest) {
@@ -48,7 +50,7 @@ public class GoodsService {
     }
 
     public boolean isSoldOut(Long goodsId) {
-        return soldOutCache.getOrDefault(goodsId, false);
+        return Boolean.TRUE.equals(soldOutCache.getIfPresent(goodsId));
     }
 
     @EventListener
