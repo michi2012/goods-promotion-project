@@ -49,10 +49,11 @@ public interface OutboxRepository extends JpaRepository<RequestOutbox, Long> {
     @Query(value = "DELETE FROM request_outbox WHERE status IN ('SUCCESS', 'FAIL') AND created_at < :targetTime LIMIT :limitCount", nativeQuery = true)
     int deleteOldOutboxData(@Param("targetTime") LocalDateTime targetTime, @Param("limitCount") int limitCount);
 
-    @Modifying(clearAutomatically = true)
-    @Transactional
-    @Query("UPDATE RequestOutbox r SET r.status = 'PENDING' " +
-            "WHERE r.status = 'PUBLISHING' AND r.updatedAt < :thresholdTime")
-    int recoverZombieMessages(@Param("thresholdTime") LocalDateTime thresholdTime);
+    @Query(value = "SELECT id FROM request_outbox " +
+            "WHERE status = 'PUBLISHING' AND updated_at < :thresholdTime " +
+            "LIMIT :limit " +
+            "FOR UPDATE SKIP LOCKED",
+            nativeQuery = true)
+    List<Long> findZombieIds(@Param("thresholdTime") LocalDateTime thresholdTime, @Param("limit") int limit);
 
 }

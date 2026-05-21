@@ -30,7 +30,7 @@ import java.util.concurrent.*;
 public class PromotionService {
 
     // Bounded Queue
-    private final BlockingQueue<PurchaseTask> memoryQueue = new ArrayBlockingQueue<>(10000);
+    private final BlockingQueue<PurchaseTask> memoryQueue = new LinkedBlockingQueue<>();
 
     private final GoodsService goodsService;
     private final OutboxProcessor outboxProcessor;
@@ -53,7 +53,7 @@ public class PromotionService {
         }
 
         if (!memoryQueue.offer(new PurchaseTask(message, null))) {
-            log.warn("[큐 진입 실패] 선착순에 실패 했습니다. | TraceId: {}", message.traceId());
+            log.info("[큐 진입 실패] 선착순에 실패 했습니다. | TraceId: {}", message.traceId());
             throw new QueueFullException();
         }
 
@@ -119,7 +119,7 @@ public class PromotionService {
 
             if (existingTraceId != null && !existingTraceId.equals(outbox.getTraceId())) {
                 // 이미 캐시에 박제된 유저의 중복 요청 -> DB까지 안 가고 메모리에서 즉시 컷
-                log.warn("[중복 요청 차단] 메모리 캐시 탐지 | UserId: {} | 기존Trace: {} | 신규Trace: {}",
+                log.info("[중복 요청 차단] 메모리 캐시 탐지 | UserId: {} | 기존Trace: {} | 신규Trace: {}",
                         outbox.getUserId(), existingTraceId, outbox.getTraceId());
                 outboxProcessor.markAsFailDirectly(outbox);
                 continue;
@@ -135,7 +135,7 @@ public class PromotionService {
                         outbox.getTraceId(), outbox.getUserId(), outbox.getGoodsId());
 
             } catch (BusinessException e) {
-                log.warn("[재고 차감 거절] 비즈니스 로직 실패 | TraceId: {} | 사유: {}", outbox.getTraceId(), e.getMessage());
+                log.info("[재고 차감 거절] 비즈니스 로직 실패 | TraceId: {} | 사유: {}", outbox.getTraceId(), e.getMessage());
 
             } catch (Exception e) {
                 log.error("[재고 차감 실패] 🚨 시스템 예외 발생 | TraceId: {} | 메시지: {}", outbox.getTraceId(), e.getMessage(), e);

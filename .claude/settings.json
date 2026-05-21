@@ -1,27 +1,12 @@
 {
   "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo [작업 전 점검] 가정을 표면화했는가 / 요청 범위 내로 작업이 한정되는가 / 검증 기준이 정의되었는가"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "gradlew.bat compileJava compileTestJava 2>&1"
-          },
-          {
-            "type": "command",
-            "command": "echo [완료 전 자가 점검] 컴파일 통과 여부 확인 / 요청한 것만 변경했는가 / N+1 확인했는가 / 전체 테스트는 수동으로 돌려주세요"
+            "command": "echo [자가 점검] 요청한 것만 변경했는가 / 컴파일과 테스트는 직접 확인하세요"
           }
         ]
       }

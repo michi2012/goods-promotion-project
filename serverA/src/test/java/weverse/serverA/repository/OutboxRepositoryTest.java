@@ -131,7 +131,8 @@ class OutboxRepositoryTest {
         testEntityManager.clear(); // L1 캐시 초기화 → 다음 읽기가 DB에서 가져오도록
 
         // When
-        int recovered = outboxRepository.recoverZombieMessages(LocalDateTime.now());
+        List<Long> zombieIds = outboxRepository.findZombieIds(LocalDateTime.now(), 500);
+        int recovered = zombieIds.isEmpty() ? 0 : outboxRepository.updateStatusByIds(OutboxStatus.PENDING, zombieIds);
 
         // Then
         assertThat(recovered).isEqualTo(1);
@@ -146,7 +147,8 @@ class OutboxRepositoryTest {
         outboxRepository.save(createOutbox(98L, OutboxStatus.PUBLISHING));
 
         // When: 30초 전 기준으로 복구 시도 → 방금 만든 레코드는 해당 없음
-        int recovered = outboxRepository.recoverZombieMessages(LocalDateTime.now().minusSeconds(30));
+        List<Long> zombieIds = outboxRepository.findZombieIds(LocalDateTime.now().minusSeconds(30), 500);
+        int recovered = zombieIds.isEmpty() ? 0 : outboxRepository.updateStatusByIds(OutboxStatus.PENDING, zombieIds);
 
         // Then
         assertThat(recovered).isEqualTo(0);
@@ -170,7 +172,8 @@ class OutboxRepositoryTest {
         testEntityManager.clear();
 
         // When
-        int recovered = outboxRepository.recoverZombieMessages(LocalDateTime.now());
+        List<Long> zombieIds = outboxRepository.findZombieIds(LocalDateTime.now(), 500);
+        int recovered = zombieIds.isEmpty() ? 0 : outboxRepository.updateStatusByIds(OutboxStatus.PENDING, zombieIds);
 
         // Then: PUBLISHING만 PENDING으로 변경, 나머지 상태는 그대로
         assertThat(recovered).isEqualTo(1);

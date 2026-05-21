@@ -1,37 +1,46 @@
-# 계획서: @EnableJpaAuditing 분리 — WebMvcTest 충돌 해소
+# 계획서: OutboxProcessor 중복 SELECT 제거
 
 - 작성일: 2026-05-21
-- 관련 이슈: OrderControllerTest IllegalArgumentException (JPA metamodel must not be empty)
 
 ## 목표
-`@EnableJpaAuditing`을 `ServerCApplication`에서 별도 `@Configuration` 클래스로 분리하여, `@WebMvcTest`가 JPA 없이 컨텍스트를 로드할 때 발생하는 충돌을 해소한다.
+`processSingleItem`과 `markAsFailDirectly`가 외부에서 이미 조회한 `RequestOutbox` 엔티티를 ID만 넘겨받아 내부에서 다시 `findById()`로 재조회하는 중복 SELECT를 제거한다.
 
 ## 성공 기준
-- [ ] `OrderControllerTest` 실행 시 `IllegalArgumentException: JPA metamodel must not be empty` 미발생
-- [ ] `OrderControllerTest`의 `receiveBulkOrders_Success` 테스트 통과
-- [ ] 프로덕션 애플리케이션 기동 시 JPA Auditing 정상 동작 (기존과 동일)
+- [ ] `processSingleItem(Long)` → `processSingleItem(RequestOutbox)` 시그니처 변경 및 내부 `findById()` 제거
+- [ ] `markAsFailDirectly(Long)` → `markAsFailDirectly(RequestOutbox)` 시그니처 변경 및 내부 `findById()` 제거, `save()` 명시 추가
+- [ ] `PromotionService`의 두 호출부가 엔티티를 직접 전달하도록 수정
+- [ ] `OutboxProcessorTest`의 `findById` mock 제거, 엔티티 직접 전달로 테스트 수정
+- [ ] `gradlew.bat :serverA:test` 전체 통과
 
 ## 비범위 (Out of Scope)
-- `OrderControllerTest` 테스트 로직 자체 수정
-- 다른 서버(A, B)의 동일 패턴 수정 (별도 작업)
-- JPA Auditing 설정 내용 변경
+- `processSingleItem` 내부 비즈니스 로직 변경 없음
+- `REQUIRES_NEW` 트랜잭션 구조 변경 없음
+- `markAsFailDirectly` 외의 bulk화 작업
 
 ## 단계별 작업 계획
 
-### 단계 1: JpaAuditingConfig 생성 및 @EnableJpaAuditing 이동
-- 변경 파일:
-  - `serverC/src/main/java/weverse/serverC/config/JpaAuditingConfig.java` (신규)
-  - `serverC/src/main/java/weverse/serverC/ServerCApplication.java` (수정)
-- 변경 내용 요약:
-  - `ServerCApplication`에서 `@EnableJpaAuditing`과 관련 import 제거
-  - `JpaAuditingConfig.java`에 `@Configuration @EnableJpaAuditing` 추가
-- 검증 방법: `./gradlew :serverC:test --tests weverse.serverC.controller.OrderControllerTest`
-- 롤백 방법: `JpaAuditingConfig.java` 삭제, `ServerCApplication.java`에 `@EnableJpaAuditing` 복원
+### 단계 1: OutboxProcessor 시그니처 변경
+- 변경 파일: `serverA/src/main/java/weverse/serverA/service/outbox/OutboxProcessor.java`
+- 변경 내용:
+  - `processSingleItem(Long outboxId)` → `processSingleItem(RequestOutbox outbox)`, 내부 `findById()` 제거
+  - `markAsFailDirectly(Long outboxId)` → `markAsFailDirectly(RequestOutbox outbox)`, `findById().ifPresent` 제거 후 `outbox.markAsFail(); outboxRepository.save(outbox);`로 대체
+- 검증 방법: `gradlew.bat :serverA:compileJava`
+- 롤백 방법: git checkout 해당 파일
+- 예상 소요: 짧음
+
+### 단계 2: PromotionService 호출부 변경
+- 변경 파일: `serverA/src/main/java/weverse/serverA/service/PromotionService.java`
+- 변경 내용: `processSingleItem(outbox.getId())` → `processSingleItem(outbox)`, `markAsFailDirectly(outbox.getId())` → `markAsFailDirectly(outbox)`
+- 검증 방법: `gradlew.bat :serverA:compileJava`
+- 롤백 방법: git checkout 해당 파일
+- 예상 소요: 짧음
+
+### 단계 3: 테스트 수정 및 전체 통과 확인
+- 변경 파일: `serverA/src/test/java/weverse/serverA/service/outbox/OutboxProcessorTest.java`
+- 변경 내용: `findById` mock 제거, `processSingleItem(1L)` → `processSingleItem(outbox)` 직접 전달
+- 검증 방법: `gradlew.bat :serverA:test`
+- 롤백 방법: git checkout 해당 파일
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- 리스크: `config` 패키지가 없을 경우 → 대응: 디렉토리는 파일 생성 시 자동 생성됨
-- 리스크: serverA, serverB도 동일 패턴일 수 있음 → 대응: 이번 범위 외, 별도 확인
-
-## 의존성
-- `spring-data-jpa` 의존성 (이미 존재)
+- detached 엔티티 전달: `processSingleItem`은 이미 `save()`를 명시 호출하므로 `merge()` 발생 → 문제 없음. `markAsFailDirectly`도 `save()` 추가로 동일하게 처리.

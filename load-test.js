@@ -1,13 +1,20 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
+import { Counter } from 'k6/metrics';
+
+// 커스텀 지표 생성: 시스템 타임아웃과 정상적인 비즈니스(성공/품절/큐 제한) 분리
+const successCount = new Counter('business_success_202');
+const soldOutCount = new Counter('business_sold_out_400');
+const queueFullCount = new Counter('business_queue_full_503');
+const systemErrorCount = new Counter('system_error_other');
 
 export const options = {
     scenarios: {
-        assignment_scenario: {
-            executor: 'per-vu-iterations',
-            vus: 1000,          // 1,000명의 가상 유저
-            iterations: 100,    // 1명당 100번씩 쏘기 (총 10만 건)
-            maxDuration: '20s', // 넉넉하게 20초 타임아웃
+        flash_sale_scenario: {
+            executor: 'shared-iterations',
+            vus: 1000,
+            iterations: 100000,
+            maxDuration: '2m',
         },
     },
     summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)'],
@@ -16,21 +23,17 @@ export const options = {
 export default function () {
     const url = 'http://weverse-server-a:8080/api/v1/promotions/purchase';
 
-    // 겹치지 않는 10만 개의 고유 userId 생성 로직
-    // __VU는 1~1000, __ITER는 0~99를 가집니다.
-    // 예: 1번 유저의 첫 요청 = (1-1)*100 + 0 + 1 = 1
-    // 예: 1000번 유저의 마지막 요청 = (1000-1)*100 + 99 + 1 = 100000
     const uniqueUserId = (__VU - 1) * 100 + __ITER + 1;
 
     const payload = JSON.stringify({
         userId: uniqueUserId,
-        goodsId: 1, // 서버에 미리 생성해둔 상품 ID
+        goodsId: 1,
         quantity: 1,
         paymentMethod: 'CARD',
         shippingAddress: '서울특별시 강남구 테헤란로 123',
         zipCode: '06234',
         phoneNumber: '010-1234-5678',
-        email: `test${uniqueUserId}@weverse.com`, // 이메일도 다르게 세팅
+        email: `test${uniqueUserId}@weverse.com`,
         deliveryMemo: '문 앞에 두고 가주세요',
         clientIp: '192.168.0.1'
     });
@@ -41,11 +44,21 @@ export default function () {
 
     const res = http.post(url, payload, params);
 
-    // 서버 A가 Queue에 무사히 넣었다면 202 Accepted를 반환함
-    check(res, {
-        'is status 202': (r) => r.status === 202,
-    });
+    // 응답 상태에 따라 커스텀 카운터 증가
+    if (res.status === 202) {
+        successCount.add(1);
+    } else if (res.status === 400) {
+        soldOutCount.add(1);
+    } else if (res.status === 503) {
+        queueFullCount.add(1); // 큐 제한 인원 초과 방어 성공
+    } else {
+        systemErrorCount.add(1); // 서버 다운, 커넥션 타임아웃 등 진짜 에러
+    }
 
-    // 1초에 10건씩 쏘기 위해 0.1초 대기 (1,000명이 동시에 0.1초마다 쏘면 10,000 TPS)
-    sleep(0.1);
+    // k6 기본 리포트에도 명확하게 표시
+    check(res, {
+        'is accepted': (r) => r.status === 202,
+        'is sold out': (r) => r.status === 400,
+        'is queue full': (r) => r.status === 503,
+    });
 }
