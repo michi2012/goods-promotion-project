@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 public class OutboxManagerService {
 
     private final OutboxRepository outboxRepository;
+    private final OutboxClaimer outboxClaimer;
 
     @Scheduled(cron = "0 0 4 * * *")
     public void cleanupPublishedOutbox() {
@@ -47,7 +48,7 @@ public class OutboxManagerService {
         LocalDateTime thresholdTime = LocalDateTime.now().minusSeconds(15);
 
         try {
-            int recoveredCount = outboxRepository.recoverZombieMessages(thresholdTime);
+            int recoveredCount = outboxClaimer.recoverZombies(thresholdTime);
 
             if (recoveredCount > 0) {
                 log.warn("🚨 [고속 장애 복구] 15초 이상 응답 없는 좀비 메시지 {}건을 PENDING으로 강제 원복하여 즉시 재처리합니다.", recoveredCount);

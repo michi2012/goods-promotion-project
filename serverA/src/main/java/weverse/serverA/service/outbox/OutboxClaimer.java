@@ -1,7 +1,6 @@
 package weverse.serverA.service.outbox;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,6 +8,8 @@ import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.repository.OutboxRepository;
 
+import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -16,6 +17,17 @@ import java.util.List;
 public class OutboxClaimer {
 
     private final OutboxRepository outboxRepository;
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public int recoverZombies(LocalDateTime thresholdTime) {
+        List<Long> zombieIds = outboxRepository.findZombieIds(thresholdTime, 500);
+
+        if (zombieIds.isEmpty()) return 0;
+
+        Collections.sort(zombieIds);
+
+        return outboxRepository.updateStatusByIds(OutboxStatus.PENDING, zombieIds);
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<RequestOutbox> claimSuccessRecords() {

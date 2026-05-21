@@ -22,6 +22,9 @@ class OutboxManagerServiceTest {
     @Mock
     private OutboxRepository outboxRepository;
 
+    @Mock
+    private OutboxClaimer outboxClaimer;
+
     @InjectMocks
     private OutboxManagerService outboxManagerService;
 
@@ -56,7 +59,7 @@ class OutboxManagerServiceTest {
     @DisplayName("좀비 메시지 복구 스케줄러: 15초 이상 멈춘 데이터를 정상적으로 찾아 원복하는지 검증")
     void recoverZombieMessages_success() {
         // given
-        when(outboxRepository.recoverZombieMessages(any(LocalDateTime.class))).thenReturn(3);
+        when(outboxClaimer.recoverZombies(any(LocalDateTime.class))).thenReturn(3);
 
         // when
         outboxManagerService.recoverZombieMessages();
@@ -64,7 +67,7 @@ class OutboxManagerServiceTest {
         // then
         // 1. 파라미터로 넘어간 시간이 '현재로부터 15초 전' 근처가 맞는지 검증
         ArgumentCaptor<LocalDateTime> timeCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(outboxRepository, times(1)).recoverZombieMessages(timeCaptor.capture());
+        verify(outboxClaimer, times(1)).recoverZombies(timeCaptor.capture());
 
         LocalDateTime capturedTime = timeCaptor.getValue();
         LocalDateTime expectedTime = LocalDateTime.now().minusSeconds(15);
@@ -74,16 +77,16 @@ class OutboxManagerServiceTest {
     }
 
     @Test
-    @DisplayName("좀비 메시지 복구 스케줄러: Repository 예외 발생 시 스케줄러가 죽지 않고 예외를 잡는지 검증")
+    @DisplayName("좀비 메시지 복구 스케줄러: 예외 발생 시 스케줄러가 죽지 않고 예외를 잡는지 검증")
     void recoverZombieMessages_handlesException() {
         // given
-        when(outboxRepository.recoverZombieMessages(any(LocalDateTime.class)))
+        when(outboxClaimer.recoverZombies(any(LocalDateTime.class)))
                 .thenThrow(new RuntimeException("DB Connection Timeout"));
 
         // when & then
         // 예외가 던져져도 메서드 밖으로 전파되지 않고 내부 catch 블록에서 처리되어야 함 (테스트 통과)
         outboxManagerService.recoverZombieMessages();
 
-        verify(outboxRepository, times(1)).recoverZombieMessages(any(LocalDateTime.class));
+        verify(outboxClaimer, times(1)).recoverZombies(any(LocalDateTime.class));
     }
 }
