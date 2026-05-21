@@ -139,7 +139,7 @@ class PromotionServiceTest {
         var inOrder = inOrder(outboxRepository);
         inOrder.verify(outboxRepository).bulkFailPendingByGoodsIds(List.of(1L));
         inOrder.verify(outboxRepository).findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class));
-        verify(outboxProcessor, never()).processSingleItem(anyLong());
+        verify(outboxProcessor, never()).processSingleItem(any(RequestOutbox.class));
     }
 
     @Test
@@ -174,8 +174,8 @@ class PromotionServiceTest {
         promotionService.processPendingRequests();
 
         // Then
-        verify(outboxProcessor).markAsFailDirectly(100L);
-        verify(outboxProcessor, never()).processSingleItem(anyLong());
+        verify(outboxProcessor).markAsFailDirectly(duplicateOutbox);
+        verify(outboxProcessor, never()).processSingleItem(any(RequestOutbox.class));
     }
 
     // 💡 메시지 생성을 위한 헬퍼 메서드 추가

@@ -121,7 +121,7 @@ public class PromotionService {
                 // 이미 캐시에 박제된 유저의 중복 요청 -> DB까지 안 가고 메모리에서 즉시 컷
                 log.warn("[중복 요청 차단] 메모리 캐시 탐지 | UserId: {} | 기존Trace: {} | 신규Trace: {}",
                         outbox.getUserId(), existingTraceId, outbox.getTraceId());
-                outboxProcessor.markAsFailDirectly(outbox.getId());
+                outboxProcessor.markAsFailDirectly(outbox);
                 continue;
             }
 
@@ -129,7 +129,7 @@ public class PromotionService {
 
             try {
                 // 2. 단일 원자적 쿼리로 검증 및 재고 차감 시도
-                outboxProcessor.processSingleItem(outbox.getId());
+                outboxProcessor.processSingleItem(outbox);
                 isSuccess = true; // 무사히 통과했다면 성공 플래그 ON
                 log.info("[재고 차감 성공] TraceId: {} | UserId: {} | GoodsId: {}",
                         outbox.getTraceId(), outbox.getUserId(), outbox.getGoodsId());
@@ -139,7 +139,7 @@ public class PromotionService {
 
             } catch (Exception e) {
                 log.error("[재고 차감 실패] 🚨 시스템 예외 발생 | TraceId: {} | 메시지: {}", outbox.getTraceId(), e.getMessage(), e);
-                outboxProcessor.markAsFailDirectly(outbox.getId());
+                outboxProcessor.markAsFailDirectly(outbox);
 
             } finally {
                 // 시스템 에러나 품절 등으로 '결제에 실패'해서 유저가 나중에 다시 시도해야 할 수도 있다면 캐시를 비워줍니다.

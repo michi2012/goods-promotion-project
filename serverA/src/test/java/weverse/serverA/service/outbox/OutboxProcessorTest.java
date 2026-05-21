@@ -16,12 +16,9 @@ import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OutboxRepository;
 import weverse.serverA.service.EventNotifier;
 
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -51,7 +48,6 @@ class OutboxProcessorTest {
         RequestOutbox outbox = RequestOutbox.builder()
                                             .userId(100L).goodsId(1L).quantity(1).status(OutboxStatus.PENDING).build();
 
-        given(outboxRepository.findById(anyLong())).willReturn(Optional.of(outbox));
         // 중복 아님
         given(outboxRepository.existsByUserIdAndStatusIn(eq(100L), any())).willReturn(false);
         // 원자적 차감 성공 (1 row updated)
@@ -60,7 +56,7 @@ class OutboxProcessorTest {
         given(goodsRepository.findStockById(1L)).willReturn(10);
 
         // When
-        outboxProcessor.processSingleItem(1L);
+        outboxProcessor.processSingleItem(outbox);
 
         // Then
         assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.SUCCESS);
@@ -73,12 +69,11 @@ class OutboxProcessorTest {
         RequestOutbox outbox = RequestOutbox.builder()
                                             .userId(100L).goodsId(1L).status(OutboxStatus.PENDING).build();
 
-        given(outboxRepository.findById(anyLong())).willReturn(Optional.of(outbox));
         // 이미 구매한 이력이 있음 (true)
         given(outboxRepository.existsByUserIdAndStatusIn(eq(100L), any())).willReturn(true);
 
         // When & Then
-        assertThatThrownBy(() -> outboxProcessor.processSingleItem(1L))
+        assertThatThrownBy(() -> outboxProcessor.processSingleItem(outbox))
                 .isInstanceOf(DuplicateOrderException.class);
 
         assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.FAIL);
@@ -91,13 +86,12 @@ class OutboxProcessorTest {
         RequestOutbox outbox = RequestOutbox.builder()
                                             .userId(100L).goodsId(1L).quantity(1).status(OutboxStatus.PENDING).build();
 
-        given(outboxRepository.findById(anyLong())).willReturn(Optional.of(outbox));
         given(outboxRepository.existsByUserIdAndStatusIn(eq(100L), any())).willReturn(false);
         // 재고 부족으로 업데이트된 행이 0개
         given(goodsRepository.decreaseStockAtomically(1L, 1)).willReturn(0);
 
         // When & Then
-        assertThatThrownBy(() -> outboxProcessor.processSingleItem(1L))
+        assertThatThrownBy(() -> outboxProcessor.processSingleItem(outbox))
                 .isInstanceOf(SoldOutException.class);
 
         assertThat(outbox.getStatus()).isEqualTo(OutboxStatus.FAIL);

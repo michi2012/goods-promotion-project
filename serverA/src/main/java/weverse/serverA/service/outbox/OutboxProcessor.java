@@ -27,8 +27,7 @@ public class OutboxProcessor {
     // 💡 REQUIRES_NEW를 통해 무조건 독립된 새로운 트랜잭션을 시작함 (재시도 시 최신 DB 상태 조회용)
     // 💡 noRollbackFor 추가: 비즈니스 실패 시 상태 변경(FAIL)은 DB에 반영되어야 함
     @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)
-    public void processSingleItem(Long outboxId) {
-        RequestOutbox outbox = outboxRepository.findById(outboxId).orElseThrow();
+    public void processSingleItem(RequestOutbox outbox) {
 
         try {
             // 1. 중복 요청 2차 방어 (SUCCESS, PUBLISHING, SENT 모두 포함)
@@ -66,7 +65,8 @@ public class OutboxProcessor {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markAsFailDirectly(Long outboxId) {
-        outboxRepository.findById(outboxId).ifPresent(RequestOutbox::markAsFail);
+    public void markAsFailDirectly(RequestOutbox outbox) {
+        outbox.markAsFail();
+        outboxRepository.save(outbox);
     }
 }
