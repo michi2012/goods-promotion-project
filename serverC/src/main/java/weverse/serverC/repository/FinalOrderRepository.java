@@ -8,6 +8,7 @@ import weverse.serverC.dto.PurchaseMessage;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,11 +18,16 @@ public class FinalOrderRepository {
     private final JdbcTemplate jdbcTemplate;
 
     public List<PurchaseMessage> claimOrders(List<PurchaseMessage> messages) {
-        String sql = "INSERT IGNORE INTO final_order (trace_id, user_id, goods_id, quantity, payment_method, " +
-                "shipping_address, zip_code, phone_number, email, delivery_memo, client_ip, status, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', NOW())";
+        if (messages.isEmpty()) {
+            return new ArrayList<>();
+        }
 
-        int[] results = jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+        String insertSql = "INSERT INTO final_order (trace_id, user_id, goods_id, quantity, payment_method, " +
+                "shipping_address, zip_code, phone_number, email, delivery_memo, client_ip, status, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', NOW()) " +
+                "ON DUPLICATE KEY UPDATE trace_id = trace_id";
+
+        int[] results = jdbcTemplate.batchUpdate(insertSql, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
                 PurchaseMessage msg = messages.get(i);
@@ -41,11 +47,12 @@ public class FinalOrderRepository {
             public int getBatchSize() { return messages.size(); }
         });
 
-        // 결과 배열에서 1(성공)인 경우만 '내가 선점한 결제 건'으로 간주하여 반환
         List<PurchaseMessage> claimed = new ArrayList<>();
         for (int i = 0; i < results.length; i++) {
-            // Statement.SUCCESS_NO_INFO(-2) 이거나 0보다 크면 성공으로 간주
-            if (results[i] > 0 || results[i] == -2) {
+            // result == 1: 신규 삽입 (선점 성공)
+            // result == 0: 중복 no-op (다른 워커가 이미 처리)
+            // result == SUCCESS_NO_INFO(-2): rewriteBatchedStatements=true로 배치 재작성된 경우
+            if (results[i] > 0 || results[i] == Statement.SUCCESS_NO_INFO) {
                 claimed.add(messages.get(i));
             }
         }
