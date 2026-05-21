@@ -52,11 +52,11 @@ Transform tasks into verifiable goals:
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
+
+[Step] → verify: [check]
+[Step] → verify: [check]
+[Step] → verify: [check]
+
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
@@ -70,6 +70,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 # 프로젝트 운영 규칙
 
 위 4가지 원칙(Think Before Coding / Simplicity First / Surgical Changes / Goal-Driven Execution)은 모든 작업에 항상 적용된다. 아래는 이 프로젝트에 한정된 추가 규칙이다.
+
+## 빌드 환경
+- 멀티 모듈 Gradle 프로젝트. gradlew.bat은 루트에 있음.
+- Windows + PowerShell 환경. bash 명령어 사용 금지.
+
+## 파일 읽기 규칙
+- 지시된 파일을 우선 읽되, 해당 파일만으로 판단이 불가능한 경우에만 관련 파일을 최소한으로 추가 참조할 것. 불필요한 탐색 금지.
 
 ## 작업 시작 시
 - `/plan` 또는 대규모 작업 시에만 `docs/checklist.md`를 먼저 읽을 것. 단순 확인/수정에는 불필요.
@@ -90,15 +97,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## 절대 금지 사항
 - `.env` 파일은 절대 읽거나 수정하지 말 것.
 - `main` 브랜치에 직접 push 금지. 항상 별도 브랜치 사용.
-- 새 의존성(npm/pip 패키지 등) 추가 시 반드시 나에게 먼저 확인을 받을 것.
+- 새 의존성(Gradle dependency) 추가 시 반드시 나에게 먼저 확인을 받을 것.
 - 사용자가 명시적으로 요청하지 않은 파일 삭제 금지. 의심되면 먼저 물어볼 것.
 
 ## 코드 작성 후 자가 점검
 모든 작업 완료 시 다음을 스스로 확인하고 보고할 것:
 1. 변경한 모든 라인이 내 요청과 직접 연결되는가? (수술적 변경 원칙)
 2. 검증(테스트/명령어 실행)을 거쳤는가? (목표 기반 실행 원칙)
-3. `docs/checklist.md`를 업데이트했는가?
-4. 발견했지만 손대지 않은 죽은 코드/이슈가 있다면 보고에 포함했는가?
+3. 발견했지만 손대지 않은 죽은 코드/이슈가 있다면 보고에 포함했는가?
 
 ## 보고 형식
 작업 완료 시 다음 형식으로 보고할 것:
