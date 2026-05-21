@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -93,6 +95,7 @@ public class QueueToCWorker {
         log.info("[QueueToCWorker] Server C로 전송할 페이로드 변환 작업 시작: 대상 건수 = {}", records.size());
         List<PurchaseMessage> payloads = new ArrayList<>();
         List<RecordId> recordIds = new ArrayList<>();
+        List<MapRecord<String, Object, Object>> parseFailedRecords = new ArrayList<>();
 
         for (MapRecord<String, Object, Object> record : records) {
             try {
@@ -100,9 +103,15 @@ public class QueueToCWorker {
                 payloads.add(objectMapper.readValue(json, PurchaseMessage.class));
                 recordIds.add(record.getId());
             } catch (Exception e) {
-                log.error("❌ JSON 파싱 실패. 데이터를 DLQ로 이동시킵니다.");
-                moveToDlq(record);
+                log.error("❌ JSON 파싱 실패. 데이터를 DLQ 이관 대상으로 분류합니다. RecordId: {}", record.getId());
+                // 단건 처리가 아닌 리스트에 수집
+                parseFailedRecords.add(record);
             }
+        }
+
+        // 파싱 실패건이 존재하면 한 번에 파이프라인으로 DLQ 이관
+        if (!parseFailedRecords.isEmpty()) {
+            moveToDlqBatch(parseFailedRecords);
         }
 
         if (payloads.isEmpty()) {
@@ -205,23 +214,38 @@ public class QueueToCWorker {
                                                                              )).toList();
 
         try {
-            externalApiClient.sendCompensationToServerA(serverAUrl + "/api/v1/internal/compensate", compRequests);            log.info("⏪ 서버 A로 재고 롤백(보상 트랜잭션) 지시 성공");
+            externalApiClient.sendCompensationToServerA(serverAUrl + "/api/v1/internal/compensate", compRequests);
+            log.info("⏪ 서버 A로 재고 롤백(보상 트랜잭션) 지시 성공");
         } catch (Exception e) {
             log.error("🚨 서버 A 통신 실패! 최종 일관성 보장을 위해 재시도 큐(Redis)에 적재합니다.", e);
             fallbackToRedisRetryQueue(compRequests);
         }
     }
 
-    private void moveToDlq(MapRecord<String, Object, Object> record) {
-        log.info("[QueueToCWorker] 메시지를 DLQ로 이동: RecordId = {}", record.getId());
-        redisTemplate.opsForStream().add(StreamRecords.newRecord().in(DLQ_KEY).ofObject(record.getValue()));
-        redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, record.getId());
-        redisTemplate.opsForStream().delete(STREAM_KEY, record.getId());
-    }
-
     private void moveToDlqBatch(List<MapRecord<String, Object, Object>> records) {
-        log.info("[QueueToCWorker] 메시지 배치를 DLQ로 이동 시작: 대상 건수 = {}", records.size());
-        records.forEach(this::moveToDlq);
+        if (records == null || records.isEmpty()) return;
+
+        log.info("[QueueToCWorker] 메시지 배치를 DLQ로 이동 시작 (Pipelining): 대상 건수 = {}", records.size());
+
+        // 3개의 분리된 명령어를 묶어서 단 1번의 네트워크 RTT로 전송
+        redisTemplate.executePipelined(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations operations) {
+                for (MapRecord<String, Object, Object> record : records) {
+                    // 1. DLQ 큐에 추가 (XADD)
+                    operations.opsForStream().add(StreamRecords.newRecord().in(DLQ_KEY).ofObject(record.getValue()));
+
+                    // 2. 원본 큐에서 읽음 처리 (XACK)
+                    operations.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, record.getId());
+
+                    // 3. 원본 큐에서 완벽히 삭제 (XDEL)
+                    operations.opsForStream().delete(STREAM_KEY, record.getId());
+                }
+                return null; // executePipelined 내부에서는 항상 null 반환
+            }
+        });
+
+        log.info("[QueueToCWorker] DLQ 이동 및 원본 메시지 정리 완료");
     }
 
     private void fallbackToRedisRetryQueue(List<weverse.serverB.dto.CompensationRequest> compRequests) {

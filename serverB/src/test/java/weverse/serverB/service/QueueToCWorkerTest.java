@@ -17,7 +17,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.RestTemplate;
 import weverse.serverB.client.ExternalApiClient;
 import weverse.serverB.dto.PurchaseMessage;
 import weverse.serverB.dto.ServerCResponse;
@@ -39,7 +38,6 @@ class QueueToCWorkerTest {
 
     @InjectMocks private QueueToCWorker worker;
     @Mock private StringRedisTemplate redisTemplate;
-    @Mock private RestTemplate restTemplate;          // QueueToCWorker 생성자 파라미터 (직접 사용 안 함)
     @Mock private ExternalApiClient externalApiClient;
     @Mock private ObjectMapper objectMapper;
     @Mock private StreamOperations<String, Object, Object> streamOperations;

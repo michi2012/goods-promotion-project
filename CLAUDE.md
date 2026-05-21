@@ -72,7 +72,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 위 4가지 원칙(Think Before Coding / Simplicity First / Surgical Changes / Goal-Driven Execution)은 모든 작업에 항상 적용된다. 아래는 이 프로젝트에 한정된 추가 규칙이다.
 
 ## 작업 시작 시
-- 모든 작업 시작 전 `docs/checklist.md`를 먼저 읽고 현재 진행 상황을 파악할 것.
+- `/plan` 또는 대규모 작업 시에만 `docs/checklist.md`를 먼저 읽을 것. 단순 확인/수정에는 불필요.
 - 변경 파일이 2개 이상인 작업은 반드시 `/plan` 명령어부터 실행할 것. 곧바로 코딩 시작 금지.
 - API/컨트롤러/DTO 작업 시 `.claude/skills/api` 매뉴얼을 활용할 것.
 - 엔티티/리포지토리/쿼리/트랜잭션 작업 시 `.claude/skills/jpa` 매뉴얼을 활용할 것.
