@@ -6,11 +6,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ParameterizedPreparedStatementSetter;
 import weverse.serverA.dto.PurchaseMessage;
-import weverse.serverA.dto.PurchaseTask;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.repository.OutboxRepository;
@@ -52,16 +50,16 @@ class OutboxServicesTest {
     void batchInsert() {
         // Given
         PurchaseMessage msg = new PurchaseMessage("t1", 1L, 1L, 1, "CARD", "ADDR", "123", "010", "a@a.com", "memo", "ip");
-        List<PurchaseTask> tasks = List.of(new PurchaseTask(msg, null));
+        List<PurchaseMessage> messages = List.of(msg);
 
         // When
-        outboxBatchService.batchInsert(tasks);
+        outboxBatchService.batchInsert(messages);
 
         // Then
         verify(jdbcTemplate).batchUpdate(
                 anyString(),
-                eq(tasks),
-                eq(1),
+                eq(messages), // messages 리스트가 전달되었는지 검증
+                eq(1), // batchSize는 1 (또는 설정된 사이즈)
                 any(ParameterizedPreparedStatementSetter.class)
         );
     }

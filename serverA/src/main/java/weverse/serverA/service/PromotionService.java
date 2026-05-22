@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import weverse.serverA.dto.PurchaseMessage;
-import weverse.serverA.dto.PurchaseTask;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.exception.BusinessException;
@@ -30,7 +29,7 @@ import java.util.concurrent.*;
 public class PromotionService {
 
     // Bounded Queue
-    private final BlockingQueue<PurchaseTask> memoryQueue = new LinkedBlockingQueue<>(10_000);
+    private final BlockingQueue<PurchaseMessage> memoryQueue = new LinkedBlockingQueue<>(10_000);
 
     private final GoodsService goodsService;
     private final OutboxProcessor outboxProcessor;
@@ -51,7 +50,7 @@ public class PromotionService {
             throw new SoldOutException();
         }
 
-        if (!memoryQueue.offer(new PurchaseTask(message, null))) {
+        if (!memoryQueue.offer(message)) {
             log.info("[큐 진입 실패] 선착순에 실패 했습니다. | TraceId: {}", message.traceId());
             throw new QueueFullException();
         }
@@ -64,14 +63,14 @@ public class PromotionService {
     public void flushToOutbox() {
         if (memoryQueue.isEmpty()) return;
 
-        List<PurchaseTask> tasks = new ArrayList<>();
+        List<PurchaseMessage> tasks = new ArrayList<>();
         memoryQueue.drainTo(tasks, 500);
 
         // 품절 확정된 상품 요청은 DB I/O 없이 조기 제거
-        List<PurchaseTask> validTasks = new ArrayList<>();
-        List<PurchaseTask> soldOutTasks = new ArrayList<>();
-        for (PurchaseTask task : tasks) {
-            if (goodsService.isSoldOut(task.message().goodsId())) {
+        List<PurchaseMessage> validTasks = new ArrayList<>();
+        List<PurchaseMessage> soldOutTasks = new ArrayList<>();
+        for (PurchaseMessage task : tasks) {
+            if (goodsService.isSoldOut(task.goodsId())) {
                 soldOutTasks.add(task);
             } else {
                 validTasks.add(task);
@@ -81,7 +80,7 @@ public class PromotionService {
         if (!soldOutTasks.isEmpty()) {
             log.info("[품절 조기 제거] 큐 드랍: {}건 | goodsId: {}",
                     soldOutTasks.size(),
-                    soldOutTasks.get(0).message().goodsId());
+                    soldOutTasks.get(0).goodsId());
         }
 
         if (validTasks.isEmpty()) return;
@@ -160,7 +159,7 @@ public class PromotionService {
 
         log.info("[Shutdown] 서버 종료 감지: 메모리 큐의 남은 데이터({})를 DB로 플러시합니다.", memoryQueue.size());
 
-        List<PurchaseTask> remainingTasks = new ArrayList<>();
+        List<PurchaseMessage> remainingTasks = new ArrayList<>();
 
         try {
             // 큐의 데이터를 리스트로 이동
@@ -179,12 +178,11 @@ public class PromotionService {
     }
 
     // 장애 추적 및 CS 보상: 선착순 특성상 지연 처리는 불가하지만, 시스템 에러로 누락된 유저를 식별하여 CS 사후 처리(보상 등)를 진행하기 위해 Audit 로그를 남깁니다.
-    private void fallbackToLogFile(List<PurchaseTask> failedTasks) {
-        for (PurchaseTask task : failedTasks) {
-            PurchaseMessage msg = task.message();
+    private void fallbackToLogFile(List<PurchaseMessage> failedTasks) {
+        for (PurchaseMessage task : failedTasks) {
             // 현업에서는 SLF4J의 별도 로거(Appender)를 만들어 failed-orders.log 같은 파일에만 JSON 형태로 예쁘게 기록합니다.
             log.error("SYSTEM_ERROR_AUDIT | TraceId: {} | UserId: {} | GoodsId: {} | Payload: {}",
-                    msg.traceId(), msg.userId(), msg.goodsId(), msg);
+                    task.traceId(), task.userId(), task.goodsId(), task);
         }
     }
 

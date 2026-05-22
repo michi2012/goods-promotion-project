@@ -11,7 +11,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import weverse.serverA.dto.PurchaseMessage;
-import weverse.serverA.dto.PurchaseTask;
 import weverse.serverA.entity.OutboxStatus;
 import weverse.serverA.entity.RequestOutbox;
 import weverse.serverA.exception.QueueFullException;
@@ -45,7 +44,6 @@ class PromotionServiceTest {
 
     @BeforeEach
     void setUp() {
-        // 💡 Caffeine Cache 타입으로 캐스팅하고 invalidateAll로 초기화
         Cache<Long, String> cache = (Cache<Long, String>) ReflectionTestUtils.getField(promotionService, "userCache");
         if (cache != null) cache.invalidateAll();
     }
@@ -55,7 +53,7 @@ class PromotionServiceTest {
     void acceptPurchase_SoldOut_EarlyExit() {
         // Given
         PurchaseMessage msg = createDummyMessage();
-        given(goodsService.isSoldOut(msg.goodsId())).willReturn(true); // 품절 상태로 모킹
+        given(goodsService.isSoldOut(msg.goodsId())).willReturn(true);
 
         // When & Then
         assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
@@ -66,12 +64,12 @@ class PromotionServiceTest {
     @DisplayName("API 수신: 큐가 꽉 찼을 경우 QueueFullException이 발생한다.")
     void acceptPurchase_QueueFull() {
         // Given
-        BlockingQueue<PurchaseTask> tinyQueue = new ArrayBlockingQueue<>(1);
-        tinyQueue.offer(new PurchaseTask(mock(PurchaseMessage.class), null));
+        BlockingQueue<PurchaseMessage> tinyQueue = new ArrayBlockingQueue<>(1);
+        tinyQueue.offer(mock(PurchaseMessage.class));
         ReflectionTestUtils.setField(promotionService, "memoryQueue", tinyQueue);
 
         PurchaseMessage msg = createDummyMessage();
-        given(goodsService.isSoldOut(msg.goodsId())).willReturn(false); // 품절은 아님
+        given(goodsService.isSoldOut(msg.goodsId())).willReturn(false);
 
         // When & Then
         assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
@@ -92,8 +90,7 @@ class PromotionServiceTest {
         // When & Then
         assertDoesNotThrow(() -> promotionService.flushToOutbox());
 
-        // 큐는 비워졌어야 함
-        BlockingQueue<PurchaseTask> queue = (BlockingQueue<PurchaseTask>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
+        BlockingQueue<PurchaseMessage> queue = (BlockingQueue<PurchaseMessage>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
         assertThat(queue).isEmpty();
     }
 
@@ -104,21 +101,21 @@ class PromotionServiceTest {
         PurchaseMessage soldOutMsg = new PurchaseMessage("trace-sold", 1L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
         PurchaseMessage validMsg   = new PurchaseMessage("trace-valid", 2L, 2L, 1, "C", "A", "1", "0", "E", "M", "I");
 
-        given(goodsService.isSoldOut(1L)).willReturn(true);   // 품절
-        given(goodsService.isSoldOut(2L)).willReturn(false);  // 정상
+        given(goodsService.isSoldOut(1L)).willReturn(true);
+        given(goodsService.isSoldOut(2L)).willReturn(false);
 
-        promotionService.acceptPurchase(validMsg);    // isSoldOut=false 통과
-        // soldOutMsg는 acceptPurchase 시점엔 품절 아니었다고 가정하고 직접 큐에 삽입
-        BlockingQueue<PurchaseTask> queue = (BlockingQueue<PurchaseTask>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
-        queue.offer(new PurchaseTask(soldOutMsg, null));
+        promotionService.acceptPurchase(validMsg);
+
+        BlockingQueue<PurchaseMessage> queue = (BlockingQueue<PurchaseMessage>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
+        queue.offer(soldOutMsg);
 
         // When
         promotionService.flushToOutbox();
 
-        // Then: validMsg만 batchInsert 호출, 품절 메시지는 드랍
+        // Then: validMsg만 batchInsert 호출
         verify(outboxBatchService).batchInsert(argThat(list ->
                 list.size() == 1 &&
-                ((PurchaseTask) list.get(0)).message().traceId().equals("trace-valid")
+                        ((PurchaseMessage) list.get(0)).traceId().equals("trace-valid")
         ));
         assertThat(queue).isEmpty();
     }
@@ -126,16 +123,16 @@ class PromotionServiceTest {
     @Test
     @DisplayName("팬딩 처리: 품절 goodsId가 있으면 DB 조회 이전에 해당 PENDING 레코드를 bulk FAIL 처리한다.")
     void processPendingRequests_BulkFailsSoldOutGoods() {
-        // Given: 품절 goodsId=1 존재
+        // Given
         given(goodsService.getSoldOutGoodsIds()).willReturn(Set.of(1L));
         given(outboxRepository.bulkFailPendingByGoodsIds(anyList())).willReturn(5);
         given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
-                .willReturn(List.of()); // bulk FAIL 후 남은 PENDING 없음
+                .willReturn(List.of());
 
         // When
         promotionService.processPendingRequests();
 
-        // Then: bulk FAIL 먼저, 그 다음 findByStatus
+        // Then
         var inOrder = inOrder(outboxRepository);
         inOrder.verify(outboxRepository).bulkFailPendingByGoodsIds(List.of(1L));
         inOrder.verify(outboxRepository).findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class));
@@ -145,7 +142,7 @@ class PromotionServiceTest {
     @Test
     @DisplayName("팬딩 처리: 품절 goodsId가 없으면 bulk FAIL 없이 바로 PENDING 조회한다.")
     void processPendingRequests_SkipsBulkFailWhenNoSoldOut() {
-        // Given: 품절 goodsId 없음
+        // Given
         given(goodsService.getSoldOutGoodsIds()).willReturn(Set.of());
         given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
                 .willReturn(List.of());
@@ -153,7 +150,7 @@ class PromotionServiceTest {
         // When
         promotionService.processPendingRequests();
 
-        // Then: bulkFail 호출 안 됨
+        // Then
         verify(outboxRepository, never()).bulkFailPendingByGoodsIds(anyList());
     }
 
@@ -162,7 +159,7 @@ class PromotionServiceTest {
     void processPendingRequests_MemoryDuplicateBlock() {
         // Given
         Cache<Long, String> cache = (Cache<Long, String>) ReflectionTestUtils.getField(promotionService, "userCache");
-        cache.put(1L, "trace-old"); // 💡 Caffeine의 put 메서드 사용
+        cache.put(1L, "trace-old");
 
         RequestOutbox duplicateOutbox = RequestOutbox.builder().traceId("trace-new").userId(1L).build();
         ReflectionTestUtils.setField(duplicateOutbox, "id", 100L);
@@ -178,7 +175,6 @@ class PromotionServiceTest {
         verify(outboxProcessor, never()).processSingleItem(any(RequestOutbox.class));
     }
 
-    // 💡 메시지 생성을 위한 헬퍼 메서드 추가
     private PurchaseMessage createDummyMessage() {
         return new PurchaseMessage("trace-1", 1L, 1L, 1, "CARD", "ADDR", "123", "010", "A", "M", "IP");
     }
