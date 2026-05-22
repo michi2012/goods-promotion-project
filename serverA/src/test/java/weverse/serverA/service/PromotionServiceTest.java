@@ -1,33 +1,27 @@
 package weverse.serverA.service;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import org.junit.jupiter.api.BeforeEach;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import weverse.serverA.dto.PurchaseMessage;
-import weverse.serverA.entity.OutboxStatus;
-import weverse.serverA.entity.RequestOutbox;
-import weverse.serverA.exception.QueueFullException;
+import weverse.serverA.exception.DuplicateOrderException;
 import weverse.serverA.exception.SoldOutException;
-import weverse.serverA.repository.OutboxRepository;
-import weverse.serverA.service.outbox.OutboxBatchService;
-import weverse.serverA.service.outbox.OutboxProcessor;
 
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
@@ -35,147 +29,146 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class PromotionServiceTest {
 
-    @InjectMocks private PromotionService promotionService;
+    @InjectMocks
+    private PromotionService promotionService;
 
-    @Mock private GoodsService goodsService;
-    @Mock private OutboxProcessor outboxProcessor;
-    @Mock private OutboxRepository outboxRepository;
-    @Mock private OutboxBatchService outboxBatchService;
+    @Mock
+    private RedisStockService redisStockService;
 
-    @BeforeEach
-    void setUp() {
-        Cache<Long, String> cache = (Cache<Long, String>) ReflectionTestUtils.getField(promotionService, "userCache");
-        if (cache != null) cache.invalidateAll();
+    @Mock
+    private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Mock
+    private ObjectMapper objectMapper;
+
+    @Test
+    @DisplayName("API 수신: 이미 구매한 유저라면 DuplicateOrderException 예외가 발생한다.")
+    void acceptPurchase_DuplicateUser_ThrowsException() {
+        // Given
+        PurchaseMessage msg = createDummyMessage();
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(false); // 중복 구매 판정
+
+        // When & Then
+        assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
+                .isInstanceOf(DuplicateOrderException.class);
+
+        // 검증: 재고 차감 로직이나 Kafka 전송이 절대 호출되지 않아야 함
+        verify(redisStockService, never()).reserveStock(anyLong(), anyInt());
+        verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString());
     }
 
     @Test
-    @DisplayName("API 수신: 큐 진입 전 품절된 상품이면 즉시 SoldOutException이 발생한다.")
-    void acceptPurchase_SoldOut_EarlyExit() {
+    @DisplayName("API 수신: 재고가 부족하면 SoldOutException 예외가 발생하고 유저 구매 플래그가 롤백된다.")
+    void acceptPurchase_SoldOut_ThrowsException() {
         // Given
         PurchaseMessage msg = createDummyMessage();
-        given(goodsService.isSoldOut(msg.goodsId())).willReturn(true);
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true); // 통과
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(false); // 품절 판정
 
         // When & Then
         assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
                 .isInstanceOf(SoldOutException.class);
+
+        // 검증: 재고 부족 시 확보했던 유저 구매 플래그를 다시 해제해야 함
+        verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
+        verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString());
     }
 
     @Test
-    @DisplayName("API 수신: 큐가 꽉 찼을 경우 QueueFullException이 발생한다.")
-    void acceptPurchase_QueueFull() {
+    @DisplayName("API 수신: Redis 검증 통과 및 Kafka 전송 성공 시 예외 없이 정상 종료된다.")
+    void acceptPurchase_Success() throws Exception {
         // Given
-        BlockingQueue<PurchaseMessage> tinyQueue = new ArrayBlockingQueue<>(1);
-        tinyQueue.offer(mock(PurchaseMessage.class));
-        ReflectionTestUtils.setField(promotionService, "memoryQueue", tinyQueue);
-
         PurchaseMessage msg = createDummyMessage();
-        given(goodsService.isSoldOut(msg.goodsId())).willReturn(false);
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
+        given(objectMapper.writeValueAsString(msg)).willReturn("{\"payload\":\"test\"}");
+
+        // Kafka Future 모킹 (정상 응답)
+        CompletableFuture<SendResult<String, String>> future = mock(CompletableFuture.class);
+        given(kafkaTemplate.send(eq("purchase_events"), eq(String.valueOf(msg.userId())), anyString())).willReturn(future);
+        given(future.get(3, TimeUnit.SECONDS)).willReturn(mock(SendResult.class));
+
+        // When & Then
+        assertDoesNotThrow(() -> promotionService.acceptPurchase(msg));
+
+        // 검증: 성공했으므로 롤백 메서드가 호출되지 않아야 함
+        verify(redisStockService, never()).releaseStock(anyLong(), anyInt());
+        verify(redisStockService, never()).releaseUserPurchase(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("API 수신: Kafka 전송 중 타임아웃 발생 시 롤백이 진행되고 RuntimeException이 발생한다.")
+    void acceptPurchase_KafkaTimeout_RollbacksAndThrows() throws Exception {
+        // Given
+        PurchaseMessage msg = createDummyMessage();
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
+        given(objectMapper.writeValueAsString(msg)).willReturn("{\"payload\":\"test\"}");
+
+        // Kafka Future 모킹 (타임아웃 발생)
+        CompletableFuture<SendResult<String, String>> future = mock(CompletableFuture.class);
+        given(kafkaTemplate.send(anyString(), anyString(), anyString())).willReturn(future);
+        given(future.get(3, TimeUnit.SECONDS)).willThrow(new TimeoutException("Kafka Timeout"));
 
         // When & Then
         assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
-                .isInstanceOf(QueueFullException.class)
-                .hasMessageContaining("대기열 합류에 실패");
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("주문 처리 지연");
+
+        // 검증: 타임아웃 예외가 터졌으므로 재고 및 유저 구매 플래그가 모두 롤백되어야 함
+        verify(redisStockService, times(1)).releaseStock(msg.goodsId(), msg.quantity());
+        verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
     }
 
     @Test
-    @DisplayName("큐 플러시: DB Batch Insert가 실패하더라도 예외를 먹고 스케줄러가 죽지 않아야 한다.")
-    void flushToOutbox_FailsGracefully() {
+    @DisplayName("API 수신: Kafka 전송 중 시스템 오류 발생 시 롤백이 진행되고 RuntimeException이 발생한다.")
+    void acceptPurchase_KafkaException_RollbacksAndThrows() throws Exception {
         // Given
         PurchaseMessage msg = createDummyMessage();
-        given(goodsService.isSoldOut(msg.goodsId())).willReturn(false);
-        promotionService.acceptPurchase(msg);
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
+        given(objectMapper.writeValueAsString(msg)).willReturn("{\"payload\":\"test\"}");
 
-        doThrow(new RuntimeException("DB 터짐")).when(outboxBatchService).batchInsert(anyList());
+        // Kafka Future 모킹 (일반 시스템 에러 발생)
+        CompletableFuture<SendResult<String, String>> future = mock(CompletableFuture.class);
+        given(kafkaTemplate.send(anyString(), anyString(), anyString())).willReturn(future);
+        given(future.get(3, TimeUnit.SECONDS)).willThrow(new RuntimeException("Kafka Broker Down"));
 
         // When & Then
-        assertDoesNotThrow(() -> promotionService.flushToOutbox());
+        assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("시스템 오류");
 
-        BlockingQueue<PurchaseMessage> queue = (BlockingQueue<PurchaseMessage>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
-        assertThat(queue).isEmpty();
+        // 검증: 예외가 터졌으므로 롤백되어야 함
+        verify(redisStockService, times(1)).releaseStock(msg.goodsId(), msg.quantity());
+        verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
     }
 
     @Test
-    @DisplayName("큐 플러시: 품절 확정된 상품 요청은 DB 삽입 없이 드랍하고, 정상 요청만 배치 삽입한다.")
-    void flushToOutbox_DropsSoldOutTasks() {
-        // Given: 품절 상품(goodsId=1)과 정상 상품(goodsId=2) 혼재
-        PurchaseMessage soldOutMsg = new PurchaseMessage("trace-sold", 1L, 1L, 1, "C", "A", "1", "0", "E", "M", "I");
-        PurchaseMessage validMsg   = new PurchaseMessage("trace-valid", 2L, 2L, 1, "C", "A", "1", "0", "E", "M", "I");
-
-        given(goodsService.isSoldOut(1L)).willReturn(true);
-        given(goodsService.isSoldOut(2L)).willReturn(false);
-
-        promotionService.acceptPurchase(validMsg);
-
-        BlockingQueue<PurchaseMessage> queue = (BlockingQueue<PurchaseMessage>) ReflectionTestUtils.getField(promotionService, "memoryQueue");
-        queue.offer(soldOutMsg);
-
-        // When
-        promotionService.flushToOutbox();
-
-        // Then: validMsg만 batchInsert 호출
-        verify(outboxBatchService).batchInsert(argThat(list ->
-                list.size() == 1 &&
-                        ((PurchaseMessage) list.get(0)).traceId().equals("trace-valid")
-        ));
-        assertThat(queue).isEmpty();
-    }
-
-    @Test
-    @DisplayName("팬딩 처리: 품절 goodsId가 있으면 DB 조회 이전에 해당 PENDING 레코드를 bulk FAIL 처리한다.")
-    void processPendingRequests_BulkFailsSoldOutGoods() {
+    @DisplayName("API 수신: 객체 직렬화 실패 시 롤백이 진행되고 RuntimeException이 발생한다.")
+    void acceptPurchase_JsonProcessingException_RollbacksAndThrows() throws Exception {
         // Given
-        given(goodsService.getSoldOutGoodsIds()).willReturn(Set.of(1L));
-        given(outboxRepository.bulkFailPendingByGoodsIds(anyList())).willReturn(5);
-        given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
-                .willReturn(List.of());
+        PurchaseMessage msg = createDummyMessage();
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
 
-        // When
-        promotionService.processPendingRequests();
+        // 직렬화 실패 예외 모킹 (JsonProcessingException은 abstract이므로 mock으로 생성)
+        JsonProcessingException jsonException = mock(JsonProcessingException.class);
+        given(objectMapper.writeValueAsString(msg)).willThrow(jsonException);
 
-        // Then
-        var inOrder = inOrder(outboxRepository);
-        inOrder.verify(outboxRepository).bulkFailPendingByGoodsIds(List.of(1L));
-        inOrder.verify(outboxRepository).findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class));
-        verify(outboxProcessor, never()).processSingleItem(any(RequestOutbox.class));
+        // When & Then
+        assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("직렬화 실패");
+
+        // 검증: 직렬화 실패 시에도 롤백이 보장되어야 함
+        verify(redisStockService, times(1)).releaseStock(msg.goodsId(), msg.quantity());
+        verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
+        verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString()); // 카프카 전송은 시도조차 안 함
     }
 
-    @Test
-    @DisplayName("팬딩 처리: 품절 goodsId가 없으면 bulk FAIL 없이 바로 PENDING 조회한다.")
-    void processPendingRequests_SkipsBulkFailWhenNoSoldOut() {
-        // Given
-        given(goodsService.getSoldOutGoodsIds()).willReturn(Set.of());
-        given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
-                .willReturn(List.of());
-
-        // When
-        promotionService.processPendingRequests();
-
-        // Then
-        verify(outboxRepository, never()).bulkFailPendingByGoodsIds(anyList());
-    }
-
-    @Test
-    @DisplayName("팬딩 처리: 메모리 캐시에 이미 등록된 유저의 다른 TraceId 요청이 오면 DB 접근 없이 즉시 FAIL 처리한다.")
-    void processPendingRequests_MemoryDuplicateBlock() {
-        // Given
-        Cache<Long, String> cache = (Cache<Long, String>) ReflectionTestUtils.getField(promotionService, "userCache");
-        cache.put(1L, "trace-old");
-
-        RequestOutbox duplicateOutbox = RequestOutbox.builder().traceId("trace-new").userId(1L).build();
-        ReflectionTestUtils.setField(duplicateOutbox, "id", 100L);
-
-        given(outboxRepository.findByStatus(eq(OutboxStatus.PENDING), any(PageRequest.class)))
-                .willReturn(List.of(duplicateOutbox));
-
-        // When
-        promotionService.processPendingRequests();
-
-        // Then
-        verify(outboxProcessor).markAsFailDirectly(duplicateOutbox);
-        verify(outboxProcessor, never()).processSingleItem(any(RequestOutbox.class));
-    }
-
+    // 헬퍼 메서드
     private PurchaseMessage createDummyMessage() {
-        return new PurchaseMessage("trace-1", 1L, 1L, 1, "CARD", "ADDR", "123", "010", "A", "M", "IP");
+        return new PurchaseMessage("trace-1", 1L, 1L, 1, "CARD", "ADDR", "123", "010", "test@test.com", "memo", "127.0.0.1");
     }
 }
