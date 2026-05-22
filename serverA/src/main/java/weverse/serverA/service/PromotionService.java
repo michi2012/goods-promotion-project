@@ -30,7 +30,7 @@ import java.util.concurrent.*;
 public class PromotionService {
 
     // Bounded Queue
-    private final BlockingQueue<PurchaseTask> memoryQueue = new LinkedBlockingQueue<>();
+    private final BlockingQueue<PurchaseTask> memoryQueue = new LinkedBlockingQueue<>(10_000);
 
     private final GoodsService goodsService;
     private final OutboxProcessor outboxProcessor;
@@ -48,7 +48,6 @@ public class PromotionService {
 
         // 큐 진입 전, GoodsService에게 품절 여부를 질의
         if (goodsService.isSoldOut(message.goodsId())) {
-            log.info("[조기 차단] 이미 품절된 상품입니다. GoodsId: {}", message.goodsId());
             throw new SoldOutException();
         }
 
@@ -68,7 +67,7 @@ public class PromotionService {
         List<PurchaseTask> tasks = new ArrayList<>();
         memoryQueue.drainTo(tasks, 500);
 
-        // 품절 확정된 상품 요청은 DB I/O 없이 조기 제거 (audit 로그 보존)
+        // 품절 확정된 상품 요청은 DB I/O 없이 조기 제거
         List<PurchaseTask> validTasks = new ArrayList<>();
         List<PurchaseTask> soldOutTasks = new ArrayList<>();
         for (PurchaseTask task : tasks) {
@@ -80,8 +79,9 @@ public class PromotionService {
         }
 
         if (!soldOutTasks.isEmpty()) {
-            log.info("[품절 조기 제거] 큐 드랍: {}건", soldOutTasks.size());
-            fallbackToLogFile(soldOutTasks);
+            log.info("[품절 조기 제거] 큐 드랍: {}건 | goodsId: {}",
+                    soldOutTasks.size(),
+                    soldOutTasks.get(0).message().goodsId());
         }
 
         if (validTasks.isEmpty()) return;

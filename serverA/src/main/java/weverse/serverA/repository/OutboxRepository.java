@@ -41,7 +41,8 @@ public interface OutboxRepository extends JpaRepository<RequestOutbox, Long> {
 
     @Modifying(clearAutomatically = true)
     @Transactional
-    @Query("UPDATE RequestOutbox r SET r.status = 'FAIL' WHERE r.status = 'PENDING' AND r.goodsId IN :goodsIds")
+    @Query(value = "UPDATE request_outbox SET status = 'FAIL' WHERE status = 'PENDING' AND goods_id IN :goodsIds",
+            nativeQuery = true)
     int bulkFailPendingByGoodsIds(@Param("goodsIds") List<Long> goodsIds);
 
     @Modifying
