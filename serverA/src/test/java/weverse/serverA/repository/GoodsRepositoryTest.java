@@ -62,4 +62,19 @@ class GoodsRepositoryTest {
         int currentStock = goodsRepository.findStockById(goods.getId());
         assertThat(currentStock).isEqualTo(7); // 5 + 2 = 7
     }
+
+    @Test
+    @DisplayName("단순 재고 차감 성공: Redis 검증을 신뢰하고 WHERE 조건 없이 즉시 재고를 차감한다.")
+    void decreaseStock_Success() {
+        // Given
+        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10));
+
+        // When
+        goodsRepository.decreaseStock(goods.getId(), 3);
+
+        // Then
+        // Modifying(clearAutomatically = true)가 적용되어 있으므로 바로 조회해도 반영된 값을 가져옵니다.
+        int currentStock = goodsRepository.findStockById(goods.getId());
+        assertThat(currentStock).isEqualTo(7); // 10 - 3 = 7
+    }
 }
