@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import weverse.serverA.dto.PurchaseMessage;
+import weverse.serverA.dto.StockSnapshotMessage;
 import weverse.serverA.exception.DuplicateOrderException;
 import weverse.serverA.exception.SoldOutException;
 
@@ -23,6 +24,7 @@ public class PromotionService {
     private final ObjectMapper objectMapper;
 
     private static final String PURCHASE_TOPIC = "purchase_events";
+    private static final String STOCK_SNAPSHOT_TOPIC = "stock-snapshot";
 
     public void acceptPurchase(PurchaseMessage message) {
         // 1. 중복 구매 방어 (Redis SETNX)
@@ -37,6 +39,7 @@ public class PromotionService {
             log.info("[품절] 재고 부족 | GoodsId: {}", message.goodsId());
             throw new SoldOutException();
         }
+        publishStockSnapshot(message.goodsId());
 
         // 3. Kafka produce — 실패 시 Redis 롤백
         try {
@@ -69,6 +72,16 @@ public class PromotionService {
     private void rollbackRedis(PurchaseMessage message) {
         redisStockService.releaseStock(message.goodsId(), message.quantity());
         redisStockService.releaseUserPurchase(message.userId(), message.goodsId());
+    }
+
+    private void publishStockSnapshot(Long goodsId) {
+        try {
+            Long remaining = redisStockService.getCurrentStock(goodsId);
+            String payload = objectMapper.writeValueAsString(new StockSnapshotMessage(goodsId, remaining));
+            kafkaTemplate.send(STOCK_SNAPSHOT_TOPIC, String.valueOf(goodsId), payload);
+        } catch (Exception e) {
+            log.warn("[stock-snapshot] produce 실패 (무시): goodsId={}, error={}", goodsId, e.getMessage());
+        }
     }
 
 }

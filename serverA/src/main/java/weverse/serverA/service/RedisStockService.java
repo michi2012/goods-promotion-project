@@ -48,6 +48,11 @@ public class RedisStockService {
         redisTemplate.opsForValue().increment(stockKey(goodsId), quantity);
     }
 
+    public Long getCurrentStock(Long goodsId) {
+        String val = redisTemplate.opsForValue().get(stockKey(goodsId));
+        return val != null ? Long.parseLong(val) : 0L;
+    }
+
     /**
      * @return true: 최초 구매 시도 (구매 진행 가능) / false: 이미 구매한 유저 (중복)
      */

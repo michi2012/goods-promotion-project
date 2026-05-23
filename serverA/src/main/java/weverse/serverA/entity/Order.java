@@ -8,14 +8,15 @@ import lombok.NoArgsConstructor;
 
 @Entity
 @Table(
-        name = "request_outbox",
+        name = "orders",
         indexes = {
-                @Index(name = "idx_outbox_status_created", columnList = "status, created_at")
+                @Index(name = "idx_orders_trace_id", columnList = "trace_id"),
+                @Index(name = "idx_orders_status_created", columnList = "status, created_at")
         }
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class RequestOutbox extends BaseTimeEntity {
+public class Order extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -56,12 +57,13 @@ public class RequestOutbox extends BaseTimeEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private OutboxStatus status;
+    private OrderStatus status;
 
     @Builder
-    public RequestOutbox(String traceId, Long userId, Long goodsId, int quantity,
-                         String paymentMethod, String shippingAddress, String zipCode,
-                         String phoneNumber, String email, String deliveryMemo, String clientIp, OutboxStatus status) {
+    public Order(String traceId, Long userId, Long goodsId, int quantity,
+                 String paymentMethod, String shippingAddress, String zipCode,
+                 String phoneNumber, String email, String deliveryMemo,
+                 String clientIp, OrderStatus status) {
         this.traceId = traceId;
         this.userId = userId;
         this.goodsId = goodsId;
@@ -76,33 +78,15 @@ public class RequestOutbox extends BaseTimeEntity {
         this.status = status;
     }
 
-    public void markAsSuccess() {
-        if (this.status != OutboxStatus.PENDING && this.status != OutboxStatus.PUBLISHING) {
-            throw new IllegalStateException("PENDING 또는 PUBLISHING 상태에서만 SUCCESS로 변경할 수 있습니다.");
-        }
-        this.status = OutboxStatus.SUCCESS;
+    public void markAsPaid() {
+        this.status = OrderStatus.PAID;
     }
 
-    public void markAsFail() {
-        this.status = OutboxStatus.FAIL;
+    public void markAsFailed() {
+        this.status = OrderStatus.FAILED;
     }
 
-    public void markAsPublishing() {
-        if (this.status != OutboxStatus.SUCCESS) {
-            throw new IllegalStateException("SUCCESS 상태에서만 PUBLISHING으로 변경할 수 있습니다.");
-        }
-        this.status = OutboxStatus.PUBLISHING;
+    public void markAsExpired() {
+        this.status = OrderStatus.EXPIRED;
     }
-
-    public void markAsSent() {
-        if (this.status != OutboxStatus.PUBLISHING) {
-            throw new IllegalStateException("PUBLISHING 상태에서만 SENT로 변경할 수 있습니다.");
-        }
-        this.status = OutboxStatus.SENT;
-    }
-
-    public void markAsCompensated() {
-        this.status = OutboxStatus.COMPENSATED;
-    }
-
 }
