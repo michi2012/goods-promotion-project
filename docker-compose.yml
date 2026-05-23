@@ -19,6 +19,11 @@ services:
       retries: 10
     networks:
       - promo-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
 
   # 2. Redis
   redis:
@@ -30,6 +35,11 @@ services:
       TZ: Asia/Seoul
     networks:
       - promo-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
 
   # 3. SERVER C (최종 저장)
   server-c:
@@ -108,8 +118,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 2G
+          cpus: '2.0'
+          memory: 4G
 
 networks:
   promo-network:
