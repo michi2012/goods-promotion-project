@@ -8,14 +8,36 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:mysql://localhost:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
-    username: root
-    password: worldcup7!
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:worldcup7!}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
       ddl-auto: create
     show-sql: false
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 120000
+        linger.ms: 10
+        batch.size: 130000
+        compression-type: zstd
+        request.timeout.ms: 30000
+    consumer:
+      group-id: server-c-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        max.poll.interval.ms: 600000
+        max.poll.records: 500
 
 logging:
   level:
