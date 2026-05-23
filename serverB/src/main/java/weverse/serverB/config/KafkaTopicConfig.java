@@ -25,19 +25,11 @@ public class KafkaTopicConfig {
                            .build();
     }
 
-    // 2. stock-snapshot 토픽과 DLT
+    // 2. stock-snapshot 토픽 (fire-and-forget 설계 — DLT 없음)
     @Bean
     public NewTopic stockSnapshotTopic() {
         return TopicBuilder.name("stock-snapshot")
                            .partitions(3)
-                           .replicas(1)
-                           .build();
-    }
-
-    @Bean
-    public NewTopic stockSnapshotDltTopic() {
-        return TopicBuilder.name("stock-snapshot.DLT")
-                           .partitions(1)
                            .replicas(1)
                            .build();
     }

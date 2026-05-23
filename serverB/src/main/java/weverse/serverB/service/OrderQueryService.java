@@ -5,6 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -27,6 +30,15 @@ public class OrderQueryService {
 
     public void updateStockView(Long goodsId, Long remainingStock) {
         redisTemplate.opsForValue().set(STOCK_VIEW_PREFIX + goodsId, String.valueOf(remainingStock));
+    }
+
+    public void batchUpdateStockView(Map<Long, Long> stockMap) {
+        Map<String, String> redisMap = stockMap.entrySet().stream()
+                .collect(Collectors.toMap(
+                        e -> STOCK_VIEW_PREFIX + e.getKey(),
+                        e -> String.valueOf(e.getValue())
+                ));
+        redisTemplate.opsForValue().multiSet(redisMap);
     }
 
     public Long getStockView(Long goodsId) {
