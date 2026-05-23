@@ -1,6 +1,3 @@
 package weverse.serverB.dto;
 
-public record OrderStatusResponse(
-        String userId,
-        String status
-) {}
+public record OrderStatusResponse(String traceId, String status) {}
