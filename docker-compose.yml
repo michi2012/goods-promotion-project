@@ -12,15 +12,20 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-    healthcheck: # 💡 DB 엔진이 완전히 부팅되었는지 검사
+    healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
       interval: 5s
       timeout: 5s
       retries: 10
     networks:
       - promo-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
 
-  # 2. Redis
+  # 2. Redis (serverA 전용 — 쓰기/원자 연산)
   redis:
     image: redis:7.0-alpine
     container_name: weverse-redis
@@ -30,8 +35,67 @@ services:
       TZ: Asia/Seoul
     networks:
       - promo-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
 
-  # 3. SERVER C (최종 저장)
+  # 2-b. Redis (serverB 전용 — 읽기/복제 뷰)
+  redis-b:
+    image: redis:7.0-alpine
+    container_name: weverse-redis-b
+    ports:
+      - "6380:6379"
+    environment:
+      TZ: Asia/Seoul
+    networks:
+      - promo-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # 3. Kafka (Bitnami 이미지 사용 - KRaft 모드)
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: weverse-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      TZ: Asia/Seoul
+      # Bitnami 전용 KRaft 설정
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # 파티션 및 로그 설정
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks:
+      - promo-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+    # 이 헬스체크 블록이 반드시 있어야 서버 A, B, C가 실행됩니다.
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+
+  # 4. SERVER C (최종 저장)
   server-c:
     build:
       context: ./serverC
@@ -44,8 +108,11 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       mysql:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - promo-network
@@ -56,7 +123,7 @@ services:
           cpus: '1.0'
           memory: 2G
 
-  # 4. SERVER B (파이프라인)
+  # 5. SERVER B (파이프라인)
   server-b:
     build:
       context: ./serverB
@@ -66,13 +133,17 @@ services:
       - "8081:8081"
     environment:
       TZ: Asia/Seoul
-      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: redis-b
       SPRING_DATA_REDIS_PORT: 6379
-      EXTERNAL_SERVER_C_URL: http://server-c:8082
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EXTERNAL_SERVER_A_URL: http://server-a:8080
     depends_on:
-      - redis
-      - server-c
+      redis-b:
+        condition: service_started
+      server-c:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     networks:
       - promo-network
     restart: on-failure
@@ -82,7 +153,7 @@ services:
           cpus: '1.0'
           memory: 2G
 
-  # 5. SERVER A (동시성 제어 입구)
+  # 6. SERVER A (동시성 제어 입구)
   server-a:
     build:
       context: ./serverA
@@ -95,10 +166,16 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
-      EXTERNAL_SERVER_B_URL: http://server-b:8081
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       mysql:
-        condition: service_healthy # Hibernate Dialect 에러 방지를 위해 DB 대기
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
       server-b:
         condition: service_started
     networks:
@@ -114,3 +191,6 @@ services:
 networks:
   promo-network:
     driver: bridge
+
+volumes:
+  kafka-data:
