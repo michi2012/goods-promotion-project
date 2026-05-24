@@ -1,70 +1,46 @@
-# 맥락 노트: Redis 물리 분리 + stock-snapshot 복제
+# 맥락 노트: 품절 로컬 캐시(Server A) + 재고 조회 read-through 캐시(Server B)
 
 ## 왜 이 방식을 선택했는가
 
-Redis는 싱글 스레드로 명령을 처리한다. serverA와 serverB가 동일한 Redis를 공유하면, 선착순 트래픽에서 쏟아지는 조회 요청이 Redis 자원을 선점하여 가장 중요한 Lua 재고 차감 연산이 타임아웃으로 실패할 수 있다.
+### Server A 품절 캐시
+플래시 세일에서 재고 소진 이후에도 수천 건의 요청이 Redis Lua 스크립트를 두드린다.
+`reserveStock` Lua는 이미 원자적이고 빠르지만, 네트워크 왕복 자체가 누적 부하가 된다.
+"이미 품절임을 알고 있는" 상태를 인메모리에 기억하면, 품절 이후 모든 요청을 Redis 0회로 처리할 수 있다.
+`releaseStock` 시 즉시 무효화하여 보상 트랜잭션(Saga 실패 후 재고 복구) 정확성을 보장한다.
 
-해결 원칙: 쓰기(serverA)와 읽기(serverB)를 물리적으로 완전히 단절.
-
-- serverA Redis (6379): 재고 Lua 차감, SagaState, 유저 중복 방어. 원본 데이터 전용. 조회 트래픽 차단.
-- serverB Redis (6380): 복제 뷰 데이터 전용. 수많은 새로고침·조회 트래픽 흡수.
-
-복제 수단으로 Kafka를 선택한 이유: 이미 두 서버 간 Kafka 채널이 존재하고, 추가 인프라 없이 이벤트 기반 복제가 가능하다.
+### Server B read-through 캐시
+Server B Redis는 쓰기 경합이 없지만, 사용자 폴링으로 인한 읽기 폭발에 취약하다.
+`getStockView()` 호출마다 Redis 왕복이 발생하므로, TTL 2초짜리 로컬 캐시로 읽기 부하를 대부분 차단한다.
+`updateStockView()` 시 캐시도 동시 갱신하여 재고 변동이 즉시 반영되도록 한다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: Redis Replica (Read Replica) 구성
-- 무엇: Redis 자체의 replication 기능으로 slave 노드를 serverB 전용으로 운영
-- 왜 안 썼나: 요구사항이 Kafka 이벤트 기반 복제. 또한 slave는 master와 동일 키 구조를 그대로 노출하므로 키 분리 설계 불가.
+### Server A: 별도 SoldOutCacheService 분리
+- 무엇: 품절 캐시를 독립 컴포넌트로 분리
+- 왜 안 썼나: 재고 연산(reserveStock, releaseStock)과 캐시 조작이 항상 함께 발생하므로
+  RedisStockService 내부에 두는 것이 응집도가 높고 호출부 수정을 최소화함
 
-### 대안 B: serverA Redis에 DB 번호 분리 (DB 0 / DB 1)
-- 무엇: 같은 Redis 인스턴스에서 `SELECT 1`로 읽기용 DB 분리
-- 왜 안 썼나: 싱글 스레드 문제가 해결되지 않음. 조회 트래픽이 여전히 같은 이벤트 루프를 점유.
+### Server A: ConcurrentHashMap 사용
+- 무엇: Caffeine 대신 ConcurrentHashMap으로 품절 플래그 관리
+- 왜 안 썼나: TTL 안전망이 없어 releaseStock 누락 시 영구 차단 위험.
+  Caffeine TTL 60초로 방어선 추가
 
-### 대안 C: status-update-result 라운드트립 제거 (Saga 단순화)
-- 무엇: serverB가 결과 이벤트를 produce하지 않고, Saga는 payment-result만으로 완료 판단
-- 왜 안 썼나: serverA가 "두 작업 모두 완료"를 확인하여 원자성을 보장해야 한다는 요구사항 유지 결정.
+### Server B: Spring Cache 추상화(@Cacheable) 사용
+- 무엇: @EnableCaching + @Cacheable 어노테이션으로 캐시 적용
+- 왜 안 썼나: updateStockView에서 캐시를 직접 갱신해야 하는 요구사항 때문에
+  직접 제어가 더 명확함. 추상화 레이어가 불필요한 복잡도 추가.
 
-## 핵심 설계 결정
-
-### stock-snapshot 발행 시점: PromotionService (Lua 차감 직후)
-- PurchaseKafkaConsumer(DB INSERT 후) 대비 더 빠른 복제
-- Kafka produce 실패나 Saga 롤백 시 serverB 재고가 stale 상태 유지 가능하지만, 조회용 뷰이므로 eventual consistency 허용
-
-### stock-snapshot 발행 추가 시점: SagaOrchestratorService.handleSagaFailure
-- 보상 트랜잭션으로 재고가 복구될 때도 serverB에 반영해야 뷰가 stale 상태로 고착되지 않음
-
-### serverB Redis 키 구조
+## 품절 캐시 무효화 경로
 ```
-goods:view:stock:{goodsId}       — 재고 뷰 (Long, 문자열 저장)
-order:view:{traceId}:status      — 주문 상태 뷰 (PENDING / PAID / FAILED / EXPIRED)
+releaseStock 호출 위치 두 곳:
+  1. PromotionService.rollbackRedis()   → Kafka 실패 시 재고 반환
+  2. SagaOrchestratorService.handleSagaFailure() → Saga 보상 트랜잭션
+
+두 곳 모두 RedisStockService.releaseStock()을 경유
+→ 내부에서 soldOutCache.invalidate() 처리되므로 호출부 수정 불필요
 ```
-
-### stock-snapshot 파티셔닝 키: goodsId
-- 동일 goodsId에 대한 이벤트가 같은 파티션에 순서대로 전달됨 → 역전 가능성 최소화
-
-## 기존 코드베이스 컨벤션
-
-- 디렉토리 구조: `controller/ → service/ → repository/` + `kafka/` (Consumer) + `scheduler/`
-- DTO: record 사용 (`PurchaseMessage`, `OrderStatusMessage` 등)
-- 엔티티: `@Getter + @NoArgsConstructor(PROTECTED) + @Builder + 도메인 메서드`
-- Redis 키: `goods:stock:{id}`, `user:purchase:{userId}:{goodsId}`, `saga:state:{traceId}`
-- KafkaConsumerConfig: DLT는 `record.topic() + ".DLT"` 자동 라우팅
 
 ## 관련 파일/위치
-
-**serverA:**
-- `service/PromotionService.java` — reserveStock 성공 후 stock-snapshot produce 추가
-- `service/SagaOrchestratorService.java` — handleSagaFailure 내 releaseStock 후 produce 추가
-- `service/RedisStockService.java` — getCurrentStock 메서드 추가
-- `dto/StockSnapshotMessage.java` — 신규
-
-**serverB:**
-- `kafka/StockSnapshotConsumer.java` — 신규
-- `service/OrderQueryService.java` — traceId 기반 키 + stock 뷰 메서드
-- `controller/OrderQueryController.java` — URL 변경 + 재고 API
-- `dto/StockSnapshotMessage.java` — 신규
-
-**인프라:**
-- `docker-compose.yml` — redis-b 컨테이너 추가
-- `serverB/application.yaml` — 로컬 Redis 포트 6380
+- `serverA/.../service/RedisStockService.java` — 품절 캐시 보관 및 조작
+- `serverA/.../service/PromotionService.java` — 품절 사전 차단 (tryMarkUserPurchased 이전)
+- `serverB/.../service/OrderQueryService.java` — read-through 캐시

@@ -27,13 +27,18 @@ public class PromotionService {
     private static final String STOCK_SNAPSHOT_TOPIC = "stock-snapshot";
 
     public void acceptPurchase(PurchaseMessage message) {
-        // 1. 중복 구매 방어 (Redis SETNX)
+        // 1. 품절 캐시 선 차단 (Redis 왕복 없이 즉시 거절)
+        if (redisStockService.isKnownSoldOut(message.goodsId())) {
+            throw new SoldOutException();
+        }
+
+        // 2. 중복 구매 방어 (Redis SETNX)
         if (!redisStockService.tryMarkUserPurchased(message.userId(), message.goodsId())) {
             log.info("[중복 구매 차단] UserId: {} | GoodsId: {}", message.userId(), message.goodsId());
             throw new DuplicateOrderException();
         }
 
-        // 2. 재고 선점 (Redis Lua)
+        // 3. 재고 선점 (Redis Lua)
         if (!redisStockService.reserveStock(message.goodsId(), message.quantity())) {
             redisStockService.releaseUserPurchase(message.userId(), message.goodsId());
             log.info("[품절] 재고 부족 | GoodsId: {}", message.goodsId());
@@ -41,7 +46,7 @@ public class PromotionService {
         }
         publishStockSnapshot(message.goodsId());
 
-        // 3. Kafka produce — 실패 시 Redis 롤백
+        // 4. Kafka produce — 실패 시 Redis 롤백
         try {
             String payload = objectMapper.writeValueAsString(message);
 

@@ -1,5 +1,7 @@
 package weverse.serverA.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -8,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -15,6 +18,10 @@ import java.util.List;
 public class RedisStockService {
 
     private final StringRedisTemplate redisTemplate;
+
+    private final Cache<Long, Boolean> soldOutCache = Caffeine.newBuilder()
+            .expireAfterWrite(60, TimeUnit.SECONDS)
+            .build();
 
     // stock > 0이면 DECRBY 후 남은 재고 반환, 부족하면 -1 반환
     private static final DefaultRedisScript<Long> RESERVE_SCRIPT = new DefaultRedisScript<>("""
@@ -40,12 +47,21 @@ public class RedisStockService {
      */
     public boolean reserveStock(Long goodsId, int quantity) {
         Long result = redisTemplate.execute(RESERVE_SCRIPT, List.of(stockKey(goodsId)), String.valueOf(quantity));
-        return result != null && result >= 0;
+        boolean success = result != null && result >= 0;
+        if (!success) {
+            soldOutCache.put(goodsId, true);
+        }
+        return success;
+    }
+
+    public boolean isKnownSoldOut(Long goodsId) {
+        return Boolean.TRUE.equals(soldOutCache.getIfPresent(goodsId));
     }
 
     // Kafka produce 실패 시 선점한 재고를 복구
     public void releaseStock(Long goodsId, int quantity) {
         redisTemplate.opsForValue().increment(stockKey(goodsId), quantity);
+        soldOutCache.invalidate(goodsId);
     }
 
     public Long getCurrentStock(Long goodsId) {

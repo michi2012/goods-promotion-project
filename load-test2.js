@@ -16,8 +16,8 @@ export const options = {
     scenarios: {
         flash_sale_scenario: {
             executor: 'shared-iterations',
-            vus: 1000,
-            iterations: 100000,
+            vus: 5000,
+            iterations: 500000,
             maxDuration: '2m',
         },
     },
@@ -31,7 +31,7 @@ export default function () {
     // 80% 확률로 조회 트래픽 발생
     if (randomValue < 0.8) {
         // 조회 서버는 server-b 입니다.
-        const readUrl = 'http://weverse-server-b:8081/api/v1/goods/2/stock';
+        const readUrl = 'http://weverse-server-b:8081/api/v1/goods/1/stock';
         const res = http.get(readUrl);
 
         if (res.status === 200) {
@@ -52,7 +52,7 @@ export default function () {
 
         const payload = JSON.stringify({
             userId: uniqueUserId,
-            goodsId: 2,
+            goodsId: 1,
             quantity: 1,
             paymentMethod: 'CARD',
             shippingAddress: '서울특별시 강남구 테헤란로 123',
