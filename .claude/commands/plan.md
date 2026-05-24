@@ -93,6 +93,7 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 ## Step 3. `docs/context.md` 작성
 
 미래의 나(또는 다른 개발자)가 이 결정을 이해할 수 있도록 작성한다.
+파일을 처음 작성할 때 내부 Write 도구에서 에러가 발생하지 않도록, 파일이 존재하지 않는다면 PowerShell 명령어(예: New-Item -Path docs\context.md -ItemType File)를 사용해 빈 파일을 먼저 생성한 후 내용을 작성하라. 경로 작성 시 윈도우 환경에 맞게 백슬래시(\)를 사용하라.
 
 ```markdown
 # 맥락 노트: [작업 제목]
@@ -129,6 +130,7 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 ## Step 4. `docs/checklist.md` 작성
 
 작업 진행 추적용. 단순하고 실용적으로.
+파일을 처음 작성할 때 내부 Write 도구에서 에러가 발생하지 않도록, 파일이 존재하지 않는다면 PowerShell 명령어(예: New-Item -Path docs\checklist.md -ItemType File)를 사용해 빈 파일을 먼저 생성한 후 내용을 작성하라. 경로 작성 시 윈도우 환경에 맞게 백슬래시(\)를 사용하라.
 
 ```markdown
 # 체크리스트: [작업 제목]

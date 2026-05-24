@@ -1,105 +1,100 @@
-﻿# 계획서: 트랜잭셔널 아웃박스 패턴 도입 (DB Polling 방식)
+# 계획서: DB Polling → CDC (Debezium) 전환
 
 - 작성일: 2026-05-24
-- 관련 이슈: ServerA/C Kafka 전송 실패 시 데이터 정합성 파괴 문제
+- 이전 작업: 트랜잭셔널 아웃박스 패턴 도입 (완료)
 
 ## 목표
 
-ServerA와 ServerC의 Kafka 발행을 DB 트랜잭션과 원자적으로 묶어, Kafka 브로커 장애 시에도
-메시지 유실 없이 at-least-once 발행을 보장한다. 폴링 방식으로 구현하여 추후 CDC(Debezium 등)로
-Relay 교체가 용이하도록 설계한다.
+Server A, C의 `OutboxRelayScheduler` (DB 폴링)를 제거하고,
+Kafka Connect + Debezium MySQL Connector (CDC)로 `outbox_event` 테이블 INSERT를
+자동으로 감지해 Kafka로 발행한다.
+downstream consumer(Server B 등) 코드 변경은 없다.
 
 ## 성공 기준
 
-- [ ] `outbox_event` 테이블에 비즈니스 DB 변경과 동일 트랜잭션으로 이벤트가 저장된다 (코드 확인)
-- [ ] `KafkaProduceService` 삭제 후 ServerA 빌드 통과 (`.\gradlew.bat :serverA:build`)
-- [ ] ServerC 빌드 통과 (`.\gradlew.bat :serverC:build`)
-- [ ] 2초마다 PENDING 이벤트가 Kafka에 발행되고 SENT로 상태 변경된다 (로그 확인)
-- [ ] 24시간 초과 SENT 이벤트가 주기적으로 삭제된다 (코드 확인)
-- [ ] SELECT FOR UPDATE SKIP LOCKED로 다중 인스턴스 중복 발행 방지 (코드 확인)
+- [ ] `docker-compose up` 만으로 Debezium 커넥터가 자동 등록된다
+  (검증: `curl http://localhost:8083/connectors` 응답에 `weverse-outbox-connector` 포함)
+- [ ] Server A, C 빌드 통과: `.\gradlew.bat build`
+- [ ] `OutboxRelayScheduler.java`, `OutboxStatus.java`가 Server A/C 양쪽에서 모두 삭제됨
+- [ ] `OutboxEvent` 엔티티에 `status`, `sentAt` 필드가 없음 (코드 확인)
+- [ ] `OutboxEventRepository`에 폴링/락/상태업데이트 쿼리가 없음 (코드 확인)
+- [ ] Debezium이 `outbox_event` INSERT를 캡처해 올바른 Kafka 토픽으로 라우팅함
+  (검증: `curl http://localhost:8083/connectors/weverse-outbox-connector/status` 에서 `RUNNING` 확인)
 
 ## 비범위 (Out of Scope)
 
-- ServerB: MySQL 없음, 기존 SagaTimeout(10분) fallback으로 유지
-- CDC(Debezium) 전환: 추후 Relay 스케줄러만 제거하면 전환 가능하도록 설계
-- FAILED 상태 별도 관리: retry는 PENDING 재처리로 충분, 별도 FAILED 상태 없음
-- outbox_event 테이블 파티셔닝: 현재 규모 불필요
+- Kafka Connect UI (Kafdrop, Confluent Control Center 등) 추가
+- Debezium GTID 모드 설정 (binlog 기본 ROW 모드로 충분)
+- Server B 코드 변경 (EventRouter SMT가 payload를 그대로 전달하므로 불필요)
+- FAILED/DEAD_LETTER 큐 처리
+- Debezium 고가용성 (distributed mode 등)
 
 ## 단계별 작업 계획
 
-### 단계 1: ServerA Outbox 인프라 + Relay 스케줄러 신규 파일 작성
+### 단계 1: 인프라 — docker-compose.yml + 커넥터 설정
 
-- 변경 파일 (신규):
-  - `serverA/.../outbox/OutboxStatus.java` — PENDING/SENT enum
-  - `serverA/.../outbox/OutboxEvent.java` — outbox_event 테이블 엔티티
-  - `serverA/.../outbox/OutboxEventRepository.java` — SKIP LOCKED 네이티브 쿼리 포함
-  - `serverA/.../outbox/OutboxEventService.java` — 트랜잭션 내 저장 메서드
-  - `serverA/.../outbox/OutboxRelayScheduler.java` — 2초 폴링 + 1시간 cleanup
-- 변경 파일 (수정):
-  - `serverA/.../config/SchedulingConfig.java` — pool size 3 -> 4
-- 검증 방법: `.\gradlew.bat :serverA:compileJava`
-- 롤백 방법: 신규 파일 5개 삭제, SchedulingConfig 원복
+- 변경 파일:
+  - `docker-compose.yml` — MySQL binlog 설정 추가, kafka-connect 서비스 추가, debezium-init 서비스 추가
+  - `debezium/outbox-connector.json` (신규) — Debezium MySQL connector + EventRouter SMT 설정
+- 변경 내용:
+  - MySQL: `--log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL --server-id=1` 추가
+  - `kafka-connect`: `debezium/connect:2.7` 이미지, REST API 8083 포트
+  - `debezium-init`: `curlimages/curl`, kafka-connect 헬스체크 후 connector POST
+- 검증 방법: `docker-compose up kafka-connect` 후 `curl http://localhost:8083/` 응답 확인
+- 롤백 방법: docker-compose.yml git 되돌리기, debezium/ 디렉토리 삭제
 - 예상 소요: 보통
 
-### 단계 2: ServerA 기존 코드 Outbox로 전환
+### 단계 2: Server A Spring 코드 변경
 
-- 변경 파일 (수정):
-  - `OrderCommandService.java` — OutboxEventService 주입, tx 내 2개 이벤트 저장
-    (order-status-update PENDING, payment-request)
-  - `SagaOrchestratorService.java` — KafkaTemplate 제거, OutboxEventService로 전환
-    (order-status-update PAID/FAILED/EXPIRED, order-completed, stock-snapshot)
-  - `PurchaseKafkaConsumer.java` — KafkaProduceService 의존성 제거
-- 변경 파일 (삭제):
-  - `kafka/KafkaProduceService.java`
-- 변경 파일 (수정, 테스트):
-  - `KafkaProduceServiceTest.java` — 삭제
-  - `PurchaseKafkaConsumerTest.java` — KafkaProduceService mock 제거
-  - `SagaOrchestratorServiceTest.java` — KafkaTemplate mock -> OutboxEventService mock
-  - `OrderCommandServiceTest.java` — OutboxEventService mock 추가
+- 삭제 파일:
+  - `serverA/.../outbox/OutboxRelayScheduler.java`
+  - `serverA/.../outbox/OutboxStatus.java`
+  - `serverA/src/test/.../outbox/OutboxRelaySchedulerTest.java`
+- 수정 파일:
+  - `serverA/.../outbox/OutboxEvent.java` — status, sentAt 제거, index 단순화 (created_at만)
+  - `serverA/.../outbox/OutboxEventRepository.java` — 폴링/락/상태쿼리 삭제, deleteOldEvents(created_at 기준)만 남김
+  - `serverA/.../outbox/OutboxEventServiceTest.java` — `savedEvent.getStatus()` 검증 제거
+  - `serverA/.../config/SchedulingConfig.java` — pool size 4 → 3
+- 신규 파일:
+  - `serverA/.../outbox/OutboxCleanupScheduler.java` — 1시간마다 24h 초과 레코드 삭제
 - 검증 방법: `.\gradlew.bat :serverA:build`
-- 롤백 방법: git으로 단계 1 이전 상태로 되돌림
+- 롤백 방법: git으로 단계 1 상태로 되돌리기
 - 예상 소요: 보통
 
-### 단계 3: ServerC Outbox 인프라 + Relay 스케줄러 신규 파일 작성
+### 단계 3: Server C Spring 코드 변경
 
-- 변경 파일 (신규):
-  - `serverC/.../outbox/OutboxStatus.java`
-  - `serverC/.../outbox/OutboxEvent.java`
-  - `serverC/.../outbox/OutboxEventRepository.java`
-  - `serverC/.../outbox/OutboxEventService.java`
+- 삭제 파일:
   - `serverC/.../outbox/OutboxRelayScheduler.java`
-  - `serverC/.../config/SchedulingConfig.java` — @EnableScheduling 활성화 (기존 없음)
-- 검증 방법: `.\gradlew.bat :serverC:compileJava`
-- 롤백 방법: 신규 파일 6개 삭제
-- 예상 소요: 짧음 (ServerA와 동일 패턴)
-
-### 단계 4: ServerC PaymentService Outbox로 전환
-
-- 변경 파일 (수정):
-  - `PaymentService.java` — @Transactional 추가, KafkaTemplate 제거,
-    OutboxEventService 주입, payment-result 이벤트 저장
-  - `PaymentServiceTest.java` — KafkaTemplate mock -> OutboxEventService mock
+  - `serverC/.../outbox/OutboxStatus.java`
+  - `serverC/src/test/.../outbox/OutboxRelaySchedulerTest.java`
+- 수정 파일:
+  - `serverC/.../outbox/OutboxEvent.java` — status, sentAt 제거, index 단순화
+  - `serverC/.../outbox/OutboxEventRepository.java` — 동일 단순화
+  - `serverC/.../outbox/OutboxEventServiceTest.java` — status 검증 제거
+- 신규 파일:
+  - `serverC/.../outbox/OutboxCleanupScheduler.java` — 1시간마다 cleanup
+- 유지 파일:
+  - `serverC/.../config/SchedulingConfig.java` — cleanup 스케줄러 실행에 필요
 - 검증 방법: `.\gradlew.bat :serverC:build`
-- 롤백 방법: PaymentService 원복
-- 예상 소요: 짧음
+- 롤백 방법: git으로 되돌리기
+- 예상 소요: 짧음 (Server A와 동일 패턴)
 
-### 단계 5: 전체 빌드 최종 검증
+### 단계 4: 전체 빌드 최종 검증
 
 - 검증 방법: `.\gradlew.bat build`
-- 롤백 방법: 해당 없음 (검증 단계)
+- 롤백 방법: 없음 (검증 단계)
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
 
-- **Relay 중 Kafka 장애**: Kafka send 실패 시 예외 로깅 후 SENT 미갱신 -> 다음 폴링에서 재처리.
-  at-least-once이므로 소비자 측 멱등성(traceId unique 제약 등)이 보장해야 함.
-- **JpaTransactionManager와 JdbcTemplate 공존 (ServerC)**: JpaTransactionManager가 DataSource를 관리하므로
-  @Transactional 범위 내 JdbcTemplate 호출도 동일 트랜잭션에 참여. 문제 없음.
-- **outbox_event 테이블 DDL**: ddl-auto=create/update면 자동 생성. validate/none이면 수동 DDL 필요.
+- **snapshot.mode=schema_only**: 기존 DB의 outbox_event 레코드를 재발행하지 않음. 이미 처리된 이벤트 중복 방지. Docker 재시작 시 DB 초기화되므로 실제 문제 없음.
+- **EventRouter SMT와 컬럼명 매핑**: `aggregate_id`(언더스코어) 컬럼을 `table.field.event.key=aggregate_id`로 명시. Debezium이 자동으로 camelCase → snake_case 매핑.
+- **DELETE 이벤트 노이즈**: cleanup 스케줄러가 레코드를 삭제할 때 Debezium이 DELETE CDC 이벤트 발생. `table.op.invalid.behavior=skip` + EventRouter 기본 동작(INSERT만 라우팅)으로 무시됨.
+- **Kafka Connect 기동 시간**: 30-60초 소요. debezium-init의 restart:on-failure로 재시도 보장.
 
 ## 의존성
 
-- MySQL `FOR UPDATE SKIP LOCKED` 지원: MySQL 8.0+
-- KafkaTemplate 빈: ServerA/C 모두 이미 존재
-- ObjectMapper 빈: ServerA/C 모두 이미 존재
-- JPA 의존성: ServerA/C 모두 이미 존재
+- `debezium/connect:2.7` 이미지에 MySQL connector 내장 (별도 설치 불필요)
+- MySQL 8.0: binlog ROW format 기본 지원
+- `weverse_promo.outbox_event` 테이블: Server A, C 공유 (하나의 커넥터로 커버)
+- Kafka Connect REST API: 8083 포트

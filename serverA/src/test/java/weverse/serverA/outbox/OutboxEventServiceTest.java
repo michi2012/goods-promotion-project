@@ -29,7 +29,7 @@ class OutboxEventServiceTest {
     private ObjectMapper objectMapper;
 
     @Test
-    @DisplayName("페이로드가 정상적으로 직렬화되어 PENDING 상태로 저장된다.")
+    @DisplayName("페이로드가 정상적으로 직렬화되어 저장된다.")
     void save_success() throws Exception {
         // given
         String aggregateId = "user-123";
@@ -50,7 +50,6 @@ class OutboxEventServiceTest {
         assertThat(savedEvent.getAggregateId()).isEqualTo(aggregateId);
         assertThat(savedEvent.getTopic()).isEqualTo(topic);
         assertThat(savedEvent.getPayload()).isEqualTo(expectedJson);
-        assertThat(savedEvent.getStatus()).isEqualTo(OutboxStatus.PENDING);
     }
 
     @Test

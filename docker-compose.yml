@@ -12,6 +12,10 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --server-id=1
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
       interval: 5s
@@ -95,6 +99,55 @@ services:
       retries: 10
       start_period: 15s
 
+  # 3-b. Kafka Connect (Debezium CDC)
+  kafka-connect:
+    image: quay.io/debezium/connect:2.7
+    container_name: weverse-kafka-connect
+    ports:
+      - "8083:8083"
+    environment:
+      TZ: Asia/Seoul
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: debezium-group
+      CONFIG_STORAGE_TOPIC: debezium_configs
+      OFFSET_STORAGE_TOPIC: debezium_offsets
+      STATUS_STORAGE_TOPIC: debezium_status
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    networks:
+      - promo-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # 3-c. Debezium 커넥터 자동 등록
+  debezium-init:
+    image: curlimages/curl:latest
+    container_name: weverse-debezium-init
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "curl -f -X POST http://kafka-connect:8083/connectors -H 'Content-Type: application/json' -d @/debezium/outbox-connector.json"
+    volumes:
+      - ./debezium:/debezium
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    networks:
+      - promo-network
+    restart: on-failure
+
   # 4. SERVER C (최종 저장)
   server-c:
     build:
@@ -105,7 +158,7 @@ services:
       - "8082:8082"
     environment:
       TZ: Asia/Seoul
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -163,7 +216,7 @@ services:
       - "8080:8080"
     environment:
       TZ: Asia/Seoul
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_DATA_REDIS_HOST: redis

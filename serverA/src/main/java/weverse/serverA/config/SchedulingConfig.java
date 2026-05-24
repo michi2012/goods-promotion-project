@@ -15,8 +15,7 @@ public class SchedulingConfig implements SchedulingConfigurer {
     @Override
     public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        // 각 스케줄러가 서로를 블로킹하지 않도록 풀 사이즈 4 할당
-        scheduler.setPoolSize(4);
+        scheduler.setPoolSize(3);
         scheduler.setThreadNamePrefix("weverse-scheduler-a");
         scheduler.initialize();
 
