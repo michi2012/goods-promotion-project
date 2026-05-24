@@ -79,7 +79,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 지시된 파일을 우선 읽되, 해당 파일만으로 판단이 불가능한 경우에만 관련 파일을 최소한으로 추가 참조할 것. 불필요한 탐색 금지.
 
 ## 작업 시작 시
-- `/plan` 또는 대규모 작업 시에만 `docs/checklist.md`를 먼저 읽을 것. 단순 확인/수정에는 불필요.
+- 기존에 진행 중이던 `/plan` 기반 대규모 작업을 이어서 할 때는, 코딩 시작 전 반드시 `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 세 파일을 모두 읽고 제약 조건과 다음 진행할 단계를 스스로 파악할 것. 단순 확인/수정에는 불필요.
 - 변경 파일이 2개 이상인 작업은 반드시 `/plan` 명령어부터 실행할 것. 곧바로 코딩 시작 금지.
 - API/컨트롤러/DTO 작업 시 `.claude/skills/api` 매뉴얼을 활용할 것.
 - 엔티티/리포지토리/쿼리/트랜잭션 작업 시 `.claude/skills/jpa` 매뉴얼을 활용할 것.

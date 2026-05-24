@@ -44,6 +44,7 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 
 ## Step 2. `docs/plan.md` 작성
 사용자 답변을 받은 후, 다음 형식으로 작성한다.
+파일을 처음 작성할 때 내부 Write 도구에서 에러가 발생하지 않도록, 파일이 존재하지 않는다면 PowerShell 명령어(예: New-Item -Path docs\plan.md -ItemType File)를 사용해 빈 파일을 먼저 생성한 후 내용을 작성하라. 경로 작성 시 윈도우 환경에 맞게 백슬래시(\)를 사용하라.
 
 ```markdown
 # 계획서: [작업 제목]
