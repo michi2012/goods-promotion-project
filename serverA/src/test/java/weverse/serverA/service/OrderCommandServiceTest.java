@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import weverse.serverA.dto.PurchaseMessage;
 import weverse.serverA.entity.Order;
+import weverse.serverA.outbox.OutboxEventService;
 import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OrderRepository;
 
@@ -28,11 +29,14 @@ class OrderCommandServiceTest {
     @Mock
     private SagaStateService sagaStateService;
 
+    @Mock
+    private OutboxEventService outboxEventService;
+
     @InjectMocks
     private OrderCommandService orderCommandService;
 
     @Test
-    @DisplayName("구매 메시지가 들어오면 주문을 저장하고 재고를 차감한 뒤 Saga 상태를 초기화한다")
+    @DisplayName("구매 메시지가 들어오면 주문을 저장하고 재고를 차감한 뒤 Saga 상태를 초기화하고 Outbox 이벤트를 저장한다")
     void saveOrderAndDecreaseStock_Success() {
         // given
         PurchaseMessage message = new PurchaseMessage(
@@ -45,9 +49,9 @@ class OrderCommandServiceTest {
         // then
         verify(orderRepository).save(any(Order.class));
         verify(goodsRepository).decreaseStock(4L, 2);
-
-        // orderId는 mock 객체 저장 시 null일 수 있으므로 any() 처리하거나, Order 엔티티 구조에 맞춰 검증
         verify(sagaStateService).initSagaState(eq("trace-123"), any(), eq(1L), eq(4L), eq(2));
+        verify(outboxEventService).save(eq("trace-123"), eq("order-status-update"), any());
+        verify(outboxEventService).save(eq("trace-123"), eq("payment-request"), any());
 
         assertThat(order.getTraceId()).isEqualTo("trace-123");
         assertThat(order.getStatus().name()).isEqualTo("PENDING");

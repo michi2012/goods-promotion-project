@@ -4,9 +4,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import weverse.serverA.dto.OrderStatusMessage;
 import weverse.serverA.dto.PurchaseMessage;
 import weverse.serverA.entity.Order;
 import weverse.serverA.entity.OrderStatus;
+import weverse.serverA.outbox.OutboxEventService;
 import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OrderRepository;
 
@@ -18,6 +20,10 @@ public class OrderCommandService {
     private final OrderRepository orderRepository;
     private final GoodsRepository goodsRepository;
     private final SagaStateService sagaStateService;
+    private final OutboxEventService outboxEventService;
+
+    private static final String ORDER_STATUS_TOPIC = "order-status-update";
+    private static final String PAYMENT_REQUEST_TOPIC = "payment-request";
 
     @Transactional
     public Order saveOrderAndDecreaseStock(PurchaseMessage message) {
@@ -43,6 +49,10 @@ public class OrderCommandService {
                 message.traceId(), order.getId(),
                 message.userId(), message.goodsId(), message.quantity()
         );
+
+        outboxEventService.save(message.traceId(), ORDER_STATUS_TOPIC,
+                new OrderStatusMessage(message.traceId(), message.userId(), "PENDING"));
+        outboxEventService.save(message.traceId(), PAYMENT_REQUEST_TOPIC, message);
 
         return order;
     }

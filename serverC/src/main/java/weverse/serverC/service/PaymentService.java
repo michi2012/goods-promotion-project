@@ -1,12 +1,12 @@
 package weverse.serverC.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import weverse.serverC.dto.PaymentResultMessage;
 import weverse.serverC.dto.PurchaseMessage;
+import weverse.serverC.outbox.OutboxEventService;
 import weverse.serverC.repository.FinalOrderRepository;
 
 import java.util.List;
@@ -18,25 +18,23 @@ public class PaymentService {
 
     private final FinalOrderRepository finalOrderRepository;
     private final PgClient pgClient;
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
+    private final OutboxEventService outboxEventService;
 
     private static final String RESULT_TOPIC = "payment-result";
 
-    public void processPayment(PurchaseMessage msg) throws Exception {
+    @Transactional
+    public void processPayment(PurchaseMessage msg) {
         finalOrderRepository.claimOrders(List.of(msg));
 
         List<String> failedTraceIds = pgClient.processPayments(List.of(msg));
         boolean success = !failedTraceIds.contains(msg.traceId());
 
-        // 상태 업데이트
         String status = success ? "PAID" : "FAILED";
         finalOrderRepository.updateOrderStatus(List.of(msg.traceId()), status);
 
-        // 결과 발행
+        // 결과 이벤트 저장 — 동일 트랜잭션 내 Outbox 저장
         String errorMsg = success ? null : "결제 거절";
-        String result = objectMapper.writeValueAsString(
+        outboxEventService.save(msg.traceId(), RESULT_TOPIC,
                 new PaymentResultMessage(msg.traceId(), success, errorMsg));
-        kafkaTemplate.send(RESULT_TOPIC, msg.traceId(), result);
     }
 }

@@ -1,61 +1,105 @@
-# 계획서: 품절 로컬 캐시(Server A) + 재고 조회 read-through 캐시(Server B)
+﻿# 계획서: 트랜잭셔널 아웃박스 패턴 도입 (DB Polling 방식)
 
-- 작성일: 2026-05-23
+- 작성일: 2026-05-24
+- 관련 이슈: ServerA/C Kafka 전송 실패 시 데이터 정합성 파괴 문제
 
 ## 목표
-Server A `PromotionService`에 품절 로컬 캐시를 추가해 이미 소진된 상품에 대한 Redis 왕복을 제거한다.
-Server B `OrderQueryService`에 read-through 로컬 캐시를 추가해 재고 조회 API의 Redis 읽기 부하를 줄인다.
-두 캐시 모두 Caffeine을 직접 사용한다 (의존성 이미 존재).
+
+ServerA와 ServerC의 Kafka 발행을 DB 트랜잭션과 원자적으로 묶어, Kafka 브로커 장애 시에도
+메시지 유실 없이 at-least-once 발행을 보장한다. 폴링 방식으로 구현하여 추후 CDC(Debezium 등)로
+Relay 교체가 용이하도록 설계한다.
 
 ## 성공 기준
-- [ ] 품절 상태에서 PromotionService가 Redis 호출 없이 SoldOutException을 던진다 (RedisStockService 메서드 호출 없음)
-- [ ] releaseStock 호출 후 품절 캐시가 무효화되어 재고 복구가 정상 반영된다
-- [ ] getStockView 최초 호출은 Redis에서 읽고, 2초 내 재호출은 로컬 캐시에서 반환한다
-- [ ] updateStockView 호출 시 Redis와 로컬 캐시가 동시에 갱신된다
-- [ ] `gradlew.bat :serverA:compileJava :serverB:compileJava` 통과
 
-## 비범위
-- build.gradle 의존성 추가 불필요 (Caffeine 이미 존재)
-- SagaOrchestratorService 직접 수정 없음 (releaseStock 내부에서 처리)
-- 품절 캐시 TTL 조정 설정화 (하드코딩 60초로 충분)
-- Server B의 주문 상태(orderStatus) 캐싱 — 이번 작업 범위 아님
+- [ ] `outbox_event` 테이블에 비즈니스 DB 변경과 동일 트랜잭션으로 이벤트가 저장된다 (코드 확인)
+- [ ] `KafkaProduceService` 삭제 후 ServerA 빌드 통과 (`.\gradlew.bat :serverA:build`)
+- [ ] ServerC 빌드 통과 (`.\gradlew.bat :serverC:build`)
+- [ ] 2초마다 PENDING 이벤트가 Kafka에 발행되고 SENT로 상태 변경된다 (로그 확인)
+- [ ] 24시간 초과 SENT 이벤트가 주기적으로 삭제된다 (코드 확인)
+- [ ] SELECT FOR UPDATE SKIP LOCKED로 다중 인스턴스 중복 발행 방지 (코드 확인)
+
+## 비범위 (Out of Scope)
+
+- ServerB: MySQL 없음, 기존 SagaTimeout(10분) fallback으로 유지
+- CDC(Debezium) 전환: 추후 Relay 스케줄러만 제거하면 전환 가능하도록 설계
+- FAILED 상태 별도 관리: retry는 PENDING 재처리로 충분, 별도 FAILED 상태 없음
+- outbox_event 테이블 파티셔닝: 현재 규모 불필요
 
 ## 단계별 작업 계획
 
-### 단계 1: Server A — RedisStockService에 품절 캐시 추가
-- 변경 파일: `serverA/src/main/java/weverse/serverA/service/RedisStockService.java`
-- 변경 내용:
-  - Caffeine 캐시 필드 `Cache<Long, Boolean> soldOutCache` 추가 (TTL 60초)
-  - `reserveStock()`: 반환값 false 시 `soldOutCache.put(goodsId, true)`
-  - `releaseStock()`: `soldOutCache.invalidate(goodsId)`
-  - 신규 메서드 `isKnownSoldOut(goodsId)`: 캐시 조회
-- 검증: `gradlew.bat :serverA:compileJava`
-- 롤백: `git restore serverA/src/main/java/weverse/serverA/service/RedisStockService.java`
+### 단계 1: ServerA Outbox 인프라 + Relay 스케줄러 신규 파일 작성
+
+- 변경 파일 (신규):
+  - `serverA/.../outbox/OutboxStatus.java` — PENDING/SENT enum
+  - `serverA/.../outbox/OutboxEvent.java` — outbox_event 테이블 엔티티
+  - `serverA/.../outbox/OutboxEventRepository.java` — SKIP LOCKED 네이티브 쿼리 포함
+  - `serverA/.../outbox/OutboxEventService.java` — 트랜잭션 내 저장 메서드
+  - `serverA/.../outbox/OutboxRelayScheduler.java` — 2초 폴링 + 1시간 cleanup
+- 변경 파일 (수정):
+  - `serverA/.../config/SchedulingConfig.java` — pool size 3 -> 4
+- 검증 방법: `.\gradlew.bat :serverA:compileJava`
+- 롤백 방법: 신규 파일 5개 삭제, SchedulingConfig 원복
 - 예상 소요: 보통
 
-### 단계 2: Server A — PromotionService에 품절 사전 차단 추가
-- 변경 파일: `serverA/src/main/java/weverse/serverA/service/PromotionService.java`
-- 변경 내용:
-  - `acceptPurchase()` 최상단에 `isKnownSoldOut` 체크 추가
-  - 품절 캐시 히트 시 Redis 왕복 없이 즉시 `SoldOutException` throw
-  - 이 시점은 `tryMarkUserPurchased` 이전이므로 Redis 롤백 불필요
-- 검증: `gradlew.bat :serverA:compileJava`
-- 롤백: `git restore serverA/src/main/java/weverse/serverA/service/PromotionService.java`
+### 단계 2: ServerA 기존 코드 Outbox로 전환
+
+- 변경 파일 (수정):
+  - `OrderCommandService.java` — OutboxEventService 주입, tx 내 2개 이벤트 저장
+    (order-status-update PENDING, payment-request)
+  - `SagaOrchestratorService.java` — KafkaTemplate 제거, OutboxEventService로 전환
+    (order-status-update PAID/FAILED/EXPIRED, order-completed, stock-snapshot)
+  - `PurchaseKafkaConsumer.java` — KafkaProduceService 의존성 제거
+- 변경 파일 (삭제):
+  - `kafka/KafkaProduceService.java`
+- 변경 파일 (수정, 테스트):
+  - `KafkaProduceServiceTest.java` — 삭제
+  - `PurchaseKafkaConsumerTest.java` — KafkaProduceService mock 제거
+  - `SagaOrchestratorServiceTest.java` — KafkaTemplate mock -> OutboxEventService mock
+  - `OrderCommandServiceTest.java` — OutboxEventService mock 추가
+- 검증 방법: `.\gradlew.bat :serverA:build`
+- 롤백 방법: git으로 단계 1 이전 상태로 되돌림
+- 예상 소요: 보통
+
+### 단계 3: ServerC Outbox 인프라 + Relay 스케줄러 신규 파일 작성
+
+- 변경 파일 (신규):
+  - `serverC/.../outbox/OutboxStatus.java`
+  - `serverC/.../outbox/OutboxEvent.java`
+  - `serverC/.../outbox/OutboxEventRepository.java`
+  - `serverC/.../outbox/OutboxEventService.java`
+  - `serverC/.../outbox/OutboxRelayScheduler.java`
+  - `serverC/.../config/SchedulingConfig.java` — @EnableScheduling 활성화 (기존 없음)
+- 검증 방법: `.\gradlew.bat :serverC:compileJava`
+- 롤백 방법: 신규 파일 6개 삭제
+- 예상 소요: 짧음 (ServerA와 동일 패턴)
+
+### 단계 4: ServerC PaymentService Outbox로 전환
+
+- 변경 파일 (수정):
+  - `PaymentService.java` — @Transactional 추가, KafkaTemplate 제거,
+    OutboxEventService 주입, payment-result 이벤트 저장
+  - `PaymentServiceTest.java` — KafkaTemplate mock -> OutboxEventService mock
+- 검증 방법: `.\gradlew.bat :serverC:build`
+- 롤백 방법: PaymentService 원복
 - 예상 소요: 짧음
 
-### 단계 3: Server B — OrderQueryService에 read-through 캐시 추가
-- 변경 파일: `serverB/src/main/java/weverse/serverB/service/OrderQueryService.java`
-- 변경 내용:
-  - Caffeine 캐시 필드 `Cache<Long, Long> stockViewCache` 추가 (TTL 2초)
-  - `getStockView()`: 캐시 조회 → 미스 시 Redis 조회 후 캐싱
-  - `updateStockView()`: Redis SET과 동시에 캐시 갱신
-- 검증: `gradlew.bat :serverB:compileJava`
-- 롤백: `git restore serverB/src/main/java/weverse/serverB/service/OrderQueryService.java`
-- 예상 소요: 보통
+### 단계 5: 전체 빌드 최종 검증
+
+- 검증 방법: `.\gradlew.bat build`
+- 롤백 방법: 해당 없음 (검증 단계)
+- 예상 소요: 짧음
 
 ## 리스크 및 대응
-- **멀티 인스턴스 시 품절 캐시 불일치**: 인스턴스 A가 releaseStock 해도 인스턴스 B의 캐시는 유지됨. TTL 60초 안전망으로 최대 60초 후 자정. 재고 복구 시나리오(Saga 실패)가 극히 드물어 허용 가능한 트레이드오프.
-- **updateStockView Redis 실패 시 캐시 정합성**: Redis 쓰기 실패해도 캐시는 갱신됨. 다음 TTL(2초) 만료 후 Redis 재조회로 자정.
+
+- **Relay 중 Kafka 장애**: Kafka send 실패 시 예외 로깅 후 SENT 미갱신 -> 다음 폴링에서 재처리.
+  at-least-once이므로 소비자 측 멱등성(traceId unique 제약 등)이 보장해야 함.
+- **JpaTransactionManager와 JdbcTemplate 공존 (ServerC)**: JpaTransactionManager가 DataSource를 관리하므로
+  @Transactional 범위 내 JdbcTemplate 호출도 동일 트랜잭션에 참여. 문제 없음.
+- **outbox_event 테이블 DDL**: ddl-auto=create/update면 자동 생성. validate/none이면 수동 DDL 필요.
 
 ## 의존성
-- `com.github.ben-manes.caffeine:caffeine` — 두 서버 모두 이미 존재
+
+- MySQL `FOR UPDATE SKIP LOCKED` 지원: MySQL 8.0+
+- KafkaTemplate 빈: ServerA/C 모두 이미 존재
+- ObjectMapper 빈: ServerA/C 모두 이미 존재
+- JPA 의존성: ServerA/C 모두 이미 존재
