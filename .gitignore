@@ -45,3 +45,4 @@ logs/
 .claude/edit-log.txt
 .claude/settings.local.json
 CLAUDE.local.md
+.mcp.json
