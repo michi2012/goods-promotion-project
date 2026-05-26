@@ -507,11 +507,116 @@
           "custom": { "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "smooth" }
         }
       }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "id": 600,
+      "panels": [],
+      "title": "🔶 [Tier 6] Dependencies & Resilience (외부 API 의존성 및 서킷 방어)",
+      "type": "row"
+    },
+    {
+      "title": "20. [방어 상태] 외부 API 연동 상태 (OPEN = 접속 차단 중)",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 48 },
+      "targets": [
+        {
+          "expr": "resilience4j_circuitbreaker_state{application=~\"$application\", state=\"open\"}",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "안전 (CLOSED)", "color": "green" },
+                "1": { "text": "위험! 차단 중 (OPEN)", "color": "red" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "title": "21. [에러율] 외부 API 호출 실패율 (Failure Rate %)",
+      "description": "50%를 초과하면 서킷이 OPEN되어 트래픽이 차단됩니다. (-1%는 아직 초기 데이터가 부족한 상태를 의미합니다)",
+      "type": "gauge",
+      "gridPos": { "h": 7, "w": 9, "x": 6, "y": 48 },
+      "targets": [
+        {
+          "expr": "clamp_min(resilience4j_circuitbreaker_failure_rate{application=~\"$application\"}, 0)",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "22. [호출 통계] 서킷 브레이커 트래픽 제어 현황",
+      "description": "외부 API로 보낸 요청의 최종 결과입니다. '차단(Ignored)'이 급증하면 서킷 브레이커가 우리 서버를 방어하고 있다는 뜻입니다.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 9, "x": 15, "y": 48 },
+      "targets": [
+        {
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{application=~\"$application\", kind=~\"successful.*\"}[1m])) by (name)",
+          "legendFormat": "성공 - {{name}}"
+        },
+        {
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{application=~\"$application\", kind=~\"failed.*\"}[1m])) by (name)",
+          "legendFormat": "에러 발생 - {{name}}"
+        },
+        {
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{application=~\"$application\", kind=~\"not_permitted.*\"}[1m])) by (name)",
+          "legendFormat": "서킷 차단(방어됨) - {{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "fillOpacity": 15, "drawStyle": "line", "lineInterpolation": "smooth" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*에러 발생.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": ".*서킷 차단.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": ".*성공.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          }
+        ]
+      }
     }
   ],
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["Elice", "SRE", "Production"],
+  "tags": ["SRE", "Production"],
   "time": { "from": "now-30m", "to": "now" },
   "title": "프로모션 결제 서비스 SRE 관제 대시보드",
   "uid": "promotion-sre-dash-noc"

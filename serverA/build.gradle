@@ -15,6 +15,7 @@ dependencies {
 	implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
 	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
 	implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:1.0.3'
+	implementation 'io.github.resilience4j:resilience4j-micrometer'
 
 	testImplementation 'org.springframework.kafka:spring-kafka-test'
 	testImplementation 'org.testcontainers:junit-jupiter'

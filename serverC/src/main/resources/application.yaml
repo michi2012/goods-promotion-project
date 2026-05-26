@@ -82,6 +82,9 @@ management:
   otlp:
     tracing:
       endpoint: http://otel-collector:4318/v1/traces
+  health:
+    circuitbreakers:
+      enabled: true # 서킷 브레이커 전용 헬스체크 활성화
 
 jdbc:
   datasource-proxy:
