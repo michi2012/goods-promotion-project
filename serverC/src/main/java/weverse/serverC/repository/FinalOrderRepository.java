@@ -22,16 +22,16 @@ public class FinalOrderRepository {
             return new ArrayList<>();
         }
 
-        String insertSql = "INSERT INTO final_order (trace_id, user_id, goods_id, quantity, payment_method, " +
+        String insertSql = "INSERT INTO final_order (order_id, user_id, goods_id, quantity, payment_method, " +
                 "shipping_address, zip_code, phone_number, email, delivery_memo, client_ip, status, created_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', NOW()) " +
-                "ON DUPLICATE KEY UPDATE trace_id = trace_id";
+                "ON DUPLICATE KEY UPDATE order_id = order_id";
 
         int[] results = jdbcTemplate.batchUpdate(insertSql, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
                 PurchaseMessage msg = messages.get(i);
-                ps.setString(1, msg.traceId());
+                ps.setString(1, msg.orderId());
                 ps.setLong(2, msg.userId());
                 ps.setLong(3, msg.goodsId());
                 ps.setInt(4, msg.quantity());
@@ -59,25 +59,22 @@ public class FinalOrderRepository {
         return claimed;
     }
 
-    public void updateOrderStatus(List<String> traceIds, String status) {
-        if (traceIds.isEmpty()) return;
+    public void updateOrderStatus(List<String> orderIds, String status) {
+        if (orderIds.isEmpty()) return;
 
-        String inSql = String.join(",", java.util.Collections.nCopies(traceIds.size(), "?"));
-        String sql = "UPDATE final_order SET status = ? WHERE trace_id IN (" + inSql + ")";
+        String inSql = String.join(",", java.util.Collections.nCopies(orderIds.size(), "?"));
+        String sql = "UPDATE final_order SET status = ? WHERE order_id IN (" + inSql + ")";
 
         List<Object> params = new ArrayList<>();
         params.add(status);
-        params.addAll(traceIds);
+        params.addAll(orderIds);
 
         jdbcTemplate.update(sql, params.toArray());
     }
 
-    public boolean existsByTraceId(String traceId) {
-        String sql = "SELECT COUNT(1) FROM final_order WHERE trace_id = ?";
-
-        // queryForObject를 사용하여 count가 1 이상인지 확인합니다.
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, traceId);
-
+    public boolean existsByOrderId(String orderId) {
+        String sql = "SELECT COUNT(1) FROM final_order WHERE order_id = ?";
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, orderId);
         return count != null && count > 0;
     }
 }

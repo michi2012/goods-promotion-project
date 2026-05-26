@@ -32,13 +32,13 @@ public class PurchaseDltConsumer {
     ) {
         log.warn("[DLT 수신] purchase_events.DLT | payload: {}", payload);
 
-        String traceId = "UNKNOWN";
+        String orderId = "UNKNOWN";
         Long goodsId = null;
         int quantity = 0;
 
         try {
             PurchaseMessage message = objectMapper.readValue(payload, PurchaseMessage.class);
-            traceId = message.traceId();
+            orderId = message.orderId();
             goodsId = message.goodsId();
             quantity = message.quantity();
         } catch (Exception e) {
@@ -46,7 +46,7 @@ public class PurchaseDltConsumer {
         }
 
         DeadLetter deadLetter = DeadLetter.builder()
-                .traceId(traceId)
+                .orderId(orderId)
                 .goodsId(goodsId)
                 .quantity(quantity)
                 .reason(truncate(exceptionMessage, 1000))

@@ -1,7 +1,7 @@
 package weverse.serverA.dto;
 
 public record PaymentResultMessage(
-        String traceId,
+        String orderId,
         boolean success,
         String errorMessage
 ) {}

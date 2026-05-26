@@ -2,8 +2,12 @@ server:
   port: 8081
   tomcat:
     accept-count: 1000
+    mbeanregistry:
+      enabled: true
 
 spring:
+  application:
+    name: serverB
   threads:
     virtual:
       enabled: true
@@ -11,6 +15,9 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6380}
+      lettuce:
+        observability:
+          enabled: true
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -33,6 +40,9 @@ spring:
       properties:
         max.poll.interval.ms: 600000
         max.poll.records: 500
+    template:
+      # 프로듀서가 메시지를 발행할 때 트레이스 헤더를 자동으로 주입합니다.
+      observation-enabled: true
 
 external:
   server-c:
@@ -42,7 +52,7 @@ external:
 
 logging:
   level:
-    root: WARN
+    root: INFO
 
 resilience4j.circuitbreaker:
   configs:
@@ -55,3 +65,33 @@ resilience4j.circuitbreaker:
       baseConfig: default
     serverAClient:
       baseConfig: default
+
+management:
+  observations:
+    enable:
+      http:
+        server:
+          requests:
+            "[uri=/actuator/**]": false
+  endpoints:
+    web:
+      exposure:
+        include: prometheus, health, info
+  metrics:
+    distribution:
+      percentiles-histogram:
+        "http.server.requests": true # 히스토그램 버킷 생성 (p95, p99용)
+  tracing:
+    sampling:
+      probability: 1.0 # 테스트용으로 모든 트레이스 수집
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces
+
+jdbc:
+  datasource-proxy:
+    multiline: false
+    query:
+      enable-logging: false # 디스크 I/O를 아끼기 위해 파일(콘솔)에는 쿼리를 찍지 않음
+    observation:
+      include-parameter-values: false

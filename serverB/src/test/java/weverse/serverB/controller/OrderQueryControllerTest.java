@@ -28,15 +28,15 @@ class OrderQueryControllerTest {
     @DisplayName("traceId로 주문 상태를 조회하면 200 OK와 함께 상태 정보를 반환한다")
     void getOrderStatus_success() throws Exception {
         // given
-        String traceId = "trace-1234";
+        String orderId = "trace-1234";
         String expectedStatus = "PAID";
-        given(orderQueryService.getOrderStatus(traceId)).willReturn(expectedStatus);
+        given(orderQueryService.getOrderStatus(orderId)).willReturn(expectedStatus);
 
         // when & then
-        mockMvc.perform(get("/api/v1/orders/{traceId}/status", traceId)
+        mockMvc.perform(get("/api/v1/orders/{orderId}/status", orderId)
                        .accept(MediaType.APPLICATION_JSON))
                .andExpect(status().isOk())
-               .andExpect(jsonPath("$.traceId").value(traceId))
+               .andExpect(jsonPath("$.orderId").value(orderId))
                .andExpect(jsonPath("$.status").value(expectedStatus));
     }
 

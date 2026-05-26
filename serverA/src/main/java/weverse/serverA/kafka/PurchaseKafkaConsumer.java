@@ -19,7 +19,7 @@ public class PurchaseKafkaConsumer {
     @KafkaListener(topics = "purchase_events", groupId = "${spring.kafka.consumer.group-id}")
     public void consume(String payload) throws Exception {
         PurchaseMessage message = objectMapper.readValue(payload, PurchaseMessage.class);
-        log.info("[Saga Phase1 시작] TraceId: {}", message.traceId());
+        log.info("[Saga Phase1 시작] TraceId: {}", message.orderId());
 
         orderCommandService.saveOrderAndDecreaseStock(message);
     }

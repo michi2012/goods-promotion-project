@@ -50,13 +50,13 @@ public class OrderQueryService {
     private static final String ORDER_VIEW_PREFIX = "order:view:";
     private static final String STOCK_VIEW_PREFIX = "goods:view:stock:";
 
-    public void updateOrderStatus(String traceId, String status) {
-        redisTemplate.opsForValue().set(ORDER_VIEW_PREFIX + traceId + ":status", status);
-        log.info("[OrderView] 주문 상태 업데이트: traceId={}, status={}", traceId, status);
+    public void updateOrderStatus(String orderId, String status) {
+        redisTemplate.opsForValue().set(ORDER_VIEW_PREFIX + orderId + ":status", status);
+        log.info("[OrderView] 주문 상태 업데이트: orderId={}, status={}", orderId, status);
     }
 
-    public String getOrderStatus(String traceId) {
-        String status = redisTemplate.opsForValue().get(ORDER_VIEW_PREFIX + traceId + ":status");
+    public String getOrderStatus(String orderId) {
+        String status = redisTemplate.opsForValue().get(ORDER_VIEW_PREFIX + orderId + ":status");
         return status != null ? status : "NOT_FOUND";
     }
 

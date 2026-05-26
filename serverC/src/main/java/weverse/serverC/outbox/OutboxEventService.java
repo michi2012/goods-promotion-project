@@ -3,6 +3,7 @@ package weverse.serverC.outbox;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,9 +17,16 @@ public class OutboxEventService {
     public void save(String aggregateId, String topic, Object payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
-            outboxEventRepository.save(OutboxEvent.create(aggregateId, topic, json));
+            outboxEventRepository.save(OutboxEvent.create(aggregateId, topic, json, currentTraceparent()));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Outbox 직렬화 실패: topic=" + topic, e);
         }
+    }
+
+    private String currentTraceparent() {
+        String traceId = MDC.get("traceId");
+        String spanId  = MDC.get("spanId");
+        if (traceId == null || spanId == null) return null;
+        return "00-" + traceId + "-" + spanId + "-01";
     }
 }

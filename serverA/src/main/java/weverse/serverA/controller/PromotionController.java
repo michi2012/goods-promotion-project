@@ -23,12 +23,12 @@ public class PromotionController {
 
     @PostMapping("/purchase")
     public ResponseEntity<String> purchase(@Valid @RequestBody PurchaseRequest request) {
-        String traceId = Generators.timeBasedEpochGenerator().generate().toString();
+        String orderId = Generators.timeBasedEpochGenerator().generate().toString();
 
         log.info("[주문 수신] TraceId: {} | UserId: {} | GoodsId: {} | 결제수단: {}",
-                traceId, request.userId(), request.goodsId(), request.paymentMethod());
+                orderId, request.userId(), request.goodsId(), request.paymentMethod());
 
-        PurchaseMessage message = PurchaseMessage.from(request, traceId);
+        PurchaseMessage message = PurchaseMessage.from(request, orderId);
 
         promotionService.acceptPurchase(message);
 

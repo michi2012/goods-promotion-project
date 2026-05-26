@@ -50,4 +50,21 @@ public class KafkaTopicConfig {
                            .replicas(1)
                            .build();
     }
+
+    // 4. payment-cancel 토픽 (serverA 발행 → serverC 소비)
+    @Bean
+    public NewTopic paymentCancelTopic() {
+        return TopicBuilder.name("payment-cancel")
+                           .partitions(3)
+                           .replicas(1)
+                           .build();
+    }
+
+    @Bean
+    public NewTopic paymentCancelDltTopic() {
+        return TopicBuilder.name("payment-cancel.DLT")
+                           .partitions(1)
+                           .replicas(1)
+                           .build();
+    }
 }

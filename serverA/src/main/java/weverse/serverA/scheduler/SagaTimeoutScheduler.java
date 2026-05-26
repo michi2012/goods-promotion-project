@@ -31,16 +31,16 @@ public class SagaTimeoutScheduler {
         try (Cursor<String> cursor = redisTemplate.scan(ScanOptions.scanOptions().match(STATE_PATTERN).count(100).build())) {
             while (cursor.hasNext()) {
                 String key = cursor.next();
-                String traceId = key.replace("saga:state:", "");
+                String orderId = key.replace("saga:state:", "");
 
-                if (sagaStateService.isFailed(traceId)) continue;
+                if (sagaStateService.isFailed(orderId)) continue;
 
-                long createdAt = sagaStateService.getCreatedAt(traceId);
+                long createdAt = sagaStateService.getCreatedAt(orderId);
                 if (createdAt == 0L) continue;
 
                 if ((now - createdAt) >= TIMEOUT_MS) {
-                    log.warn("[SagaTimeout] 10분 초과 미완료 Saga 탐지: traceId={}", traceId);
-                    sagaOrchestratorService.handleSagaFailure(traceId, "TIMEOUT");
+                    log.warn("[SagaTimeout] 10분 초과 미완료 Saga 탐지: orderId={}", orderId);
+                    sagaOrchestratorService.handleSagaFailure(orderId, "TIMEOUT");
                     expiredCount++;
                 }
             }

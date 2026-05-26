@@ -22,9 +22,9 @@ public class DeadLetterService {
 
     // 💡 1. 격리 저장 (본 트랜잭션이 롤백되어도 이 기록은 남음)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void saveDeadLetter(String traceId, Long goodsId, int quantity, String reason) {
+    public void saveDeadLetter(String orderId, Long goodsId, int quantity, String reason) {
         deadLetterRepository.save(DeadLetter.builder()
-                                            .traceId(traceId)
+                                            .orderId(orderId)
                                             .goodsId(goodsId)
                                             .quantity(quantity)
                                             .reason(reason)

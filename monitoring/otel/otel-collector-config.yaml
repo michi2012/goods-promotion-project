@@ -1,0 +1,64 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # [Step 3 방어막] 콜렉터 OOM(메모리 초과) 다운 방지용 리미터
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512       # 메모리 512MB 도달 시 오래된 트레이스부터 강제 드랍
+    spike_limit_mib: 128 # 트래픽 폭주 시 여유 공간 128MB 확보
+
+  # [Step 2 다중 방어선 - 1] 헬스체크/메트릭 찌꺼기 입구컷 (Route-based)
+  filter/drop_actuator:
+    error_mode: ignore
+    traces:
+      span:
+        # /actuator로 시작하는 헬스체크 트레이스는 아예 분석도 안 하고 버림
+        - 'attributes["url.path"] == "/actuator/prometheus"'
+        - 'attributes["url.path"] == "/actuator/health"'
+
+  # [Step 2 다중 방어선 - 2] 꼬리 샘플링 (Tail Sampling)
+  tail_sampling:
+      decision_wait: 10s
+      policies:
+        # (삭제) any-exception-policy는 비즈니스 예외(400)까지 다 잡아먹으므로 삭제합니다.
+        # 1. 500 에러(서버 뒤짐) 100% 수집: OTel은 기본적으로 HTTP 5xx만 ERROR 상태로 매핑합니다. (HTTP 4xx는 UNSET으로 간주함)
+        - name: error-policy
+          type: status_code
+          status_code: {status_codes: [ERROR]}
+
+        # 2. 지연 100% 수집: 1초 이상 걸린 무거운 요청 (병목 지점 파악용)
+        - name: slow-policy
+          type: latency
+          latency: {threshold_ms: 1000}
+
+        # 3. 확률적 수집: 성공(200) 및 클라이언트 에러(400)는 5%만 제비뽑기로 수집
+        - name: probabilistic-policy
+          type: probabilistic
+          probabilistic: {sampling_percentage: 100}
+
+  # [Step 3 방어막] 트래픽 폭주 시 Tempo를 지키기 위한 일괄 전송 (Batch)
+  batch:
+    send_batch_size: 100 # 트레이스를 100개씩 상자에 담아서
+    timeout: 1s          # 1초마다 한 번씩 Tempo로 쏨 (Tempo 과부하 방지)
+
+exporters:
+  otlp:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      # 🔥 파이프라인 순서가 핵심입니다: 메모리 방어 -> 쓸데없는 경로 버림 -> 샘플링 -> 포장(배치)
+      processors: [memory_limiter, filter/drop_actuator, tail_sampling, batch]
+      exporters: [otlp, debug]

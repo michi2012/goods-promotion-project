@@ -22,6 +22,7 @@
     "transforms.outbox.route.by.field": "topic",
     "transforms.outbox.route.topic.replacement": "${routedByValue}",
     "transforms.outbox.table.op.invalid.behavior": "warn",
+    "transforms.outbox.table.fields.additional.placement": "traceparent:header",
     "value.converter": "org.apache.kafka.connect.storage.StringConverter",
     "key.converter": "org.apache.kafka.connect.storage.StringConverter"
   }

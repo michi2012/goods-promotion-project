@@ -30,11 +30,15 @@ public class OutboxEvent extends BaseTimeEntity {
     @Column(nullable = false, updatable = false, columnDefinition = "TEXT")
     private String payload;
 
-    public static OutboxEvent create(String aggregateId, String topic, String payload) {
+    @Column(name = "traceparent", nullable = true, updatable = false, length = 55)
+    private String traceparent;
+
+    public static OutboxEvent create(String aggregateId, String topic, String payload, String traceparent) {
         OutboxEvent event = new OutboxEvent();
         event.aggregateId = aggregateId;
         event.topic = topic;
         event.payload = payload;
+        event.traceparent = traceparent;
         return event;
     }
 }

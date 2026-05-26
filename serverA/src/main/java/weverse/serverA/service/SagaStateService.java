@@ -19,10 +19,10 @@ public class SagaStateService {
     private static final String STATE_PREFIX = "saga:state:";
     private static final String HOLD_PREFIX  = "saga:hold:";
 
-    public void initSagaState(String traceId, Long orderId, Long userId, Long goodsId, int quantity) {
-        String stateKey = STATE_PREFIX + traceId;
+    public void initSagaState(String orderId, Long orderEntityId, Long userId, Long goodsId, int quantity) {
+        String stateKey = STATE_PREFIX + orderId;
         redisTemplate.opsForHash().putAll(stateKey, Map.of(
-                "orderId",                String.valueOf(orderId),
+                "orderEntityId",          String.valueOf(orderEntityId),
                 "userId",                 String.valueOf(userId),
                 "goodsId",                String.valueOf(goodsId),
                 "quantity",               String.valueOf(quantity),
@@ -33,17 +33,17 @@ public class SagaStateService {
         ));
 
         // 소프트 홀드: 10분 TTL (스케줄러가 만료 여부 기준으로 활용)
-        redisTemplate.opsForValue().set(HOLD_PREFIX + traceId, "HOLDING", Duration.ofMinutes(10));
+        redisTemplate.opsForValue().set(HOLD_PREFIX + orderId, "HOLDING", Duration.ofMinutes(10));
 
-        log.info("[SagaState] 초기화 완료: traceId={}", traceId);
+        log.info("[SagaState] 초기화 완료: orderId={}", orderId);
     }
 
-    public SagaStateData getSagaState(String traceId) {
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(STATE_PREFIX + traceId);
+    public SagaStateData getSagaState(String orderId) {
+        Map<Object, Object> entries = redisTemplate.opsForHash().entries(STATE_PREFIX + orderId);
         if (entries.isEmpty()) return null;
 
         return new SagaStateData(
-                Long.parseLong((String) entries.get("orderId")),
+                Long.parseLong((String) entries.get("orderEntityId")),
                 Long.parseLong((String) entries.get("userId")),
                 Long.parseLong((String) entries.get("goodsId")),
                 Integer.parseInt((String) entries.get("quantity"))
@@ -51,44 +51,49 @@ public class SagaStateService {
     }
 
     // 완료 플래그 설정 후 두 플래그 모두 true면 true 반환
-    public boolean markStatusUpdateCompleted(String traceId) {
-        redisTemplate.opsForHash().put(STATE_PREFIX + traceId, "statusUpdateCompleted", "true");
-        return isBothCompleted(traceId);
+    public boolean markStatusUpdateCompleted(String orderId) {
+        redisTemplate.opsForHash().put(STATE_PREFIX + orderId, "statusUpdateCompleted", "true");
+        return isBothCompleted(orderId);
     }
 
-    public boolean markPaymentCompleted(String traceId) {
-        redisTemplate.opsForHash().put(STATE_PREFIX + traceId, "paymentCompleted", "true");
-        return isBothCompleted(traceId);
+    public boolean markPaymentCompleted(String orderId) {
+        redisTemplate.opsForHash().put(STATE_PREFIX + orderId, "paymentCompleted", "true");
+        return isBothCompleted(orderId);
     }
 
     // failed 플래그 설정 (멱등성 보장용). 이미 failed면 true 반환
-    public boolean markFailedAndCheck(String traceId) {
-        Long result = redisTemplate.opsForHash().increment(STATE_PREFIX + traceId, "failedOnce", 1L);
+    public boolean markFailedAndCheck(String orderId) {
+        Long result = redisTemplate.opsForHash().increment(STATE_PREFIX + orderId, "failedOnce", 1L);
         if (result == null || result > 1) {
             return false; // 이미 처리 중
         }
-        redisTemplate.opsForHash().put(STATE_PREFIX + traceId, "failed", "true");
+        redisTemplate.opsForHash().put(STATE_PREFIX + orderId, "failed", "true");
         return true;
     }
 
-    public boolean isFailed(String traceId) {
-        Object val = redisTemplate.opsForHash().get(STATE_PREFIX + traceId, "failed");
+    public boolean isFailed(String orderId) {
+        Object val = redisTemplate.opsForHash().get(STATE_PREFIX + orderId, "failed");
         return "true".equals(val);
     }
 
-    public long getCreatedAt(String traceId) {
-        Object val = redisTemplate.opsForHash().get(STATE_PREFIX + traceId, "createdAt");
+    public boolean isPaymentCompleted(String orderId) {
+        Object val = redisTemplate.opsForHash().get(STATE_PREFIX + orderId, "paymentCompleted");
+        return "true".equals(val);
+    }
+
+    public long getCreatedAt(String orderId) {
+        Object val = redisTemplate.opsForHash().get(STATE_PREFIX + orderId, "createdAt");
         if (val == null) return 0L;
         return Long.parseLong((String) val);
     }
 
-    public void deleteSagaState(String traceId) {
-        redisTemplate.delete(STATE_PREFIX + traceId);
-        redisTemplate.delete(HOLD_PREFIX + traceId);
+    public void deleteSagaState(String orderId) {
+        redisTemplate.delete(STATE_PREFIX + orderId);
+        redisTemplate.delete(HOLD_PREFIX + orderId);
     }
 
-    private boolean isBothCompleted(String traceId) {
-        Map<Object, Object> entries = redisTemplate.opsForHash().entries(STATE_PREFIX + traceId);
+    private boolean isBothCompleted(String orderId) {
+        Map<Object, Object> entries = redisTemplate.opsForHash().entries(STATE_PREFIX + orderId);
         return "true".equals(entries.get("statusUpdateCompleted"))
                 && "true".equals(entries.get("paymentCompleted"));
     }

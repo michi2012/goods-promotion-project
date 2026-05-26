@@ -32,7 +32,7 @@ class OrderStatusKafkaConsumerTest {
     void consume_Success() throws Exception {
         // given
         String payload = "{"
-                + "\"traceId\":\"trace-123\","
+                + "\"orderId\":\"trace-123\","
                 + "\"userId\":1,"
                 + "\"status\":\"PENDING\""
                 + "}";
@@ -45,7 +45,7 @@ class OrderStatusKafkaConsumerTest {
         verify(orderStatusEventHandler).handleStatusUpdate(captor.capture());
 
         OrderStatusMessage capturedMessage = captor.getValue();
-        assertThat(capturedMessage.traceId()).isEqualTo("trace-123");
+        assertThat(capturedMessage.orderId()).isEqualTo("trace-123");
         assertThat(capturedMessage.userId()).isEqualTo(1L);
         assertThat(capturedMessage.status()).isEqualTo("PENDING");
     }

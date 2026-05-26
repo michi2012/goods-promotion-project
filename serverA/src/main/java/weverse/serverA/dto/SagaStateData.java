@@ -1,7 +1,7 @@
 package weverse.serverA.dto;
 
 public record SagaStateData(
-        Long orderId,
+        Long orderEntityId,
         Long userId,
         Long goodsId,
         int quantity

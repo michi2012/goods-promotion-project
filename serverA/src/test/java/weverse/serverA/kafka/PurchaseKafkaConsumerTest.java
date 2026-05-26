@@ -30,7 +30,7 @@ class PurchaseKafkaConsumerTest {
     void consume_Success() throws Exception {
         // given
         String payload = "{"
-                + "\"traceId\":\"trace-123\","
+                + "\"orderId\":\"trace-123\","
                 + "\"userId\":1,"
                 + "\"goodsId\":4,"
                 + "\"quantity\":2,"

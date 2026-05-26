@@ -11,9 +11,9 @@ import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
-    Optional<Order> findByTraceId(String traceId);
+    Optional<Order> findByOrderId(String orderId);
 
     @Modifying(clearAutomatically = true)
-    @Query("UPDATE Order o SET o.status = :status WHERE o.traceId = :traceId AND o.status = OrderStatus.PENDING")
-    int updateStatusIfPending(@Param("traceId") String traceId, @Param("status") OrderStatus status);
+    @Query("UPDATE Order o SET o.status = :status WHERE o.orderId = :orderId AND o.status = OrderStatus.PENDING")
+    int updateStatusIfPending(@Param("orderId") String orderId, @Param("status") OrderStatus status);
 }

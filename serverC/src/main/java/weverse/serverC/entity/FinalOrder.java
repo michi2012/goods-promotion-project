@@ -7,7 +7,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "final_order", uniqueConstraints = {@UniqueConstraint(name = "uk_trace_id", columnNames = {"trace_id"})})
+@Table(name = "final_order", uniqueConstraints = {@UniqueConstraint(name = "uk_order_id", columnNames = {"order_id"})})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @EntityListeners(AuditingEntityListener.class)
@@ -16,8 +16,8 @@ public class FinalOrder {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "trace_id", nullable = false, updatable = false, unique = true)
-    private String traceId;
+    @Column(name = "order_id", nullable = false, updatable = false, unique = true)
+    private String orderId;
 
     @Column(name = "user_id", nullable = false, updatable = false)
     private Long userId;
@@ -55,10 +55,10 @@ public class FinalOrder {
     private LocalDateTime createdAt;
 
     @Builder
-    public FinalOrder(String traceId, Long userId, Long goodsId, int quantity, String paymentMethod,
+    public FinalOrder(String orderId, Long userId, Long goodsId, int quantity, String paymentMethod,
                       String shippingAddress, String zipCode, String phoneNumber, String email,
                       String deliveryMemo, String clientIp, String status) {
-        this.traceId = traceId;
+        this.orderId = orderId;
         this.userId = userId;
         this.goodsId = goodsId;
         this.quantity = quantity;

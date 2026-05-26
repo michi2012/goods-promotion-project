@@ -1,0 +1,29 @@
+# 1. Source: 지정된 경로의 로그 파일 읽기
+sources:
+  spring_logs:
+    type: file
+    include:
+      - "/logs/server*.log"
+    read_from: beginning
+
+# 2. Transform: 각 줄을 JSON으로 파싱 (LogstashEncoder는 한 줄 = JSON 한 개)
+transforms:
+  parse_logs:
+    type: remap
+    inputs:
+      - spring_logs
+    source: |
+      . = parse_json!(.message)
+
+# 3. Sink: Loki로 전송
+sinks:
+  to_loki:
+    type: loki
+    inputs:
+      - parse_logs
+    endpoint: http://loki:3100
+    encoding:
+      codec: json
+    labels:
+      service_name: "promotion"
+      app: "{{ job }}"

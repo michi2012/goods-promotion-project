@@ -38,7 +38,7 @@ class DeadLetterServiceTest {
     @Test
     @DisplayName("어드민 복구 성공: DLT 상태를 확인하고 재고를 복구한다.")
     void retryDeadLetter_Success() {
-        DeadLetter dlt = DeadLetter.builder().traceId("trace-1").goodsId(1L).quantity(2).build();
+        DeadLetter dlt = DeadLetter.builder().orderId("trace-1").goodsId(1L).quantity(2).build();
         ReflectionTestUtils.setField(dlt, "status", DltStatus.UNRESOLVED);
 
         given(deadLetterRepository.findById(10L)).willReturn(Optional.of(dlt));

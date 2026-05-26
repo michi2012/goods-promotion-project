@@ -1,0 +1,242 @@
+groups:
+  - name: Tier1-Business-Impact-SLO
+    rules:
+      # 1. [P0] 데이터 정합성 파손 (즉각 알람)
+      - alert: PaymentFatalError
+        expr: increase(business_payment_pg_refund_fatal_total[1m]) > 0
+        labels:
+          severity: critical
+          tier: P0
+        annotations:
+          summary: "🚨 [P0] 치명적 수기정산 발생 (에러 발생: {{ printf \"%.0f\" $value }}건)"
+          description: >
+            [Action Item]
+            1. [임팩트 확인] 대시보드 5번 패널(Fallback Success Rate)을 통해 환불 성공 대비 실패 비율을 확인하고, 수기 정산이 필요한 고객 규모를 즉시 파악
+            2. [연쇄 실패 분석] PG사 결제는 성공했음에도 보상 트랜잭션인 refundAction까지 연달아 실패한 기술적 이유(PG사 전체 장애 등)를 분석
+            3. [로그 증거 확보] 알람의 traceId를 기반으로 Loki에서 구체적인 에러 메시지(예: API Key 만료, PG사 Gateway Timeout 등)를 대조하여 장애 주체 판별
+            4. [데이터 긴급 복구] PG사 파트너 어드민과 사내 DB 상태를 대조하여 미환불된 traceId에 대해 사내 어드민의 [결제 상태 강제 동기화] 기능을 통해 고객 환불 처리
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/payment-fatal-reconciliation"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/business-impact?viewPanel=1"
+          log_query_url: "https://grafana.elice-team.com/explore?left=%5B%22now-15m%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bapp=%5C%22elice-api%5C%22,level=%5C%22ERROR%5C%22%7D%22%7D%5D"
+
+      # 2. [P1] 인스턴스 다운 또는 가용성 붕괴
+      - alert: InstanceDownOrAvailabilityDrop
+        expr: |
+          (
+            up == 0 
+            or 
+            ((sum(rate(http_server_requests_seconds_count{status!~"5.."}[1m])) or sum(rate(http_server_requests_seconds_count[1m])) * 0) 
+            / 
+            sum(rate(http_server_requests_seconds_count[1m])) * 100) < 99.9
+          )
+          or 
+          (vector(0) and (sum(rate(http_server_requests_seconds_count[1m])) == 0)) < 99.9
+        for: 10s
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] 가용성 붕괴 (현재 가용성: {{ printf \"%.2f\" $value }}%)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [상황 판단] Grafana 대시보드 1번(SLI 가용성) 및 9~11번(Tier 3: 리소스 포화도) 확인. (가용성 하락인지, 컨테이너 완전 다운인지 판별)
+            2. [로그 캡처] 터미널에서 `docker logs --tail=100 <api-컨테이너명>` 실행하여 죽기 직전의 OOM(Out of Memory) 또는 DB Connection Timeout 로그 확인
+            3. [긴급 복구] `docker-compose restart api` 실행으로 인스턴스 재기동 및 트래픽 수신 재개
+            4. [상황 전파] 복구 확인 후 슬랙 채널에 P1 상황 종료 전파 및 원인 분석(RCA) 티켓 생성
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/api-container-crash-recovery"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/business-impact?viewPanel=2"
+
+      # 3. [P1] 에러 예산 소진 속도 급증
+      - alert: HighErrorBurnRate
+        expr: ((sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))) / 0.001) > 14.4
+        for: 10s
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] 에러 예산 소진 속도 급증 (소진 속도: {{ printf \"%.1f\" $value }}x)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [현황 파악] Grafana 대시보드 2번(Burn Rate) 및 3번(Error Budget) 패널을 통해 예산 잔여량 및 소진 속도 확인
+            2. [샘플 추적] 7번(결제 에러율) 패널에서 Exemplar(점)를 클릭하여 Tempo 트레이스로 이동
+            3. [원인 식별] Tempo-Loki 연동 화면에서 공통적으로 발생하는 Exception(예: NullPointerException 등)과 배포 시점 대조
+            4. [긴급 복구] 최근 코드 변경 건이 원인일 경우 즉시 `docker-compose` 설정에서 이전 이미지 태그로 롤백하거나 핫픽스 배포
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/error-budget-burn-rate-action"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/slo-monitor?viewPanel=3"
+          log_query_url: "https://grafana.elice-team.com/explore?left=[\"now-5m\",\"now\",\"Loki\",{\"expr\":\"{app=\\\"elice-api\\\"} |~ \\\"Exception\\\"\"}]"
+
+      # 4. [P2] 자동 환불 방어율 하락
+      - alert: FallbackSuccessRateDrop
+        expr: (sum(increase(business_payment_pg_refund_request_total[5m])) / (sum(increase(business_payment_pg_refund_request_total[5m])) + sum(increase(business_payment_pg_refund_fatal_total[5m]))) * 100) < 100
+        for: 10s
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] 결제 환불 보상 트랜잭션 방어율 하락 (현재 성공률: {{ printf \"%.1f\" $value }}%)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [대시보드 확인] Grafana 대시보드 5번(자동 환불 방어율) 패널에서 방어율 하락 추세 확인
+            2. [트레이스 추적] 대시보드 그래프의 Exemplar(점)를 클릭하여 Tempo 트레이스로 이동
+            3. [원인 격리] 연동된 Loki 로그(Exception) 확인을 통해 책임 소재 파악
+              - (내부 원인) `Connection Refused` / `NPE`: 즉시 최근 배포 이미지 롤백 고려
+              - (외부 원인) PG사 `5xx/Timeout`: 외부 장애 확정 시 즉각 사내 채널 전파
+            4. [임시 조치] 외부 장애일 경우, 프론트엔드에 '결제 지연 안내 배너' 노출 요청 및 Admin API로 실패 건 재처리 대기
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/pg-fallback-failure"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/business-impact?viewPanel=5"
+
+  - name: Tier2-Application-Performance
+    rules:
+      # 5. [P2] 결제 API 지연 시간 폭증
+      - alert: PaymentHighLatency
+        expr: |
+          (histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le)) > 0.5)
+          and 
+          (sum(rate(http_server_requests_seconds_count[5m])) > 0)
+        for: 10s
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] 결제 p95 지연 (현재: {{ printf \"%.2f\" $value }}s)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [대시보드 확인] Grafana 대시보드 6번(p95 Latency) 패널의 500ms 임계치 초과 여부 및 9번(Tomcat Thread) 패널의 스레드 포화도 확인
+            2. [트레이스 추적] 6번 패널 그래프에서 500ms 선을 넘은 Exemplar(점)를 클릭하여 Tempo 트레이스로 즉시 이동
+            3. [구간 격리] Tempo 스팬(Span) 타임라인을 분석하여, 지연 발생 구간이 [내부 DB 대기]인지 [외부 PG사 API 연동]인지 식별
+            4. [긴급 조치] 외부 지연이면서 9번 패널의 스레드가 100%에 근접할 경우, 즉시 `docker-compose up --scale api=3 -d` 명령어로 API 컨테이너를 증설(Scale-out)하여 동시 처리 자원 확보
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/api-latency-troubleshooting"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/app-performance?viewPanel=6"
+          trace_query_url: "https://grafana.elice-team.com/explore?left=[\"now-15m\",\"now\",\"Tempo\",{\"query\":\"{ duration > 500ms }\"}]"
+
+      # 6. [P2] 비정상적인 트래픽 스파이크
+      - alert: TrafficSpikeDetected
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count[1m])) 
+            > 
+            (sum(rate(http_server_requests_seconds_count[1h])) * 3)
+          )
+          and 
+          (sum(rate(http_server_requests_seconds_count[1m])) > 100)
+        for: 10s
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] 결제 트래픽 스파이크 평균 대비 3배 이상 폭증 (현재: {{ printf \"%.0f\" $value }} RPS)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [대시보드 확인] Grafana 대시보드 8번(Traffic RPS) 패널의 상승 곡선 및 9, 11번(Thread/CPU) 패널 포화도 동시 확인
+            2. [트래픽 성격 식별] Loki 로그 창을 열어 최근 인입된 트래픽의 IP와 User-Agent를 확인하여 악성 봇(Bot) 공격 여부 판별
+            3. [긴급 방어 - 악성 트래픽] 어뷰징으로 판단될 경우, API 게이트웨이(또는 Nginx) 레벨에서 해당 IP 블락 또는 Rate Limit 조치
+            4. [긴급 증설 - 정상 트래픽] 마케팅 이벤트 등 정상 유입으로 판단될 경우, 즉시 `docker-compose up --scale api=3 -d` 명령어로 컨테이너 스케일 아웃 실행
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/traffic-spike-queue-activation"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/app-performance?viewPanel=8"
+
+  - name: Tier3-System-Saturation
+    rules:
+      # 7. [P2] Tomcat 스레드 포화
+      - alert: TomcatThreadExhaustion
+        expr: (tomcat_threads_busy_threads / tomcat_threads_config_max_threads * 100) > 80
+        for: 10s
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] Tomcat 스레드 지속 포화 (현재 사용률: {{ printf \"%.1f\" $value }}%)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [원인 격리] Grafana 대시보드 9번(스레드) 패널과 함께 8번(RPS) 및 6번(p95 Latency) 패널 동시 확인
+              - (A) RPS 폭증 + Latency 정상: 단순 트래픽 과부하
+              - (B) RPS 유지 + Latency 폭증: 외부 I/O 대기(병목)로 인한 스레드 적체
+            2. [트레이스 추적] (B)의 경우, 6번 패널의 Exemplar를 클릭해 Tempo로 이동하여 스레드를 물고 놓아주지 않는 범인(Slow Query, PG사 지연 등) 식별
+            3. [긴급 대응 - 트래픽] 단순 과부하(A)일 경우 `docker-compose up --scale api=3 -d`로 즉시 스케일 아웃
+            4. [긴급 대응 - 병목] 외부 지연(B)일 경우, 장애 격리를 위해 서킷 브레이커 수동 Open 또는 문제가 되는 기능의 라우팅 차단
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/tomcat-thread-exhaustion"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/system-saturation?viewPanel=9"
+
+      # 8. [P1] JVM Heap 메모리 포화
+      - alert: JvmHeapMemoryHigh
+        expr: (sum(jvm_memory_used_bytes{area="heap"}) / sum(jvm_memory_max_bytes{area="heap"} > 0 or jvm_memory_committed_bytes{area="heap"}) * 100) > 90
+        for: 10s
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] JVM Heap 포화 (현재 사용률: {{ printf \"%.1f\" $value }}%)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [상황 파악] Grafana 대시보드 10번(JVM Heap) 및 11번(System CPU) 패널 확인. (GC Overhead로 인한 CPU 동반 상승 여부 체크)
+            2. [원인 추적] 6번(Latency) 패널의 Exemplar를 클릭해 Tempo로 이동. 특정 API 호출 후 메모리 급증 여부 확인
+            3. [긴급 복구] 서비스 완전 중단(OOM) 방지를 위해 즉시 `docker-compose restart api` 실행
+            4. [증거 확보] 재시작 전후로 `docker exec <api-컨테이너> jcmd 1 GC.heap_dump /tmp/heapdump.hprof` 명령을 통해 분석용 덤프 추출
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/jvm-oom-prevention"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/system-saturation?viewPanel=10"
+
+      # 9. [P2] 시스템 CPU 포화
+      - alert: SystemCpuHigh
+        expr: (system_cpu_usage * 100) > 80
+        for: 10s
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] CPU 지속 포화 (현재 사용률: {{ printf \"%.1f\" $value }}%)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [유형 판별] Grafana 대시보드 11번(CPU)과 10번(JVM Heap) 패널 동시 확인. (메모리 부족으로 인한 GC 유발 CPU 상승인지 판별)
+            2. [병목 추적] 6번(Latency) 패널에서 지연 시간이 튀는 Exemplar(점)를 클릭하여 Tempo 트레이스 분석. 특정 연산(암호화, 대량 데이터 처리 등)이 CPU를 점유하는지 확인
+            3. [로그 확인] Loki에서 `level="ERROR"` 검색하여 무한 루프 또는 연쇄 재시도 로그 발생 여부 확인
+            4. [긴급 대응] 정상 트래픽 증가 시 `docker-compose up --scale api=3 -d`로 즉시 증설. 로직 버그일 경우 즉시 이미지 롤백
+          runbook_url: "https://wiki.elice-team.com/sre/runbooks/host-cpu-saturation"
+          dashboard_url: "https://grafana.elice-team.com/d/sre-payment/system-saturation?viewPanel=11"
+
+  - name: Tier4-Infrastructure
+    rules:
+      # 10. [P2] 카프카 컨슈머 렉 임계치 초과
+      - alert: KafkaConsumerLagHigh
+        expr: sum(kafka_consumergroup_lag) by (consumergroup, topic) > 500
+        for: 1m
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] 카프카 컨슈머 렉 임계치 초과 (그룹: {{ $labels.consumergroup }}, 토픽: {{ $labels.topic }}, 렉: {{ printf \"%.0f\" $value }}건)"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [현황 파악] Grafana 대시보드 인프라 섹션의 컨슈머 렉 패널에서 어떤 그룹·토픽에서 렉이 발생하는지 확인
+            2. [소비자 상태 확인] 해당 컨슈머 그룹을 사용하는 서버(server-a-group→serverA, server-b-group→serverB, server-c-group→serverC)의 로그를 Loki에서 확인
+            3. [프로듀서 속도 점검] 생산 속도가 급증했는지(이벤트 스파이크) vs 소비자가 처리 지연 중인지 구분
+            4. [긴급 조치] 소비자 지연 시 해당 서버 컨테이너 재시작. 프로듀서 급증 시 업스트림 트래픽 제한 검토
+
+      # 11. [P1] 결제 에러율 급증
+      - alert: PaymentErrorRateHigh
+        expr: (rate(business_payment_error_total[5m]) / rate(business_payment_attempts_total[5m]) * 100) > 5
+        for: 30s
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] 결제 에러율 {{ printf \"%.1f\" $value }}% 초과"
+          description: >
+            [Action Item - Docker Compose 환경]
+            1. [대시보드 확인] Grafana 비즈니스 지표 섹션에서 결제 시도·성공·에러 카운터 추이 확인
+            2. [로그 확인] Loki에서 serverC의 `level="ERROR"` 로그로 PG사 응답 코드 확인
+            3. [서킷 브레이커 상태] serverC의 pgClientCb 서킷 브레이커가 OPEN 상태인지 확인
+            4. [긴급 조치] PG사 장애 시 사내 채널 전파. 내부 오류 시 serverC 재시작 또는 이전 이미지로 롤백
+
+      # 12. [P0] 환불 치명 오류 (기존 PaymentFatalError 와 동일 지표 기반 보강)
+      - alert: RefundFatalError
+        expr: increase(business_payment_pg_refund_fatal_total[1m]) > 0
+        labels:
+          severity: critical
+          tier: P0
+        annotations:
+          summary: "🚨 [P0] PG 환불 치명 오류 발생 ({{ printf \"%.0f\" $value }}건)"
+          description: >
+            [Action Item]
+            1. [임팩트 확인] 환불 요청이 PG사에 전달됐으나 취소 처리까지 실패한 건. 수기 정산 필요 여부 즉시 확인
+            2. [로그 확인] Loki에서 serverC MockPgClient의 cancelPayments 에러 메시지 확인
+            3. [PG사 연동 상태] PG사 파트너 어드민에서 해당 traceId의 결제 취소 상태 직접 확인
+            4. [데이터 복구] 미취소 건에 대해 PG사 파트너 어드민을 통해 수동 취소 요청

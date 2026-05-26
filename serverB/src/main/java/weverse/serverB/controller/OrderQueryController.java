@@ -14,10 +14,10 @@ public class OrderQueryController {
 
     private final OrderQueryService orderQueryService;
 
-    @GetMapping("/api/v1/orders/{traceId}/status")
-    public ResponseEntity<OrderStatusResponse> getOrderStatus(@PathVariable String traceId) {
-        String status = orderQueryService.getOrderStatus(traceId);
-        return ResponseEntity.ok(new OrderStatusResponse(traceId, status));
+    @GetMapping("/api/v1/orders/{orderId}/status")
+    public ResponseEntity<OrderStatusResponse> getOrderStatus(@PathVariable String orderId) {
+        String status = orderQueryService.getOrderStatus(orderId);
+        return ResponseEntity.ok(new OrderStatusResponse(orderId, status));
     }
 
     @GetMapping("/api/v1/goods/{goodsId}/stock")

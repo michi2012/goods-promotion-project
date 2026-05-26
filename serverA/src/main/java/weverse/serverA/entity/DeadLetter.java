@@ -15,7 +15,7 @@ public class DeadLetter {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String traceId;
+    private String orderId;
 
     private Long goodsId;
 
@@ -29,8 +29,8 @@ public class DeadLetter {
     private DltStatus status;
 
     @Builder
-    public DeadLetter(String traceId, Long goodsId, int quantity, String reason) {
-        this.traceId = traceId;
+    public DeadLetter(String orderId, Long goodsId, int quantity, String reason) {
+        this.orderId = orderId;
         this.goodsId = goodsId;
         this.quantity = quantity;
         this.reason = reason;

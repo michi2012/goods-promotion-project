@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @Table(
         name = "orders",
         indexes = {
-                @Index(name = "idx_orders_trace_id", columnList = "trace_id"),
+                @Index(name = "idx_orders_order_id", columnList = "order_id"),
                 @Index(name = "idx_orders_status_created", columnList = "status, created_at")
         }
 )
@@ -22,8 +22,8 @@ public class Order extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "trace_id", unique = true, nullable = false, updatable = false)
-    private String traceId;
+    @Column(name = "order_id", unique = true, nullable = false, updatable = false)
+    private String orderId;
 
     @Column(updatable = false)
     private Long userId;
@@ -60,11 +60,11 @@ public class Order extends BaseTimeEntity {
     private OrderStatus status;
 
     @Builder
-    public Order(String traceId, Long userId, Long goodsId, int quantity,
+    public Order(String orderId, Long userId, Long goodsId, int quantity,
                  String paymentMethod, String shippingAddress, String zipCode,
                  String phoneNumber, String email, String deliveryMemo,
                  String clientIp, OrderStatus status) {
-        this.traceId = traceId;
+        this.orderId = orderId;
         this.userId = userId;
         this.goodsId = goodsId;
         this.quantity = quantity;

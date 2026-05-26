@@ -38,9 +38,9 @@ class SagaStateServiceTest {
     @Mock
     private ValueOperations<String, String> valueOperations;
 
-    private final String traceId = "trace-123";
-    private final String stateKey = "saga:state:" + traceId;
-    private final String holdKey = "saga:hold:" + traceId;
+    private final String orderId = "trace-123";
+    private final String stateKey = "saga:state:" + orderId;
+    private final String holdKey = "saga:hold:" + orderId;
 
     @BeforeEach
     void setUp() {
@@ -55,7 +55,7 @@ class SagaStateServiceTest {
         given(redisTemplate.opsForValue()).willReturn(valueOperations);
 
         // when
-        sagaStateService.initSagaState(traceId, 1L, 10L, 100L, 2);
+        sagaStateService.initSagaState(orderId, 1L, 10L, 100L, 2);
 
         // then
         verify(hashOperations).putAll(eq(stateKey), any(Map.class));
@@ -76,11 +76,11 @@ class SagaStateServiceTest {
         given(hashOperations.entries(stateKey)).willReturn(mockData);
 
         // when
-        SagaStateData result = sagaStateService.getSagaState(traceId);
+        SagaStateData result = sagaStateService.getSagaState(orderId);
 
         // then
         assertThat(result).isNotNull();
-        assertThat(result.orderId()).isEqualTo(1L);
+        assertThat(result.orderEntityId()).isEqualTo(1L);
         assertThat(result.userId()).isEqualTo(10L);
         assertThat(result.goodsId()).isEqualTo(100L);
         assertThat(result.quantity()).isEqualTo(2);
@@ -98,7 +98,7 @@ class SagaStateServiceTest {
         given(hashOperations.entries(stateKey)).willReturn(mockEntries);
 
         // when
-        boolean result = sagaStateService.markPaymentCompleted(traceId);
+        boolean result = sagaStateService.markPaymentCompleted(orderId);
 
         // then
         verify(hashOperations).put(stateKey, "paymentCompleted", "true");
@@ -117,7 +117,7 @@ class SagaStateServiceTest {
         given(hashOperations.entries(stateKey)).willReturn(mockEntries);
 
         // when
-        boolean result = sagaStateService.markPaymentCompleted(traceId);
+        boolean result = sagaStateService.markPaymentCompleted(orderId);
 
         // then
         assertThat(result).isTrue();
@@ -131,7 +131,7 @@ class SagaStateServiceTest {
         given(hashOperations.increment(stateKey, "failedOnce", 1L)).willReturn(1L);
 
         // when
-        boolean result = sagaStateService.markFailedAndCheck(traceId);
+        boolean result = sagaStateService.markFailedAndCheck(orderId);
 
         // then
         verify(hashOperations).put(stateKey, "failed", "true");
@@ -146,7 +146,7 @@ class SagaStateServiceTest {
         given(hashOperations.increment(stateKey, "failedOnce", 1L)).willReturn(2L); // 1보다 큼
 
         // when
-        boolean result = sagaStateService.markFailedAndCheck(traceId);
+        boolean result = sagaStateService.markFailedAndCheck(orderId);
 
         // then
         verify(hashOperations, never()).put(eq(stateKey), eq("failed"), anyString());

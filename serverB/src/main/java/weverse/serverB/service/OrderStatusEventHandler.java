@@ -22,20 +22,20 @@ public class OrderStatusEventHandler {
     public void handleStatusUpdate(OrderStatusMessage msg) throws Exception {
         try {
             // 1. 순수 Redis 업데이트
-            orderQueryService.updateOrderStatus(msg.traceId(), msg.status());
+            orderQueryService.updateOrderStatus(msg.orderId(), msg.status());
 
             // 2. 비즈니스 규칙 처리 및 결과 발행
             if ("PENDING".equals(msg.status())) {
                 String result = objectMapper.writeValueAsString(
-                        new StatusUpdateResultMessage(msg.traceId(), true, null));
-                kafkaTemplate.send(RESULT_TOPIC, msg.traceId(), result);
+                        new StatusUpdateResultMessage(msg.orderId(), true, null));
+                kafkaTemplate.send(RESULT_TOPIC, msg.orderId(), result);
             }
         } catch (Exception e) {
-            log.error("[OrderStatus] Redis 업데이트 실패: traceId={}", msg.traceId(), e);
+            log.error("[OrderStatus] Redis 업데이트 실패: orderId={}", msg.orderId(), e);
             if ("PENDING".equals(msg.status())) {
                 String result = objectMapper.writeValueAsString(
-                        new StatusUpdateResultMessage(msg.traceId(), false, e.getMessage()));
-                kafkaTemplate.send(RESULT_TOPIC, msg.traceId(), result);
+                        new StatusUpdateResultMessage(msg.orderId(), false, e.getMessage()));
+                kafkaTemplate.send(RESULT_TOPIC, msg.orderId(), result);
             }
         }
     }

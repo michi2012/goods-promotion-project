@@ -38,8 +38,8 @@ class SagaTimeoutSchedulerTest {
     @DisplayName("10분이 초과된 Saga는 타임아웃 처리된다")
     void checkTimeouts_triggers_failure_for_expired_saga() {
         // given
-        String traceId = "trace-1";
-        String redisKey = "saga:state:" + traceId;
+        String orderId = "trace-1";
+        String redisKey = "saga:state:" + orderId;
         long currentTime = System.currentTimeMillis();
         long expiredTime = currentTime - (11 * 60 * 1000L); // 11분 전
 
@@ -47,28 +47,28 @@ class SagaTimeoutSchedulerTest {
         given(cursor.hasNext()).willReturn(true, false); // 1번 루프 후 종료
         given(cursor.next()).willReturn(redisKey);
 
-        given(sagaStateService.isFailed(traceId)).willReturn(false);
-        given(sagaStateService.getCreatedAt(traceId)).willReturn(expiredTime);
+        given(sagaStateService.isFailed(orderId)).willReturn(false);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(expiredTime);
 
         // when
         sagaTimeoutScheduler.checkTimeouts();
 
         // then
-        verify(sagaOrchestratorService, times(1)).handleSagaFailure(traceId, "TIMEOUT");
+        verify(sagaOrchestratorService, times(1)).handleSagaFailure(orderId, "TIMEOUT");
     }
 
     @Test
     @DisplayName("이미 실패한 Saga는 타임아웃 검사에서 제외된다")
     void checkTimeouts_skips_already_failed_saga() {
         // given
-        String traceId = "trace-2";
-        String redisKey = "saga:state:" + traceId;
+        String orderId = "trace-2";
+        String redisKey = "saga:state:" + orderId;
 
         given(redisTemplate.scan(any(ScanOptions.class))).willReturn(cursor);
         given(cursor.hasNext()).willReturn(true, false);
         given(cursor.next()).willReturn(redisKey);
 
-        given(sagaStateService.isFailed(traceId)).willReturn(true); // 실패 상태
+        given(sagaStateService.isFailed(orderId)).willReturn(true); // 실패 상태
 
         // when
         sagaTimeoutScheduler.checkTimeouts();
@@ -82,8 +82,8 @@ class SagaTimeoutSchedulerTest {
     @DisplayName("생성된 지 10분이 지나지 않은 Saga는 타임아웃 처리되지 않는다")
     void checkTimeouts_skips_not_expired_saga() {
         // given
-        String traceId = "trace-3";
-        String redisKey = "saga:state:" + traceId;
+        String orderId = "trace-3";
+        String redisKey = "saga:state:" + orderId;
         long currentTime = System.currentTimeMillis();
         long validTime = currentTime - (5 * 60 * 1000L); // 5분 전
 
@@ -91,8 +91,8 @@ class SagaTimeoutSchedulerTest {
         given(cursor.hasNext()).willReturn(true, false);
         given(cursor.next()).willReturn(redisKey);
 
-        given(sagaStateService.isFailed(traceId)).willReturn(false);
-        given(sagaStateService.getCreatedAt(traceId)).willReturn(validTime);
+        given(sagaStateService.isFailed(orderId)).willReturn(false);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(validTime);
 
         // when
         sagaTimeoutScheduler.checkTimeouts();

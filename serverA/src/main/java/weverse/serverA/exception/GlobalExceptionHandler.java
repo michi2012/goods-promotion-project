@@ -13,6 +13,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(PromotionException.class)
     public ResponseEntity<ErrorResponse> handlePromotionException(PromotionException e) {
+        log.warn("❌ 프로모션 에러: [{}] {}", e.getStatus(), e.getMessage());
 
         ErrorResponse response = new ErrorResponse(
                 e.getStatus().value(),
@@ -25,7 +26,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException e) {
-        log.info("⚠️ 비즈니스 에러: [{}] {}", e.getErrorCode(), e.getMessage());
+        log.warn("⚠️ 비즈니스 에러: [{}] {}", e.getErrorCode(), e.getMessage());
 
         ErrorResponse response = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),

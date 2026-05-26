@@ -1,5 +1,5 @@
 package weverse.serverA.dto;
 
 public record OrderCompletedMessage(
-        String traceId
+        String orderId
 ) {}

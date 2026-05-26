@@ -29,7 +29,7 @@ class PurchaseDltConsumerTest {
     @DisplayName("DLT 메시지 수신 시 파싱에 성공하면 DeadLetter 테이블에 저장된다.")
     void consume_Dlt_Success() throws Exception {
         // Given
-        String payload = "{\"traceId\":\"t-1\", \"goodsId\":2, \"quantity\":1}";
+        String payload = "{\"orderId\":\"t-1\", \"goodsId\":2, \"quantity\":1}";
         String exceptionMsg = "DB Connection Timeout";
 
         // When
@@ -37,7 +37,7 @@ class PurchaseDltConsumerTest {
 
         // Then
         verify(deadLetterRepository).save(argThat(dl ->
-                "t-1".equals(dl.getTraceId()) &&
+                "t-1".equals(dl.getOrderId()) &&
                         2L == dl.getGoodsId() &&
                         "DB Connection Timeout".equals(dl.getReason())
         ));

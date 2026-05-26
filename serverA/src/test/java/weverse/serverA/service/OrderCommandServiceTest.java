@@ -53,7 +53,7 @@ class OrderCommandServiceTest {
         verify(outboxEventService).save(eq("trace-123"), eq("order-status-update"), any());
         verify(outboxEventService).save(eq("trace-123"), eq("payment-request"), any());
 
-        assertThat(order.getTraceId()).isEqualTo("trace-123");
+        assertThat(order.getOrderId()).isEqualTo("trace-123");
         assertThat(order.getStatus().name()).isEqualTo("PENDING");
     }
 }

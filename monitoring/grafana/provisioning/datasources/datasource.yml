@@ -1,0 +1,44 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus      # UID 명시
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - datasourceUid: tempo  # 아래 Tempo의 uid와 일치시켜야 함
+          name: trace_id        # 데이터에 찍힌 라벨 이름
+
+  - name: Tempo
+    type: tempo
+    uid: tempo           # UID 명시
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: 'loki'  # 아래 Loki의 uid와 일치
+        groupBy: ['app']       # Loki 라벨 기준 (app=serverA/B/C)
+        filterByTraceID: true
+        spanStartTimeShift: '-1m'  # Vector 지연 보정: 스팬 시작 1분 전부터 조회
+        spanEndTimeShift: '1m'     # Vector 지연 보정: 스팬 종료 1분 후까지 조회
+        tags:
+          - key: 'service.name'
+            value: 'app'
+      serviceMap:
+        datasourceUid: 'prometheus'
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: 'loki'
+
+  - name: Loki
+    type: loki
+    uid: loki            # UID 명시 (이게 없으면 Tempo에서 못 찾아옴)
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: '"traceId":"([a-zA-Z0-9]+)"'
+          name: trace_id
+          url: "$${__value.raw}"

@@ -1,7 +1,7 @@
 package weverse.serverC.dto;
 
 public record PurchaseMessage(
-        String traceId,
+        String orderId,
         Long userId,
         Long goodsId,
         int quantity,

@@ -22,32 +22,32 @@ public class SagaResultConsumer {
     @KafkaListener(topics = "status-update-result", groupId = "${spring.kafka.consumer.group-id}")
     public void consumeStatusUpdateResult(String payload) throws Exception {
         StatusUpdateResultMessage msg = objectMapper.readValue(payload, StatusUpdateResultMessage.class);
-        log.info("[Saga] status-update-result 수신: traceId={}, success={}", msg.traceId(), msg.success());
+        log.info("[Saga] status-update-result 수신: orderId={}, success={}", msg.orderId(), msg.success());
 
         if (!msg.success()) {
-            sagaOrchestratorService.handleSagaFailure(msg.traceId(), msg.errorMessage());
+            sagaOrchestratorService.handleSagaFailure(msg.orderId(), msg.errorMessage());
             return;
         }
 
-        boolean bothDone = sagaStateService.markStatusUpdateCompleted(msg.traceId());
+        boolean bothDone = sagaStateService.markStatusUpdateCompleted(msg.orderId());
         if (bothDone) {
-            sagaOrchestratorService.tryCompleteSaga(msg.traceId());
+            sagaOrchestratorService.tryCompleteSaga(msg.orderId());
         }
     }
 
     @KafkaListener(topics = "payment-result", groupId = "${spring.kafka.consumer.group-id}")
     public void consumePaymentResult(String payload) throws Exception {
         PaymentResultMessage msg = objectMapper.readValue(payload, PaymentResultMessage.class);
-        log.info("[Saga] payment-result 수신: traceId={}, success={}", msg.traceId(), msg.success());
+        log.info("[Saga] payment-result 수신: orderId={}, success={}", msg.orderId(), msg.success());
 
         if (!msg.success()) {
-            sagaOrchestratorService.handleSagaFailure(msg.traceId(), msg.errorMessage());
+            sagaOrchestratorService.handleSagaFailure(msg.orderId(), msg.errorMessage());
             return;
         }
 
-        boolean bothDone = sagaStateService.markPaymentCompleted(msg.traceId());
+        boolean bothDone = sagaStateService.markPaymentCompleted(msg.orderId());
         if (bothDone) {
-            sagaOrchestratorService.tryCompleteSaga(msg.traceId());
+            sagaOrchestratorService.tryCompleteSaga(msg.orderId());
         }
     }
 }

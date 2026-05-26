@@ -26,7 +26,7 @@ class OrderQueryServiceTest {
     @Mock
     private ValueOperations<String, String> valueOperations;
 
-    private final String traceId = "trace-1234";
+    private final String orderId = "trace-1234";
     private final Long goodsId = 100L;
 
     @BeforeEach
@@ -40,10 +40,10 @@ class OrderQueryServiceTest {
     void updateOrderStatus_success() {
         // given
         String status = "PAID";
-        String expectedKey = "order:view:" + traceId + ":status";
+        String expectedKey = "order:view:" + orderId + ":status";
 
         // when
-        orderQueryService.updateOrderStatus(traceId, status);
+        orderQueryService.updateOrderStatus(orderId, status);
 
         // then
         verify(valueOperations).set(expectedKey, status);
@@ -53,11 +53,11 @@ class OrderQueryServiceTest {
     @DisplayName("조회된 주문 상태가 있으면 해당 값을 반환한다")
     void getOrderStatus_returns_status() {
         // given
-        String expectedKey = "order:view:" + traceId + ":status";
+        String expectedKey = "order:view:" + orderId + ":status";
         given(valueOperations.get(expectedKey)).willReturn("PAID");
 
         // when
-        String status = orderQueryService.getOrderStatus(traceId);
+        String status = orderQueryService.getOrderStatus(orderId);
 
         // then
         assertThat(status).isEqualTo("PAID");
@@ -67,11 +67,11 @@ class OrderQueryServiceTest {
     @DisplayName("조회된 주문 상태가 없으면 NOT_FOUND를 반환한다")
     void getOrderStatus_returns_NOT_FOUND_when_null() {
         // given
-        String expectedKey = "order:view:" + traceId + ":status";
+        String expectedKey = "order:view:" + orderId + ":status";
         given(valueOperations.get(expectedKey)).willReturn(null);
 
         // when
-        String status = orderQueryService.getOrderStatus(traceId);
+        String status = orderQueryService.getOrderStatus(orderId);
 
         // then
         assertThat(status).isEqualTo("NOT_FOUND");

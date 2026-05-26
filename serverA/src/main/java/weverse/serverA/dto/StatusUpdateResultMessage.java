@@ -1,7 +1,7 @@
 package weverse.serverA.dto;
 
 public record StatusUpdateResultMessage(
-        String traceId,
+        String orderId,
         boolean success,
         String errorMessage
 ) {}

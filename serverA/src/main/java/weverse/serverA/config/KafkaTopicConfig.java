@@ -75,4 +75,12 @@ public class KafkaTopicConfig {
                            .replicas(1)
                            .build();
     }
+
+    @Bean
+    public NewTopic paymentCancelTopic() {
+        return TopicBuilder.name("payment-cancel")
+                           .partitions(3)
+                           .replicas(1)
+                           .build();
+    }
 }

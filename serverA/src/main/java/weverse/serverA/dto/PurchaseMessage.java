@@ -3,7 +3,7 @@ package weverse.serverA.dto;
 import weverse.serverA.dto.request.PurchaseRequest;
 
 public record PurchaseMessage(
-        String traceId,        // [핵심] 분산 추적 및 서버 C 멱등성 검증용 키
+        String orderId,
         Long userId,
         Long goodsId,
         int quantity,
@@ -15,9 +15,9 @@ public record PurchaseMessage(
         String deliveryMemo,
         String clientIp
 ) {
-    public static PurchaseMessage from(PurchaseRequest request, String traceId) {
+    public static PurchaseMessage from(PurchaseRequest request, String orderId) {
         return new PurchaseMessage(
-                traceId,
+                orderId,
                 request.userId(),
                 request.goodsId(),
                 request.quantity(),

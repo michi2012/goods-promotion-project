@@ -28,7 +28,7 @@ public class OrderCommandService {
     @Transactional
     public Order saveOrderAndDecreaseStock(PurchaseMessage message) {
         Order order = Order.builder()
-                           .traceId(message.traceId())
+                           .orderId(message.orderId())
                            .userId(message.userId())
                            .goodsId(message.goodsId())
                            .quantity(message.quantity())
@@ -46,13 +46,13 @@ public class OrderCommandService {
         goodsRepository.decreaseStock(message.goodsId(), message.quantity());
 
         sagaStateService.initSagaState(
-                message.traceId(), order.getId(),
+                message.orderId(), order.getId(),
                 message.userId(), message.goodsId(), message.quantity()
         );
 
-        outboxEventService.save(message.traceId(), ORDER_STATUS_TOPIC,
-                new OrderStatusMessage(message.traceId(), message.userId(), "PENDING"));
-        outboxEventService.save(message.traceId(), PAYMENT_REQUEST_TOPIC, message);
+        outboxEventService.save(message.orderId(), ORDER_STATUS_TOPIC,
+                new OrderStatusMessage(message.orderId(), message.userId(), "PENDING"));
+        outboxEventService.save(message.orderId(), PAYMENT_REQUEST_TOPIC, message);
 
         return order;
     }

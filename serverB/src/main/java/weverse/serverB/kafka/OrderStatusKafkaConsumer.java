@@ -19,8 +19,8 @@ public class OrderStatusKafkaConsumer {
     @KafkaListener(topics = "order-status-update", groupId = "${spring.kafka.consumer.group-id}")
     public void consume(String payload) throws Exception {
         OrderStatusMessage msg = objectMapper.readValue(payload, OrderStatusMessage.class);
-        log.info("[OrderStatus] order-status-update 수신: traceId={}, userId={}, status={}",
-                msg.traceId(), msg.userId(), msg.status());
+        log.info("[OrderStatus] order-status-update 수신: orderId={}, userId={}, status={}",
+                msg.orderId(), msg.userId(), msg.status());
 
         orderStatusEventHandler.handleStatusUpdate(msg);
     }
