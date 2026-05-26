@@ -2,13 +2,13 @@ services:
   # 1. MySQL
   mysql:
     image: mysql:8.0
-    container_name: weverse-mysql
+    container_name: promotion-mysql
     ports:
       - "3307:3306"
     environment:
       TZ: Asia/Seoul
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: weverse_promo
+      MYSQL_DATABASE: promotion
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -22,7 +22,7 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -33,13 +33,13 @@ services:
   redis:
     image: redis:7.0-alpine
     command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
-    container_name: weverse-redis
+    container_name: promotion-redis
     ports:
       - "6379:6379"
     environment:
       TZ: Asia/Seoul
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -50,13 +50,13 @@ services:
   redis-b:
     image: redis:7.0-alpine
     command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
-    container_name: weverse-redis-b
+    container_name: promotion-redis-b
     ports:
       - "6380:6379"
     environment:
       TZ: Asia/Seoul
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -66,7 +66,7 @@ services:
   # 3. Kafka
   kafka:
     image: bitnami/kafka:latest
-    container_name: weverse-kafka
+    container_name: promotion-kafka
     ports:
       - "9092:9092"
     environment:
@@ -85,7 +85,7 @@ services:
     volumes:
       - kafka-data:/bitnami/kafka
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -101,7 +101,7 @@ services:
   # 3-b. Kafka Connect (Debezium CDC)
   kafka-connect:
     image: quay.io/debezium/connect:2.7
-    container_name: weverse-kafka-connect
+    container_name: promotion-kafka-connect
     ports:
       - "8083:8083"
     environment:
@@ -117,7 +117,7 @@ services:
       mysql:
         condition: service_healthy
     networks:
-      - promo-network
+      - promotion-network
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
       interval: 10s
@@ -133,7 +133,7 @@ services:
   # 3-c. Debezium 커넥터 자동 등록
   debezium-init:
     image: curlimages/curl:latest
-    container_name: weverse-debezium-init
+    container_name: promotion-debezium-init
     entrypoint:
       - /bin/sh
       - -c
@@ -144,7 +144,7 @@ services:
       kafka-connect:
         condition: service_healthy
     networks:
-      - promo-network
+      - promotion-network
     restart: on-failure
 
   # 4. SERVER C (최종 저장)
@@ -152,14 +152,14 @@ services:
     build:
       context: ./serverC
       dockerfile: Dockerfile
-    container_name: weverse-server-c
+    container_name: promotion-server-c
     volumes:
       - shared-logs:/logs
     ports:
       - "8082:8082"
     environment:
       TZ: Asia/Seoul
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/promotion?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -170,7 +170,7 @@ services:
       kafka:
         condition: service_healthy
     networks:
-      - promo-network
+      - promotion-network
     restart: on-failure
     deploy:
       resources:
@@ -183,7 +183,7 @@ services:
     build:
       context: ./serverB
       dockerfile: Dockerfile
-    container_name: weverse-server-b
+    container_name: promotion-server-b
     volumes:
       - shared-logs:/logs
     ports:
@@ -203,7 +203,7 @@ services:
       kafka:
         condition: service_healthy
     networks:
-      - promo-network
+      - promotion-network
     restart: on-failure
     deploy:
       resources:
@@ -216,14 +216,14 @@ services:
     build:
       context: ./serverA
       dockerfile: Dockerfile
-    container_name: weverse-server-a
+    container_name: promotion-server-a
     volumes:
       - shared-logs:/logs
     ports:
       - "8080:8080"
     environment:
       TZ: Asia/Seoul
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/weverse_promo?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/promotion?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_DATA_REDIS_HOST: redis
@@ -240,7 +240,7 @@ services:
       server-b:
         condition: service_started
     networks:
-      - promo-network
+      - promotion-network
     restart: on-failure
     stop_grace_period: 30s
     deploy:
@@ -260,7 +260,7 @@ services:
     volumes:
       - ./monitoring/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml
     networks:
-      - promo-network
+      - promotion-network
     depends_on:
       - tempo
     deploy:
@@ -282,7 +282,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--enable-feature=exemplar-storage'
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -302,14 +302,13 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
     networks:
-      - promo-network
+      - promotion-network
     depends_on:
       - prometheus
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          # Grafana는 비교적 가벼워서 1G로도 충분하지만 일관성을 위해 2G로 둡니다.
           memory: 2G
 
   alertmanager:
@@ -322,11 +321,10 @@ services:
     ports:
       - "9093:9093"
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
-          # Alertmanager는 매우 가볍기 때문에 0.5 CPU, 512M로도 차고 넘칩니다.
           cpus: '0.5'
           memory: 512M
 
@@ -341,7 +339,7 @@ services:
       - "4317:4317"
     restart: unless-stopped
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -357,7 +355,7 @@ services:
     ports:
       - "9000:9000"
     networks:
-      - promo-network
+      - promotion-network
     depends_on:
       - loki
     deploy:
@@ -373,7 +371,7 @@ services:
     ports:
       - "3100:3100"
     networks:
-      - promo-network
+      - promotion-network
     deploy:
       resources:
         limits:
@@ -388,7 +386,7 @@ services:
     ports:
       - "9121:9121"
     networks:
-      - promo-network
+      - promotion-network
     depends_on:
       - redis
     deploy:
@@ -405,7 +403,7 @@ services:
     ports:
       - "9122:9121"
     networks:
-      - promo-network
+      - promotion-network
     depends_on:
       - redis-b
     deploy:
@@ -422,7 +420,7 @@ services:
     ports:
       - "9308:9308"
     networks:
-      - promo-network
+      - promotion-network
     depends_on:
       kafka:
         condition: service_healthy
@@ -440,7 +438,7 @@ services:
     ports:
       - "8085:8085"
     networks:
-      - promo-network
+      - promotion-network
     environment:
       - GITHUB_OWNER=${GITHUB_OWNER}
       - GITHUB_REPO=${GITHUB_REPO}
@@ -458,7 +456,7 @@ services:
           memory: 512M
 
 networks:
-  promo-network:
+  promotion-network:
     driver: bridge
 
 volumes:

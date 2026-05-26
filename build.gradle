@@ -12,7 +12,7 @@ jar {
 }
 
 allprojects {
-    group = 'weverse'
+    group = 'promotion'
     version = '0.0.1-SNAPSHOT'
 
     repositories {

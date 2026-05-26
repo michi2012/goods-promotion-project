@@ -27,7 +27,7 @@ observability:
 
 github:
   owner: ${GITHUB_OWNER:michi2012}
-  repo: ${GITHUB_REPO:weverse}
+  repo: ${GITHUB_REPO:goods-promotion-project}
 
 slack:
   webhook-url: ${SLACK_WEBHOOK_URL}
