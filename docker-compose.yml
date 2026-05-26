@@ -432,6 +432,26 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+    container_name: mcp
+    ports:
+      - "8085:8085"
+    networks:
+      - promo-network
+    depends_on:
+      - alertmanager
+      - prometheus
+      - loki
+      - tempo
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
 networks:
   promo-network:
     driver: bridge

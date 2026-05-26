@@ -1,14 +1,19 @@
-# 체크리스트: PromotionException log.error 전환 + 에러 테스트 컨트롤러 추가
+# 체크리스트: 결제 메트릭 에러 타입 레이블 분리
 
-- 마지막 업데이트: 2026-05-25
+- 마지막 업데이트: 2026-05-26
 
 ## 진행 상황
-- [x] 단계 1: GlobalExceptionHandler log.error 변경
-  - [x] 파일 내용 확인
-- [x] 단계 2: ErrorTestController 생성
-  - [x] 빌드 통과 (`gradlew.bat :serverA:compileJava`)
+- [x] 단계 1: MockPgClient.java fallback → PgPaymentException throw
+  - [x] 검증 통과 (`.\gradlew.bat :serverC:compileJava` BUILD SUCCESSFUL)
+- [x] 단계 2: PaymentService.java 타입 레이블 카운터 교체
+  - [x] 검증 통과 (`.\gradlew.bat :serverC:compileJava` BUILD SUCCESSFUL)
+- [x] 단계 3: alert-rules.yml type 필터 추가
+  - [x] 검증 통과 (type="pg_system_error" 2개 룰 적용 확인)
 
 ## 최종 검증
-- [x] 빌드 통과
-- [x] 변경 사항이 비범위를 침범하지 않았는지 확인
-- [x] 의도하지 않은 파일 변경 없는지 git diff로 확인
+- [ ] 모든 단계 검증 통과
+- [ ] plan.md 비범위 침범 없음 확인
+- [ ] `git diff --stat` 변경 파일 확인
+
+## 발견 사항
+-

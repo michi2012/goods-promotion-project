@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import weverse.serverC.dto.PurchaseMessage;
+import weverse.serverC.exception.PgPaymentException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -55,13 +56,10 @@ public class MockPgClient implements PgClient {
     }
 
     // 차단(Open) 상태일 때 실행될 Fallback 로직
-    // 외부 PG사가 죽었다면, 굳이 기다리지 않고 "전체 결제 실패"로 즉시 처리하여 내 서버의 스레드를 보호합니다.
+    // PgPaymentException을 throw해 PaymentService가 pg_system_error로 분류하도록 시그널을 전달한다.
     public List<String> fallbackProcessPayments(List<PurchaseMessage> messages, Throwable t) {
-        log.error("🚨 [Circuit Breaker OPEN] PG사 장애 감지! 결제 요청을 즉각 차단하고 전체 FAIL 처리합니다. 사유: {}", t.getMessage());
-
-        return messages.stream()
-                       .map(PurchaseMessage::orderId)
-                       .toList();
+        log.error("🚨 [Circuit Breaker OPEN] PG사 장애 감지. 사유: {}", t.getMessage());
+        throw new PgPaymentException("PG 시스템 장애: " + t.getMessage());
     }
 
     @Override
