@@ -1,42 +1,38 @@
-# 맥락 노트: AIOps 에이전트 고도화 (5개 영역)
+# 맥락 노트: Codex MCP 교차 코드 리뷰어 추가
 
 ## 왜 이 방식을 선택했는가
 
-### DB 진단 도구 — Prometheus 기반 선택 이유
-Alertmanager 웹훅을 수신하는 에이전트가 MySQL에 직접 JDBC 커넥션을 여는 것은 관심사 분리 위반이고, spring-jdbc 의존성 추가가 필요하며, DB 접근 권한 관리 surface가 늘어난다. 반면 Prometheus에는 mysql_exporter·redis_exporter가 이미 지표를 수집 중이다. 슬로우 쿼리 카운트, 커넥션 수, HikariCP 대기 커넥션, Redis 메모리 사용률만으로도 SRE 초동 진단에 필요한 90%가 커버된다. 실시간 SHOW PROCESSLIST가 필요한 심층 진단은 DBA 직접 접속으로 위임한다.
+### 병행 구조 선택 이유
+기존 `code-reviewer.md`는 Claude(작성 모델과 동일)가 리뷰한다. "교차(cross)" 리뷰의 진짜 가치는 **다른 모델의 시각**에 있다. Codex(OpenAI)는 다른 회사, 다른 학습 데이터, 다른 편향을 가지므로 Claude가 놓친 패턴을 잡을 가능성이 높다. 두 리뷰어를 대체가 아닌 병행으로 운영하는 이유는 각자 역할이 다르기 때문이다:
+- `code-reviewer` (Claude): 프로젝트 컨벤션, Spring Boot 패턴, 수술적 변경 원칙 — 이 코드베이스를 아는 리뷰어
+- `codex-reviewer` (Codex): 범용 버그/보안/설계 — 프로젝트 지식 없는 외부 시각
 
-### GitHub 전처리 — extractCommitSummaries 패턴 선택 이유
-GitHub REST API `/commits` 응답 JSON 1건당 약 4~8KB이며, 아바타 URL, 노드 ID, 패치 URL 등 AI 분석에 무의미한 필드가 80%를 차지한다. 20건이면 최대 160KB — 현재 모델(gemini-3.1-flash-lite)의 컨텍스트 창을 불필요하게 잠식하고 분석 속도를 저하시킨다. 백엔드에서 "ISO시간 | 작성자 | 첫 줄 메시지"만 추출해 평균 1건당 100바이트로 압축하면, AI는 배포 이력을 정확하게 이해하면서 토큰을 아낀다.
+### 수동 트리거 선택 이유
+자동(Stop hook) 트리거는 매 코드 작성 완료마다 Codex API를 호출 → OpenAI API 비용이 선형 증가. 교차 리뷰는 "중요한 변경이나 확신이 필요할 때" 추가로 쓰는 것이 현실적이다.
 
-### 중복 억제 TTL 30분 선택 이유
-Alertmanager의 기본 설정: group_wait 30s, group_interval 5m, repeat_interval 1h. 실제 같은 알람이 resolve 없이 30분 안에 다시 오는 경우는 Alertmanager의 repeat 발송이다. 이를 모두 분석하면 Claude API 비용이 기하급수적으로 증가한다. 30분이면 "같은 장애가 지속 중인 재발송"은 억제하면서, "일단 resolve됐다가 새로 발생한 동일 알람"은 통과시킬 수 있는 균형점이다.
-
-### 인간 승인 게이트 — 백엔드 인프라만 선택 이유
-Slack 버튼(Block Kit Interactive Message)을 사용하려면 Incoming Webhook에서 Slack App(OAuth 2.0, Event Subscription URL, Bot Token Scope 설정)으로 전환해야 한다. 현재 에이전트는 분석·보고만 하고 인프라 액션을 취하지 않으므로, 게이트할 대상 자체가 없다. 지금은 "향후 kubectl scale, kafka-admin 같은 액션 도구가 추가될 때 연결할 수 있는 인프라"를 구축하는 것이 현실적이다. 승인 엔드포인트(`POST /action/approve/{id}`)를 통해 엔지니어가 curl로 수동 승인할 수 있어 테스트 가능성도 확보된다.
+### OPENAI_API_KEY를 .mcp.json에 보관하는 이유
+Claude Code의 MCP 서버 `env` 섹션은 literal 값만 지원하며 다른 파일에서 변수 interpolation을 지원하지 않는다. 시스템 환경 변수로 설정하면 `.mcp.json`에 키 없이 상속되지만, 사용자가 Windows 시스템 환경 변수를 설정하지 않은 상황이므로 `.mcp.json` 직접 기록이 가장 단순한 경로다. 이미 mysql 자격증명도 `.mcp.json`에 존재한다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: JDBC 직접 접속 DB 진단
-- 무엇: spring-jdbc 추가 후 `SHOW FULL PROCESSLIST`, `INFORMATION_SCHEMA.INNODB_TRX` 직접 조회
-- 왜 안 썼나: 새 Gradle 의존성 추가(사전 승인 필요), DB 자격증명을 에이전트 서비스에 노출, 관심사 분리 위반. Prometheus exporter로 충분히 대체 가능.
+### 대안 A: Codex를 기존 code-reviewer 대체
+- 무엇: 기존 code-reviewer.md를 제거하고 Codex 단독 운영
+- 왜 안 썼나: 기존 리뷰어가 이 프로젝트의 Spring Boot 컨벤션, 수술적 변경 원칙 등 프로젝트 특화 검사를 수행한다. Codex는 이 맥락을 모른다. 제거하면 프로젝트 지식 기반 리뷰가 사라진다.
 
-### 대안 B: Slack Interactive Message (Block Kit 버튼)
-- 무엇: AI가 "Kafka 리밸런싱 실행할까요?" 메시지와 함께 버튼 전송 → 엔지니어 클릭 → 즉시 실행
-- 왜 안 썼나: Incoming Webhook은 단방향 발송만 가능 — Slack App(OAuth) 전환 필요. 현재 에이전트에 실행할 액션 도구가 없으므로 껍데기 구현이 됨. 향후 액션 도구 추가 시 함께 구현 예정.
+### 대안 B: Stop hook 자동 교차 리뷰
+- 무엇: 코드 작성 완료(Stop) 시마다 자동으로 Codex 리뷰 실행
+- 왜 안 썼나: 매 작업마다 OpenAI API 호출 → 비용 증가. 간단한 수정에도 리뷰가 붙어 워크플로우 방해. 수동 호출이 비용과 편의 양쪽에서 우월하다.
 
-### 대안 C: Redis/Caffeine 캐시 기반 중복 억제
-- 무엇: ConcurrentHashMap 대신 Caffeine(expireAfterWrite 30분) 사용
-- 왜 안 썼나: 새 Gradle 의존성 추가 필요. 단일 인스턴스 환경에서 ConcurrentHashMap으로 완전히 동일한 기능 구현 가능. 수평 확장이 필요해지면 Redis 기반으로 교체.
+### 대안 C: 시스템 환경 변수 OPENAI_API_KEY 설정
+- 무엇: Windows 시스템 환경 변수로 키 설정, .mcp.json에는 키 없이 프로세스 상속으로 해결
+- 왜 안 썼나: 사용자가 현재 API Key가 없는 상태이며, 시스템 환경 변수 설정은 Claude Code 외부 작업. .mcp.json 직접 기입이 더 단순하고 검증하기 쉽다.
 
-### 대안 D: GitHub webhook 수신 기반 배포 이력
-- 무엇: GitHub push 이벤트를 별도 웹훅으로 수신해 메모리에 최근 배포 이력 저장
-- 왜 안 썼나: GitHub webhook 설정(비밀 토큰, 수신 엔드포인트 공개 URL) 필요. 서버 재시작 시 이력 소실. queryRecentCommits로 API Pull 방식이 더 단순하고 stateless.
+### 대안 D: mcp-server-openai 3rd party 패키지
+- 무엇: `@modelcontextprotocol/server-openai` 같은 서드파티 MCP 서버로 GPT-4o 직접 호출
+- 왜 안 썼나: Codex CLI는 전문 코딩 에이전트이며 raw API 호출보다 코드 분석에 특화된 컨텍스트와 기능을 제공한다. 공식 OpenAI 패키지를 쓰는 것이 유지보수 면에서 안전하다.
 
 ## 관련 파일/위치
-- `mcp/src/main/java/mcp/mcp/agent/AiOpsAgentService.java` — 분석 오케스트레이터, SYSTEM_PROMPT 보유
-- `mcp/src/main/java/mcp/mcp/agent/AlertDeduplicationService.java` (신규) — fingerprint 기반 중복 억제
-- `mcp/src/main/java/mcp/mcp/tools/ObservabilityTools.java` — AI 도구 모음 (Loki, Tempo, Prometheus, GitHub, DB, proposeAction)
-- `mcp/src/main/java/mcp/mcp/config/RestClientConfig.java` — HTTP 클라이언트 빈 등록
-- `mcp/src/main/java/mcp/mcp/approval/ActionApprovalService.java` (신규) — 승인 대기 store
-- `mcp/src/main/java/mcp/mcp/approval/ActionApprovalController.java` (신규) — POST /action/approve/{id}
-- `mcp/src/main/resources/application.yaml` — github.owner, github.repo 설정 추가
+- `.mcp.json` — MCP 서버 정의. codex 항목 추가 대상
+- `.claude/settings.json` — enabledMcpServers에 "codex" 추가 대상
+- `.claude/agents/code-reviewer.md` — 기존 Claude 기반 리뷰어. 변경 없음
+- `.claude/agents/codex-reviewer.md` — 신규 Codex 기반 교차 리뷰어 에이전트

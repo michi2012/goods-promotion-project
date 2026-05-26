@@ -1,5 +1,5 @@
 {
-  "enabledMcpServers": ["mysql"],
+  "enabledMcpServers": ["mysql", "codex"],
   "hooks": {
     "Stop": [
       {

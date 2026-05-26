@@ -1,36 +1,25 @@
-# 체크리스트: AIOps 에이전트 고도화 (5개 영역)
+# 체크리스트: Codex MCP 교차 코드 리뷰어 추가
 
 - 마지막 업데이트: 2026-05-26
 
 ## 진행 상황
 
-- [x] 단계 1: 중복 알람 억제 + 분석 실패 시 Slack 알림
-  - [x] AlertDeduplicationService.java 신규 생성
-  - [x] AiOpsAgentService.java — deduplication 주입 + catch 블록 Slack 알림 추가
-  - [x] 검증 통과 (`.\gradlew.bat :mcp:compileJava` BUILD SUCCESSFUL)
+- [ ] 단계 1: .mcp.json에 codex 서버 항목 추가
+  - [ ] JSON 문법 유효성 확인
 
-- [x] 단계 2: DB 진단 도구 + GitHub 배포 이력 도구
-  - [x] ObservabilityTools.java — callPrometheus() private 추출, queryDatabaseHealth() 추가, queryRecentCommits() + extractCommitSummaries() 추가
-  - [x] RestClientConfig.java — githubClient 빈 추가
-  - [x] application.yaml — github.owner, github.repo 추가
-  - [x] 검증 통과 (`.\gradlew.bat :mcp:compileJava` BUILD SUCCESSFUL)
+- [ ] 단계 2: OPENAI_API_KEY 주입 및 codex 활성화
+  - [ ] .mcp.json의 OPENAI_API_KEY 플레이스홀더를 실제 키로 교체 (사용자 직접 입력)
+  - [ ] settings.json enabledMcpServers에 "codex" 추가
+  - [ ] Claude Code 재시작 후 `/mcp`로 codex 서버 connected 상태 확인
 
-- [x] 단계 3: 연쇄 장애 추론 + 배포 이력 조회 프롬프트 개선
-  - [x] AiOpsAgentService.java SYSTEM_PROMPT — queryDatabaseHealth 호출 단계 추가
-  - [x] SYSTEM_PROMPT — queryRecentCommits 호출 및 배포 상관관계 분석 단계 추가
-  - [x] SYSTEM_PROMPT — Kafka→CDC→API 연쇄 장애 추론 지시 추가
-  - [x] 검증 통과 (내용 직접 확인)
-
-- [x] 단계 4: 인간 승인 게이트 인프라
-  - [x] ActionApprovalService.java 신규 생성
-  - [x] ActionApprovalController.java 신규 생성 (POST /action/approve/{id})
-  - [x] ObservabilityTools.java — proposeAction() 도구 추가
-  - [x] 검증 통과 (`.\gradlew.bat :mcp:compileJava` BUILD SUCCESSFUL)
+- [ ] 단계 3: codex-reviewer 에이전트 파일 생성
+  - [ ] 실제 노출 도구명 확인 후 에이전트 파일 내 도구명 조정
+  - [ ] "Codex로 교차 리뷰해줘" 호출 시 에이전트 활성화 확인
 
 ## 최종 검증
-- [x] 모든 단계 컴파일 통과
-- [x] plan.md 비범위 침범 없음 확인 (새 Gradle 의존성 없음, Slack App 전환 없음, JDBC 없음)
-- [x] `git diff --stat`으로 변경 파일 최종 확인 (7개 파일, 신규 3개)
+- [ ] 기존 code-reviewer 동작 영향 없음 확인
+- [ ] plan.md 비범위 침범 없음 확인 (자동 트리거, 결과 병합 등 미구현)
+- [ ] git diff --stat으로 변경 파일 최종 확인
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
--
+- .mcp.json에 mysql 자격증명 + OpenAI API Key가 평문 저장됨 → .gitignore 추가 여부 사용자 판단 필요
