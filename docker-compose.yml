@@ -441,6 +441,9 @@ services:
       - "8085:8085"
     networks:
       - promo-network
+    environment:
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - GITHUB_REPO=${GITHUB_REPO}
     depends_on:
       - alertmanager
       - prometheus

@@ -25,8 +25,13 @@ observability:
   prometheus:
     url: http://prometheus:9090
 
+github:
+  owner: ${GITHUB_OWNER:michi2012}
+  repo: ${GITHUB_REPO:weverse}
+
 slack:
   webhook-url:
+
 logging:
   level:
     root: WARN

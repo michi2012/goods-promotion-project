@@ -40,4 +40,18 @@ public class RestClientConfig {
     public RestClient slackClient() {
         return RestClient.builder().build();
     }
+
+    @Bean
+    public RestClient githubClient() {
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(Duration.ofSeconds(5));
+        return RestClient.builder()
+                .baseUrl("https://api.github.com")
+                .defaultHeader("Accept", "application/vnd.github.v3+json")
+                .requestFactory(factory)
+                .build();
+    }
 }
