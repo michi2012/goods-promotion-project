@@ -85,6 +85,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 엔티티/리포지토리/쿼리/트랜잭션 작업 시 `.claude/skills/jpa` 매뉴얼을 활용할 것.
 - 예외 처리/에러 응답 작업 시 `.claude/skills/exception` 매뉴얼을 활용할 것.
 - 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
+- Kafka 컨슈머/프로듀서/토픽/DLT/Debezium 작업 시 `.claude/skills/kafka` 매뉴얼을 활용할 것.
 
 ## 테스트 분업 원칙
 
