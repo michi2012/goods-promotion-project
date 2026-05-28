@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import weverse.serverB.dto.OrderStatusMessage;
 import weverse.serverB.dto.StatusUpdateResultMessage;
 
+import java.util.concurrent.TimeUnit;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -20,16 +22,9 @@ public class OrderStatusEventHandler {
     private static final String RESULT_TOPIC = "status-update-result";
 
     public void handleStatusUpdate(OrderStatusMessage msg) throws Exception {
+        // 1. Redis 업데이트 — 실패 시 best-effort 실패 알림 후 정상 종료
         try {
-            // 1. 순수 Redis 업데이트
             orderQueryService.updateOrderStatus(msg.orderId(), msg.status());
-
-            // 2. 비즈니스 규칙 처리 및 결과 발행
-            if ("PENDING".equals(msg.status())) {
-                String result = objectMapper.writeValueAsString(
-                        new StatusUpdateResultMessage(msg.orderId(), true, null));
-                kafkaTemplate.send(RESULT_TOPIC, msg.orderId(), result);
-            }
         } catch (Exception e) {
             log.error("[OrderStatus] Redis 업데이트 실패: orderId={}", msg.orderId(), e);
             if ("PENDING".equals(msg.status())) {
@@ -37,6 +32,14 @@ public class OrderStatusEventHandler {
                         new StatusUpdateResultMessage(msg.orderId(), false, e.getMessage()));
                 kafkaTemplate.send(RESULT_TOPIC, msg.orderId(), result);
             }
+            return;
+        }
+
+        // 2. Redis 성공 → 결과 발행 (동기). 실패 시 예외 전파 → consumer ErrorHandler 재시도 → DLT
+        if ("PENDING".equals(msg.status())) {
+            String result = objectMapper.writeValueAsString(
+                    new StatusUpdateResultMessage(msg.orderId(), true, null));
+            kafkaTemplate.send(RESULT_TOPIC, msg.orderId(), result).get(3, TimeUnit.SECONDS);
         }
     }
 }

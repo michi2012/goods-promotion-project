@@ -35,13 +35,13 @@ class SagaTimeoutSchedulerTest {
     private Cursor<String> cursor;
 
     @Test
-    @DisplayName("10분이 초과된 Saga는 타임아웃 처리된다")
+    @DisplayName("3분이 초과된 Saga는 타임아웃 처리된다")
     void checkTimeouts_triggers_failure_for_expired_saga() {
         // given
         String orderId = "trace-1";
         String redisKey = "saga:state:" + orderId;
         long currentTime = System.currentTimeMillis();
-        long expiredTime = currentTime - (11 * 60 * 1000L); // 11분 전
+        long expiredTime = currentTime - (4 * 60 * 1000L); // 4분 전
 
         given(redisTemplate.scan(any(ScanOptions.class))).willReturn(cursor);
         given(cursor.hasNext()).willReturn(true, false); // 1번 루프 후 종료
@@ -79,13 +79,13 @@ class SagaTimeoutSchedulerTest {
     }
 
     @Test
-    @DisplayName("생성된 지 10분이 지나지 않은 Saga는 타임아웃 처리되지 않는다")
+    @DisplayName("생성된 지 3분이 지나지 않은 Saga는 타임아웃 처리되지 않는다")
     void checkTimeouts_skips_not_expired_saga() {
         // given
         String orderId = "trace-3";
         String redisKey = "saga:state:" + orderId;
         long currentTime = System.currentTimeMillis();
-        long validTime = currentTime - (5 * 60 * 1000L); // 5분 전
+        long validTime = currentTime - (1 * 60 * 1000L); // 1분 전
 
         given(redisTemplate.scan(any(ScanOptions.class))).willReturn(cursor);
         given(cursor.hasNext()).willReturn(true, false);

@@ -1,54 +1,40 @@
-# 맥락 노트: Kafka 코드 5가지 문제 수정
+# 맥락 노트: OrderStatusEventHandler 동기화 + SagaTimeoutScheduler 타이밍 조정
 
 ## 왜 이 방식을 선택했는가
 
-### 문제 1 — JsonProcessingException NotRetryable
-`objectMapper.readValue()` 실패는 메시지 자체가 잘못된 것이라 재시도해도 항상 실패한다.
-기존 `MessageConversionException`만 등록되어 있어 `JsonProcessingException`이 누락된 상태였다.
-3번 불필요한 재시도 후 DLT로 가는 구조를 즉시 DLT행으로 단락.
+ServerB는 MySQL이 없어 트랜잭셔널 아웃박스를 쓸 수 없다.
+기존 설계는 Kafka send()를 fire-and-forget으로 처리하고 ServerA의 스케줄러가 10분 후 감지하는 방식이었다.
+결제 파이프라인에서 10분 감지 지연은 수용하기 어렵고, 실패 시 로그도 없어 디버깅이 불가능했다.
 
-### 문제 2 — PurchaseDltConsumer @Transactional 제거
-`@KafkaListener` 메서드에 `@Transactional`을 직접 붙이는 건 레이어 위반.
-`DeadLetterService`가 이미 `REQUIRES_NEW` 전파로 독립 트랜잭션을 보장하므로,
-Consumer는 역직렬화 + Service 호출만 하도록 단순화.
+Redis 실패와 Kafka 실패를 같은 catch로 묶는 구조가 문제였다:
+- send().get()만 추가하면 TimeoutException이 기존 catch에 걸려 삼켜짐
+- Redis 실패(비즈니스 실패) vs Kafka 실패(인프라 실패)는 처리 방식이 다름
 
-### 문제 3 — OrderCommandService 멱등 처리 명시화
-`Order.orderId`에 `unique = true`가 있어 중복 시 `DataIntegrityViolationException`이 발생하고
-NotRetryable 분류로 DLT에 쌓이는 구조였다. 이는 실제 에러가 아님에도 DLT 모니터링을 오염시킨다.
-`findByOrderId()`로 먼저 체크해 중복을 정상 경로로 처리하도록 변경.
+**Redis 실패** → Saga에 실패 사실을 알려야 함. fire-and-forget 실패 알림이 적합 (이미 실패한 상황에서 재시도 의미 없음)
+**Kafka 실패** → 인프라 일시 오류. 재시도 의미 있음. 예외 전파 → ErrorHandler 재시도 3회 → DLT가 적합
 
-### 문제 4 — DLT groupId 명명 통일
-`PurchaseDltConsumer`는 `.dlt`, `PaymentCancelConsumer`는 `-payment-cancel-dlt`로 불일치.
-`.dlt` suffix로 통일. 컨슈머 그룹 prefix 자체는 서버별로 다르므로 충돌 없음.
-
-### 문제 5 — span.error(e) 누락
-예외 발생 시 `span.error(e)` 없으면 Tempo에서 해당 span이 정상(OK)으로 표시된다.
-`PaymentKafkaConsumer`, `PaymentCancelConsumer`, `OrderCompletedConsumer` 세 곳 모두 추가.
+스케줄러는 이제 DLT에서도 놓친 극단적 케이스의 안전망 역할만 하므로 타임아웃을 3분으로 단축했다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 문제 3 대안 — existsByOrderId 별도 메서드
-- 무엇: Repository에 `existsByOrderId(String)` 추가 후 체크
-- 왜 안 썼나: `findByOrderId()`가 이미 존재하고, 중복 케이스에서는 어차피 기존 Order를 반환해야 하므로 한 번 조회로 충분하다.
+### 대안 A: ServerB에 MySQL 추가
+- 무엇: DB를 붙여 트랜잭셔널 아웃박스 적용
+- 왜 안 썼나: DB 추가는 인프라 비용 과도. 현재 구조(Kafka retry + DLT + 스케줄러 3중 안전망)로 충분.
 
-### 문제 3 대안 — DataIntegrityViolationException catch 후 skip
-- 무엇: 서비스 내에서 예외를 catch해서 중복으로 처리
-- 왜 안 썼나: 예외 기반 흐름 제어는 가독성이 낮고, 실제 중복 키 위반과 다른 DataIntegrity 에러를 구분할 수 없다.
+### 대안 B: send() 결과에 whenComplete 콜백 추가
+- 무엇: 비동기로 실패 로그만 남기는 방식
+- 왜 안 썼나: 로그만으로는 consumer retry/DLT 경로를 활용할 수 없다. 실패가 여전히 silent.
+
+### 대안 C: 스케줄러 interval만 줄이기 (send() 동기화 없이)
+- 무엇: 감지 지연만 줄임
+- 왜 안 썼나: 근본 문제(실패가 silent)를 해결하지 못함. Kafka 장애 시 여전히 스케줄러만 의존.
 
 ## 기존 코드베이스 컨벤션
-- Consumer 패턴: `kafka/` 패키지, `@Component`, `@KafkaListener`
-- DLT Consumer: `dltKafkaListenerContainerFactory`, groupId suffix `.dlt`
-- Trace Consumer: `ConsumerRecord` 파라미터, `extractTraceparent` + `buildChildSpan` 헬퍼
-- Service 트랜잭션: `@Transactional(readOnly = true)` 클래스 레벨, 변경 메서드만 `@Transactional`
-- DeadLetterService: `serverA/service/dlt/DeadLetterService.java`, `REQUIRES_NEW` 전파
+- 동기 send() 패턴: `serverA/service/PromotionService.java` — `.get(3, TimeUnit.SECONDS)` 사용
+- KafkaTemplate mock 패턴: `serverA/test/.../PromotionServiceTest.java` — `CompletableFuture` mock 방식
 
 ## 관련 파일/위치
-- `serverA/config/KafkaConsumerConfig.java` — 문제 1
-- `serverB/config/KafkaConsumerConfig.java` — 문제 1
-- `serverC/config/KafkaConsumerConfig.java` — 문제 1
-- `serverA/kafka/PurchaseDltConsumer.java` — 문제 2
-- `serverA/service/dlt/DeadLetterService.java` — 문제 2 (기존, 수정 없음)
-- `serverA/service/OrderCommandService.java` — 문제 3
-- `serverC/kafka/PaymentCancelConsumer.java` — 문제 4 + 5
-- `serverC/kafka/PaymentKafkaConsumer.java` — 문제 5
-- `serverC/kafka/OrderCompletedConsumer.java` — 문제 5
+- `serverB/service/OrderStatusEventHandler.java` — 리팩토링 대상
+- `serverB/test/.../OrderStatusEventHandlerTest.java` — 테스트 수정
+- `serverA/scheduler/SagaTimeoutScheduler.java` — 타이밍 상수 조정
+- `serverB/config/KafkaConsumerConfig.java` — 기존 ExponentialBackOff(3회) 설정 확인

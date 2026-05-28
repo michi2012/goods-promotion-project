@@ -11,9 +11,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 import weverse.serverB.dto.OrderStatusMessage;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,17 +39,18 @@ class OrderStatusEventHandlerTest {
     private OrderStatusEventHandler orderStatusEventHandler;
 
     @Test
-    @DisplayName("주문 상태가 PENDING이면 레디스 업데이트 후 성공 결과를 발행한다")
+    @DisplayName("주문 상태가 PENDING이면 레디스 업데이트 후 성공 결과를 동기 발행한다")
     void handleStatusUpdate_Pending_Success() throws Exception {
         // given
         OrderStatusMessage msg = new OrderStatusMessage("trace-123", 1L, "PENDING");
+        given(kafkaTemplate.send(eq("status-update-result"), eq("trace-123"), contains("\"success\":true")))
+                .willReturn(CompletableFuture.completedFuture(null));
 
         // when
         orderStatusEventHandler.handleStatusUpdate(msg);
 
         // then
         verify(orderQueryService).updateOrderStatus("trace-123", "PENDING");
-        // 성공 시 JSON 문자열에 "success":true 가 포함되어 있는지 검증
         verify(kafkaTemplate).send(eq("status-update-result"), eq("trace-123"), contains("\"success\":true"));
     }
 
@@ -68,16 +74,28 @@ class OrderStatusEventHandlerTest {
     void handleStatusUpdate_Pending_Exception() throws Exception {
         // given
         OrderStatusMessage msg = new OrderStatusMessage("trace-123", 1L, "PENDING");
-
-        // orderQueryService 호출 시 강제로 예외를 발생시킴
         doThrow(new RuntimeException("Redis connection error"))
                 .when(orderQueryService).updateOrderStatus(anyString(), anyString());
 
         // when
         orderStatusEventHandler.handleStatusUpdate(msg);
 
-        // then
-        // 실패 시 JSON 문자열에 "success":false 가 포함되어 있는지 검증
+        // then — Redis 실패는 fire-and-forget 실패 알림 후 정상 종료
         verify(kafkaTemplate).send(eq("status-update-result"), eq("trace-123"), contains("\"success\":false"));
+    }
+
+    @Test
+    @DisplayName("Kafka 발행이 타임아웃되면 예외가 전파되어 consumer ErrorHandler가 재시도할 수 있다")
+    void handleStatusUpdate_Pending_KafkaTimeout() throws Exception {
+        // given
+        OrderStatusMessage msg = new OrderStatusMessage("trace-123", 1L, "PENDING");
+        CompletableFuture<Object> failedFuture = new CompletableFuture<>();
+        failedFuture.completeExceptionally(new TimeoutException("Kafka timeout"));
+        given(kafkaTemplate.send(eq("status-update-result"), eq("trace-123"), contains("\"success\":true")))
+                .willReturn((CompletableFuture) failedFuture);
+
+        // when & then — 예외가 메서드 밖으로 전파됨
+        assertThatThrownBy(() -> orderStatusEventHandler.handleStatusUpdate(msg))
+                .isInstanceOf(Exception.class);
     }
 }

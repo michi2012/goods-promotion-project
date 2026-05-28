@@ -19,10 +19,10 @@ public class SagaTimeoutScheduler {
     private final SagaStateService sagaStateService;
     private final SagaOrchestratorService sagaOrchestratorService;
 
-    private static final long TIMEOUT_MS = 10 * 60 * 1000L;
+    private static final long TIMEOUT_MS = 3 * 60 * 1000L;
     private static final String STATE_PATTERN = "saga:state:*";
 
-    @Scheduled(fixedDelay = 60_000)
+    @Scheduled(fixedDelay = 30_000)
     public void checkTimeouts() {
         log.debug("[SagaTimeout] 타임아웃 스캔 시작");
         long now = System.currentTimeMillis();
