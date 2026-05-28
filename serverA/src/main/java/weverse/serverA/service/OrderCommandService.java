@@ -27,6 +27,15 @@ public class OrderCommandService {
 
     @Transactional
     public Order saveOrderAndDecreaseStock(PurchaseMessage message) {
+        return orderRepository.findByOrderId(message.orderId())
+                              .map(existing -> {
+                                  log.warn("[중복 메시지 무시] orderId={}", message.orderId());
+                                  return existing;
+                              })
+                              .orElseGet(() -> processNewOrder(message));
+    }
+
+    private Order processNewOrder(PurchaseMessage message) {
         Order order = Order.builder()
                            .orderId(message.orderId())
                            .userId(message.userId())

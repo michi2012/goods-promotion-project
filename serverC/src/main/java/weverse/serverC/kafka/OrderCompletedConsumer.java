@@ -31,6 +31,9 @@ public class OrderCompletedConsumer {
         Span span = buildChildSpan(traceparent, "serverC.order.completed");
         try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
             log.info("[OrderCompleted] Saga 최종 확정 수신: orderId={}", msg.orderId());
+        } catch (Exception e) {
+            span.error(e);
+            throw e;
         } finally {
             span.end();
         }

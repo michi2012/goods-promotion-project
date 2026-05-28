@@ -34,6 +34,9 @@ public class PaymentKafkaConsumer {
         try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
             log.info("[Payment] payment-request 수신: orderId={}", msg.orderId());
             paymentService.processPayment(msg);
+        } catch (Exception e) {
+            span.error(e);
+            throw e;
         } finally {
             span.end();
         }

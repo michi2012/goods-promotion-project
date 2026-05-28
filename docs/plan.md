@@ -1,68 +1,65 @@
-# 계획서: serverC 결제 조회 API 추가
+# 계획서: Kafka 코드 5가지 문제 수정
 
 - 작성일: 2026-05-28
 
 ## 목표
-serverC에 결제 조회 HTTP 엔드포인트 2개를 추가한다.
-- `GET /api/v1/payments/{orderId}` — 주문 ID로 단건 조회
-- `GET /api/v1/payments/users/{userId}` — 사용자별 결제 내역 (page/size 페이징)
+스킬 작성 중 발견한 5가지 실제 코드 문제(불필요한 재시도, @Transactional 레이어 위반, 중복 처리 DLT 오염, groupId 불일치, span 오류 미기록)를 수정하여 운영 안정성을 높인다.
 
 ## 성공 기준
-- [ ] `GET /api/v1/payments/{orderId}` — 존재하면 200 + PaymentResponse, 없으면 404
-- [ ] `GET /api/v1/payments/users/{userId}` — 200 + List<PaymentResponse> (page/size 파라미터)
-- [ ] 응답에 PII(email, phone, address 등) 미포함
-- [ ] Controller에 비즈니스 로직 없음, Entity 직접 반환 없음
-- [ ] arch-snapshot.md serverC API 테이블 업데이트
+- [ ] 3개 서버 KafkaConsumerConfig에 `JsonProcessingException`이 NotRetryable 목록에 존재
+- [ ] `PurchaseDltConsumer`에 `@Transactional` 없고 `DeadLetterRepository` 직접 의존 없음
+- [ ] 중복 orderId 메시지가 들어올 경우 DLT 행이 아닌 warn 로그 후 정상 종료
+- [ ] `PaymentCancelConsumer` DLT groupId가 `${spring.kafka.consumer.group-id}.dlt` 형태
+- [ ] `PaymentKafkaConsumer`, `PaymentCancelConsumer`, `OrderCompletedConsumer`의 span catch 블록에 `span.error(e)` 존재
+- [ ] 변경된 클래스의 테스트가 통과 (`gradlew test` 사용자 실행)
 
 ## 비범위 (Out of Scope)
-- 인증/인가 추가
-- serverB를 통한 결제 조회 중계
-- 결제 수정/삭제 API
+- `throws Exception` → `throws JsonProcessingException` 시그니처 변경
+- ServerB `OrderStatusEventHandler`의 fire-and-forget 개선
+- `SagaStateService.initSagaState` 중복 호출 방어
+- DLT에 raw payload 보존 컬럼 추가
 
 ## 단계별 작업 계획
 
-### 단계 1: dto/PaymentResponse.java 신규 생성
-- 변경 파일: `serverC/src/main/java/weverse/serverC/dto/PaymentResponse.java`
-- 변경 내용: record 타입, 핵심 필드(orderId, userId, goodsId, quantity, paymentMethod, status, createdAt)
-- 검증 방법: 파일 생성 확인
+### 단계 1: JsonProcessingException NotRetryable 추가
+- 변경 파일: `serverA/config/KafkaConsumerConfig.java`, `serverB/config/KafkaConsumerConfig.java`, `serverC/config/KafkaConsumerConfig.java`
+- 변경 내용: 각 `errorHandler()` 빈의 `addNotRetryableExceptions()`에 `JsonProcessingException.class` 추가 + import 추가
+- 검증 방법: 3파일 grep으로 `JsonProcessingException` 존재 확인
+- 롤백 방법: 해당 라인 삭제
 - 예상 소요: 짧음
 
-### 단계 2: repository/PaymentRepository.java — 조회 메서드 추가
-- 변경 파일: `serverC/src/main/java/weverse/serverC/repository/PaymentRepository.java`
-- 변경 내용:
-  - `findByOrderId(String orderId)` → `Optional<PaymentResponse>`
-  - `findByUserId(Long userId, int page, int size)` → `List<PaymentResponse>` (LIMIT/OFFSET)
-- 검증 방법: 코드 확인
+### 단계 2: PurchaseDltConsumer 리팩토링
+- 변경 파일: `serverA/kafka/PurchaseDltConsumer.java`, `serverA/test/.../PurchaseDltConsumerTest.java`
+- 변경 내용: `@Transactional` 제거, `DeadLetterRepository` 의존 제거, 기존 `DeadLetterService` 주입으로 교체. `deadLetterService.saveDeadLetter(orderId, goodsId, quantity, reason)` 호출로 변경. 테스트는 `@Mock DeadLetterService`로 교체.
+- 검증 방법: `PurchaseDltConsumerTest` 통과
+- 롤백 방법: git restore
 - 예상 소요: 짧음
 
-### 단계 3: service/PaymentService.java — 조회 메서드 추가
-- 변경 파일: `serverC/src/main/java/weverse/serverC/service/PaymentService.java`
-- 변경 내용:
-  - `getByOrderId(String orderId)` — PaymentNotFoundException 발생
-  - `getByUserId(Long userId, int page, int size)` — 목록 반환
-- 검증 방법: 코드 확인
+### 단계 3: OrderCommandService 멱등 처리 명시화
+- 변경 파일: `serverA/service/OrderCommandService.java`, `serverA/test/.../OrderCommandServiceTest.java`
+- 변경 내용: `saveOrderAndDecreaseStock()` 첫 줄에 `findByOrderId()` 체크 추가. 중복이면 warn 로그 후 기존 Order 반환. 테스트에 중복 메시지 케이스 추가.
+- 검증 방법: `OrderCommandServiceTest` 통과 (기존 테스트 + 신규 중복 케이스)
+- 롤백 방법: git restore
 - 예상 소요: 짧음
 
-### 단계 4: exception/PaymentNotFoundException.java 신규 + GlobalExceptionHandler 수정
-- 변경 파일: `serverC/.../exception/PaymentNotFoundException.java` (신규), `GlobalExceptionHandler.java` (수정)
-- 변경 내용: 404 RuntimeException + 핸들러 등록
-- 검증 방법: 코드 확인
+### 단계 4: PaymentCancelConsumer DLT groupId + span.error 수정
+- 변경 파일: `serverC/kafka/PaymentCancelConsumer.java`
+- 변경 내용: DLT groupId를 `${spring.kafka.consumer.group-id}.dlt`로 변경. span try 블록에 catch + `span.error(e)` + rethrow 추가.
+- 검증 방법: 파일 내용 확인
+- 롤백 방법: git restore
 - 예상 소요: 짧음
 
-### 단계 5: controller/PaymentController.java 신규 생성
-- 변경 파일: `serverC/src/main/java/weverse/serverC/controller/PaymentController.java`
-- 변경 내용: GET 2개, serverB 패턴 (`ResponseEntity<T>`) 동일하게 적용
-- 검증 방법: 코드 확인
-- 예상 소요: 짧음
-
-### 단계 6: docs/arch-snapshot.md 업데이트
-- 변경 파일: `docs/arch-snapshot.md`
-- 변경 내용: serverC API 엔드포인트 테이블 추가
+### 단계 5: PaymentKafkaConsumer, OrderCompletedConsumer span.error 추가
+- 변경 파일: `serverC/kafka/PaymentKafkaConsumer.java`, `serverC/kafka/OrderCompletedConsumer.java`
+- 변경 내용: span try 블록에 catch + `span.error(e)` + rethrow 패턴 추가
+- 검증 방법: 파일 내용 확인
+- 롤백 방법: git restore
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- JDBC RowMapper 작성 중 컬럼명 오타 → 쿼리와 payments 테이블 DDL 대조 확인
-- page=0, size=0 등 잘못된 파라미터 → size 최솟값 1, page 최솟값 0 기본값 보정
+- `DeadLetterService.saveDeadLetter`는 `Propagation.REQUIRES_NEW` → Consumer 컨텍스트에서 호출해도 독립 트랜잭션 보장, 문제 없음
+- 단계 3의 `findByOrderId` 추가로 정상 경로에 SELECT 1회 추가됨 → `idx_orders_order_id` 인덱스 존재하여 성능 영향 무시 가능
 
 ## 의존성
-- `payments` 테이블 컬럼명은 Payment 엔티티 기준 (order_id, user_id, goods_id, payment_method, status, created_at)
+- `DeadLetterService`가 `serverA/service/dlt/`에 이미 존재 — 신규 생성 불필요
+- `OrderRepository.findByOrderId()` 이미 존재 — Repository 변경 불필요

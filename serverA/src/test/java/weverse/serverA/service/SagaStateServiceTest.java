@@ -68,7 +68,7 @@ class SagaStateServiceTest {
         // given
         given(redisTemplate.opsForHash()).willReturn(hashOperations);
         Map<Object, Object> mockData = Map.of(
-                "orderId", "1",
+                "orderEntityId", "1",
                 "userId", "10",
                 "goodsId", "100",
                 "quantity", "2"

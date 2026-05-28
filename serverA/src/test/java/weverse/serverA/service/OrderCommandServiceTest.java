@@ -12,9 +12,15 @@ import weverse.serverA.outbox.OutboxEventService;
 import weverse.serverA.repository.GoodsRepository;
 import weverse.serverA.repository.OrderRepository;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,5 +61,24 @@ class OrderCommandServiceTest {
 
         assertThat(order.getOrderId()).isEqualTo("trace-123");
         assertThat(order.getStatus().name()).isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("이미 처리된 orderId가 들어오면 저장 없이 기존 Order를 반환한다 (멱등 처리)")
+    void saveOrderAndDecreaseStock_Duplicate_ReturnsExisting() {
+        // given
+        PurchaseMessage message = new PurchaseMessage(
+                "trace-123", 1L, 4L, 2, "CARD", "주소", "12345", "010-0000-0000", "test@test.com", "메모", "127.0.0.1"
+        );
+        Order existingOrder = Order.builder().orderId("trace-123").build();
+        given(orderRepository.findByOrderId("trace-123")).willReturn(Optional.of(existingOrder));
+
+        // when
+        Order result = orderCommandService.saveOrderAndDecreaseStock(message);
+
+        // then
+        assertThat(result).isSameAs(existingOrder);
+        verify(orderRepository, never()).save(any());
+        verify(goodsRepository, never()).decreaseStock(anyLong(), anyInt());
     }
 }

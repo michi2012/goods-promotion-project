@@ -1,21 +1,31 @@
-# 체크리스트: serverC 결제 조회 API 추가
+# 체크리스트: Kafka 코드 5가지 문제 수정
 
 - 마지막 업데이트: 2026-05-28
 
 ## 진행 상황
-- [x] 단계 1: dto/PaymentResponse.java 신규 생성
-- [x] 단계 2: repository/PaymentRepository.java 조회 메서드 추가
-- [x] 단계 3: service/PaymentService.java 조회 메서드 추가
-- [x] 단계 4: exception/PaymentNotFoundException.java 신규 + GlobalExceptionHandler 수정
-- [x] 단계 5: controller/PaymentController.java 신규 생성
-- [x] 단계 6: docs/arch-snapshot.md 업데이트
+- [x] 단계 1: JsonProcessingException NotRetryable 추가 (3개 서버)
+  - [x] serverA KafkaConsumerConfig 확인
+  - [x] serverB KafkaConsumerConfig 확인
+  - [x] serverC KafkaConsumerConfig 확인
+- [x] 단계 2: PurchaseDltConsumer 리팩토링
+  - [x] @Transactional 제거 확인
+  - [x] DeadLetterRepository 의존 제거, DeadLetterService 주입 확인
+  - [x] PurchaseDltConsumerTest — DeadLetterService mock으로 교체 + 파싱 실패 케이스 추가
+- [x] 단계 3: OrderCommandService 멱등 처리
+  - [x] findByOrderId 중복 체크 추가 확인
+  - [x] OrderCommandServiceTest — 중복 메시지 케이스 추가
+- [x] 단계 4: PaymentCancelConsumer DLT groupId + span.error
+  - [x] groupId `.dlt` suffix 확인 (payment-cancel-dlt → .dlt)
+  - [x] span.error(e) + rethrow 확인
+- [x] 단계 5: PaymentKafkaConsumer, OrderCompletedConsumer span.error
+  - [x] PaymentKafkaConsumer span.error(e) 확인
+  - [x] OrderCompletedConsumer span.error(e) 확인
 
-## 최종 검증 (api 스킬 자가점검)
-- [x] Entity 직접 노출 없음 (PaymentResponse record 사용)
-- [x] 응답 DTO에 PII 없음 (email, phone, address 미포함 확인)
-- [x] Controller에 @Transactional 없음
-- [x] 목록 API 페이징 적용 (page/size, LIMIT/OFFSET)
-- [x] HTTP 상태 코드: 200 OK, 404 Not Found
+## 최종 검증
+- [ ] `gradlew :serverA:test` 통과 (사용자 실행)
+- [ ] `gradlew :serverC:test` 통과 (사용자 실행)
+- [x] 비범위 항목 침범 없음
+- [x] git diff로 변경 범위 최종 확인
 
 ## 발견 사항
 - (없음)

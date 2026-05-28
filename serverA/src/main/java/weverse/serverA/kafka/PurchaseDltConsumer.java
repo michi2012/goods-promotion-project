@@ -7,17 +7,15 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import weverse.serverA.dto.PurchaseMessage;
-import weverse.serverA.entity.DeadLetter;
-import weverse.serverA.repository.DeadLetterRepository;
+import weverse.serverA.service.dlt.DeadLetterService;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class PurchaseDltConsumer {
 
-    private final DeadLetterRepository deadLetterRepository;
+    private final DeadLetterService deadLetterService;
     private final ObjectMapper objectMapper;
 
     @KafkaListener(
@@ -25,7 +23,6 @@ public class PurchaseDltConsumer {
             groupId = "${spring.kafka.consumer.group-id}.dlt",
             containerFactory = "dltKafkaListenerContainerFactory"
     )
-    @Transactional
     public void consume(
             @Payload String payload,
             @Header(value = "kafka_dlt_exception_message", required = false) String exceptionMessage
@@ -45,14 +42,7 @@ public class PurchaseDltConsumer {
             log.error("[DLT 파싱 실패] payload 원문 보존 후 저장 | 사유: {}", e.getMessage());
         }
 
-        DeadLetter deadLetter = DeadLetter.builder()
-                .orderId(orderId)
-                .goodsId(goodsId)
-                .quantity(quantity)
-                .reason(truncate(exceptionMessage, 1000))
-                .build();
-
-        deadLetterRepository.save(deadLetter);
+        deadLetterService.saveDeadLetter(orderId, goodsId, quantity, truncate(exceptionMessage, 1000));
     }
 
     private String truncate(String str, int max) {

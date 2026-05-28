@@ -14,6 +14,7 @@ import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.util.backoff.FixedBackOff;
 import org.springframework.web.client.ResourceAccessException;
@@ -59,9 +60,10 @@ public class KafkaConsumerConfig {
 
         // 재시도하지 않을 오류: 데이터/코드 문제
         errorHandler.addNotRetryableExceptions(
-                MessageConversionException.class, // JSON 파싱 실패
+                JsonProcessingException.class,
+                MessageConversionException.class,
                 NullPointerException.class,
-                DataIntegrityViolationException.class // 중복 키, Not Null 위반 등은 즉시 DLT로 직행
+                DataIntegrityViolationException.class
         );
         return errorHandler;
     }

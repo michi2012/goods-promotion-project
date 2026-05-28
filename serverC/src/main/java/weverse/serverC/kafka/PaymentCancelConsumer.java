@@ -48,6 +48,9 @@ public class PaymentCancelConsumer {
         try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
             log.info("[PaymentCancel] payment-cancel 수신: orderId={}", msg.orderId());
             pgClient.cancelPayments(List.of(msg.orderId()));
+        } catch (Exception e) {
+            span.error(e);
+            throw e;
         } finally {
             span.end();
         }
@@ -67,7 +70,7 @@ public class PaymentCancelConsumer {
 
     @KafkaListener(
         topics = "payment-cancel.DLT",
-        groupId = "${spring.kafka.consumer.group-id}-payment-cancel-dlt",
+        groupId = "${spring.kafka.consumer.group-id}.dlt",
         containerFactory = "dltKafkaListenerContainerFactory"
     )
     public void handleDlt(String payload) {
