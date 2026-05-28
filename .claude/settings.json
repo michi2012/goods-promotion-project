@@ -1,13 +1,22 @@
 {
   "enabledMcpServers": ["mysql", "codex"],
   "hooks": {
-    "Stop": [
+    "PreToolUse": [
       {
-        "matcher": ".*",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "echo [자가 점검] 요청한 것만 변경했는가 / 컴파일과 테스트는 직접 확인하세요"
+            "command": "powershell -NonInteractive -File .claude/hooks/pre-tool-check.ps1"
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NonInteractive -File .claude/hooks/pre-tool-check.ps1"
           }
         ]
       }

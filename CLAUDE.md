@@ -86,6 +86,20 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 예외 처리/에러 응답 작업 시 `.claude/skills/exception` 매뉴얼을 활용할 것.
 - 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
 
+## 테스트 분업 원칙
+
+**작성(write)과 실행(run)은 다르다. 토큰을 쓰는 건 실행 로그이지, 코드 작성이 아니다.**
+
+| 작업 | 담당 |
+|------|------|
+| 테스트 코드 작성/수정/추가 | Claude (구현과 함께) |
+| `gradlew test` 실행 | 사용자 직접 |
+| 실패 로그 붙여넣기 → 수정 | Claude |
+
+- 프로덕션 코드 변경 시 → 대응하는 테스트도 반드시 함께 수정할 것.
+- 새 클래스 추가 시 → 테스트 파일도 함께 생성할 것.
+- 테스트를 실행하지 않더라도 "이 테스트를 실행해보세요"라고 명시할 것.
+
 ## Spring Boot 공통 규칙
 - Controller → Service → Repository 레이어 분리. Controller에 비즈니스 로직 금지.
 - Entity를 Controller에서 직접 반환 금지. 반드시 DTO 변환.
