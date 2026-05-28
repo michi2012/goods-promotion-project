@@ -14,7 +14,7 @@ import java.util.List;
 
 @Repository
 @RequiredArgsConstructor
-public class FinalOrderRepository {
+public class PaymentRepository {
     private final JdbcTemplate jdbcTemplate;
 
     public List<PurchaseMessage> claimOrders(List<PurchaseMessage> messages) {
@@ -22,7 +22,7 @@ public class FinalOrderRepository {
             return new ArrayList<>();
         }
 
-        String insertSql = "INSERT INTO final_order (order_id, user_id, goods_id, quantity, payment_method, " +
+        String insertSql = "INSERT INTO payments (order_id, user_id, goods_id, quantity, payment_method, " +
                 "shipping_address, zip_code, phone_number, email, delivery_memo, client_ip, status, created_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', NOW()) " +
                 "ON DUPLICATE KEY UPDATE order_id = order_id";
@@ -63,7 +63,7 @@ public class FinalOrderRepository {
         if (orderIds.isEmpty()) return;
 
         String inSql = String.join(",", java.util.Collections.nCopies(orderIds.size(), "?"));
-        String sql = "UPDATE final_order SET status = ? WHERE order_id IN (" + inSql + ")";
+        String sql = "UPDATE payments SET status = ? WHERE order_id IN (" + inSql + ")";
 
         List<Object> params = new ArrayList<>();
         params.add(status);
@@ -73,7 +73,7 @@ public class FinalOrderRepository {
     }
 
     public boolean existsByOrderId(String orderId) {
-        String sql = "SELECT COUNT(1) FROM final_order WHERE order_id = ?";
+        String sql = "SELECT COUNT(1) FROM payments WHERE order_id = ?";
         Integer count = jdbcTemplate.queryForObject(sql, Integer.class, orderId);
         return count != null && count > 0;
     }

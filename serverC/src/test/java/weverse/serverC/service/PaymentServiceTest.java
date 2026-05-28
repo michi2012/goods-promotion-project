@@ -13,7 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import weverse.serverC.dto.PaymentResultMessage;
 import weverse.serverC.dto.PurchaseMessage;
 import weverse.serverC.outbox.OutboxEventService;
-import weverse.serverC.repository.FinalOrderRepository;
+import weverse.serverC.repository.PaymentRepository;
 
 import java.util.Collections;
 import java.util.List;
@@ -28,7 +28,7 @@ import static org.mockito.Mockito.when;
 class PaymentServiceTest {
 
     @Mock
-    private FinalOrderRepository finalOrderRepository;
+    private PaymentRepository paymentRepository;
 
     @Mock
     private PgClient pgClient;
@@ -61,8 +61,8 @@ class PaymentServiceTest {
         paymentService.processPayment(message);
 
         // then
-        verify(finalOrderRepository).claimOrders(anyList());
-        verify(finalOrderRepository).updateOrderStatus(List.of(orderId), "PAID");
+        verify(paymentRepository).claimOrders(anyList());
+        verify(paymentRepository).updateOrderStatus(List.of(orderId), "PAID");
         verify(outboxEventService).save(eq(orderId), eq("payment-result"),
                 eq(new PaymentResultMessage(orderId, true, null)));
     }
@@ -81,8 +81,8 @@ class PaymentServiceTest {
         paymentService.processPayment(message);
 
         // then
-        verify(finalOrderRepository).claimOrders(anyList());
-        verify(finalOrderRepository).updateOrderStatus(List.of(orderId), "FAILED");
+        verify(paymentRepository).claimOrders(anyList());
+        verify(paymentRepository).updateOrderStatus(List.of(orderId), "FAILED");
         verify(outboxEventService).save(eq(orderId), eq("payment-result"),
                 eq(new PaymentResultMessage(orderId, false, "결제 거절")));
     }

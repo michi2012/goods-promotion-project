@@ -7,11 +7,11 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "final_order", uniqueConstraints = {@UniqueConstraint(name = "uk_order_id", columnNames = {"order_id"})})
+@Table(name = "payments", uniqueConstraints = {@UniqueConstraint(name = "uk_order_id", columnNames = {"order_id"})})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @EntityListeners(AuditingEntityListener.class)
-public class FinalOrder {
+public class Payment {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -55,7 +55,7 @@ public class FinalOrder {
     private LocalDateTime createdAt;
 
     @Builder
-    public FinalOrder(String orderId, Long userId, Long goodsId, int quantity, String paymentMethod,
+    public Payment(String orderId, Long userId, Long goodsId, int quantity, String paymentMethod,
                       String shippingAddress, String zipCode, String phoneNumber, String email,
                       String deliveryMemo, String clientIp, String status) {
         this.orderId = orderId;

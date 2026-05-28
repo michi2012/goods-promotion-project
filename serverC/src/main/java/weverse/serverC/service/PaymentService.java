@@ -11,7 +11,7 @@ import weverse.serverC.dto.PaymentResultMessage;
 import weverse.serverC.dto.PurchaseMessage;
 import weverse.serverC.exception.PgPaymentException;
 import weverse.serverC.outbox.OutboxEventService;
-import weverse.serverC.repository.FinalOrderRepository;
+import weverse.serverC.repository.PaymentRepository;
 
 import java.util.List;
 
@@ -20,7 +20,7 @@ import java.util.List;
 @Slf4j
 public class PaymentService {
 
-    private final FinalOrderRepository finalOrderRepository;
+    private final PaymentRepository paymentRepository;
     private final PgClient pgClient;
     private final OutboxEventService outboxEventService;
     private final MeterRegistry meterRegistry;
@@ -53,7 +53,7 @@ public class PaymentService {
     @Transactional
     public void processPayment(PurchaseMessage msg) {
         paymentAttempts.increment();
-        finalOrderRepository.claimOrders(List.of(msg));
+        paymentRepository.claimOrders(List.of(msg));
 
         List<String> failedTraceIds;
         try {
@@ -61,14 +61,14 @@ public class PaymentService {
         } catch (PgPaymentException e) {
             // 서킷브레이커 개방 또는 PG 시스템 무응답 — re-throw 금지: 트랜잭션 커밋으로 SAGA 보상 트리거 보장
             paymentErrorPgSystemError.increment();
-            finalOrderRepository.updateOrderStatus(List.of(msg.orderId()), "FAILED");
+            paymentRepository.updateOrderStatus(List.of(msg.orderId()), "FAILED");
             outboxEventService.save(msg.orderId(), RESULT_TOPIC,
                     new PaymentResultMessage(msg.orderId(), false, "PG 시스템 장애"));
             return;
         }
 
         boolean success = !failedTraceIds.contains(msg.orderId());
-        finalOrderRepository.updateOrderStatus(List.of(msg.orderId()), success ? "PAID" : "FAILED");
+        paymentRepository.updateOrderStatus(List.of(msg.orderId()), success ? "PAID" : "FAILED");
 
         if (success) {
             paymentSuccess.increment();
