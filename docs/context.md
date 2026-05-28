@@ -1,27 +1,27 @@
-# 맥락 노트: FinalOrder → Payment 리네이밍
+# 맥락 노트: serverC MySQL 분리 (DB-per-Service)
 
 ## 왜 이 방식을 선택했는가
-serverC의 역할이 "결제 처리(PG 연동)"인데 엔티티명이 `FinalOrder`여서 serverA의 `Order`와 도메인 경계가 모호했다.
-`Payment`로 바꾸면 serverC가 결제 도메인을 소유한다는 의도가 명확해진다.
-테이블명도 `payments`로 함께 변경해 Java-DB 네이밍 일관성을 유지한다.
+serverA와 serverC가 같은 MySQL 인스턴스(`promotion` DB)를 공유하는 것은 마이크로서비스
+DB-per-Service 원칙 위반이다. serverA DB 장애 시 serverC 결제 처리까지 동반 중단되는
+단일 장애점(SPOF) 문제도 있다. 개발 환경에서 분리해두면 실제 운영 환경과의 갭을 줄일 수 있다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: 클래스명만 변경, 테이블명 유지 (`final_order`)
-- 무엇: Java 코드만 바꾸고 DB 테이블명은 그대로
-- 왜 안 썼나: Java는 `Payment`인데 DB는 `final_order`로 불일치 — 미래 개발자 혼란 유발
+### 대안 A: 같은 MySQL 인스턴스 내 별도 DB (schema 분리만)
+- 무엇: `promotion` DB와 `payment` DB를 같은 MySQL 컨테이너에 두기
+- 왜 안 썼나: 컨테이너 레벨 격리가 없어 SPOF 문제가 그대로 남음
 
-### 대안 B: `PaymentRecord`로 명명
-- 무엇: 이력 성격을 강조한 이름
-- 왜 안 썼나: 과도한 명세. `Payment`가 더 단순하고 도메인 언어와 일치
+### 대안 B: debezium-init 컨테이너 2개로 분리
+- 무엇: `debezium-init`(serverA용)과 `debezium-init-c`(serverC용) 별도 컨테이너
+- 왜 안 썼나: 단순한 curl 2번 추가인데 컨테이너를 늘리는 건 과도함
 
 ## 기존 코드베이스 컨벤션
-- 디렉토리 구조: `entity/`, `repository/`, `service/` 레이어 분리
-- 명명 규칙: 클래스명 PascalCase, 테이블명 snake_case 복수형 (`payments`)
-- 리포지토리: JPA가 아닌 **raw JDBC (`JdbcTemplate`)** 사용 — SQL 문자열에 테이블명 하드코딩
+- MySQL 컨테이너: binlog ROW 포맷 필수 (Debezium CDC 요건)
+- Debezium server.id: MySQL replication 프로토콜 요건상 인스턴스별 고유값 필요
+- 기존 serverA connector server.id: 184054 → 신규 184055
 
 ## 관련 파일/위치
-- `serverC/src/main/java/weverse/serverC/entity/FinalOrder.java` — 리네이밍 대상 엔티티
-- `serverC/src/main/java/weverse/serverC/repository/FinalOrderRepository.java` — raw JDBC, SQL 문자열 교체 필요
-- `serverC/src/main/java/weverse/serverC/service/PaymentService.java` — 필드 참조만 변경
-- `serverC/src/test/java/weverse/serverC/service/PaymentServiceTest.java` — Mock 타입만 변경
+- `docker-compose.yml` — mysql-c 추가, server-c/kafka-connect/debezium-init 수정
+- `debezium/outbox-connector.json` — serverA용 (변경 없음)
+- `debezium/payment-outbox-connector.json` — serverC용 (신규)
+- `serverC/src/main/resources/application.yaml` — 로컬 기본 datasource URL 수정

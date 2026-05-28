@@ -29,6 +29,36 @@ services:
           cpus: '1.0'
           memory: 2G
 
+  # 1-b. MySQL (serverC 전용)
+  mysql-c:
+    image: mysql:8.0
+    container_name: promotion-mysql-c
+    ports:
+      - "3308:3306"
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: payment
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --server-id=2
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - promotion-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
   # 2. Redis (serverA 전용)
   redis:
     image: redis:7.0-alpine
@@ -116,6 +146,8 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
+      mysql-c:
+        condition: service_healthy
     networks:
       - promotion-network
     healthcheck:
@@ -137,11 +169,13 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "curl -f -X POST http://kafka-connect:8083/connectors -H 'Content-Type: application/json' -d @/debezium/outbox-connector.json"
+      - "curl -f -X POST http://kafka-connect:8083/connectors -H 'Content-Type: application/json' -d @/debezium/outbox-connector.json && curl -f -X POST http://kafka-connect:8083/connectors -H 'Content-Type: application/json' -d @/debezium/payment-outbox-connector.json"
     volumes:
       - ./debezium:/debezium
     depends_on:
       kafka-connect:
+        condition: service_healthy
+      mysql-c:
         condition: service_healthy
     networks:
       - promotion-network
@@ -159,13 +193,13 @@ services:
       - "8082:8082"
     environment:
       TZ: Asia/Seoul
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/promotion?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-c:3306/payment?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
-      mysql:
+      mysql-c:
         condition: service_healthy
       kafka:
         condition: service_healthy

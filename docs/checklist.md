@@ -1,25 +1,26 @@
-# 체크리스트: FinalOrder → Payment 리네이밍
+# 체크리스트: serverC MySQL 분리 (DB-per-Service)
 
 - 마지막 업데이트: 2026-05-28
 
 ## 진행 상황
-- [x] 단계 1: entity/FinalOrder.java → Payment.java (클래스명 + @Table 변경)
-  - [x] 파일 내 `FinalOrder` 문자열 없음 확인
-- [x] 단계 2: repository/FinalOrderRepository.java → PaymentRepository.java (SQL `final_order` → `payments`)
-  - [x] `final_order` 문자열 없음 확인
-- [x] 단계 3: PaymentService.java import/필드 참조 변경
-  - [x] `FinalOrderRepository` 문자열 없음 확인
-- [x] 단계 4: PaymentServiceTest.java Mock 참조 변경
-  - [x] `FinalOrderRepository` 문자열 없음 확인
-- [x] 단계 5: 문서 3종 업데이트 (arch-snapshot, infra-diagram, README)
-  - [x] `FinalOrder` / `final_order` 문자열 없음 확인
+- [x] 단계 1: docker-compose.yml — mysql-c 서비스 추가
+  - [x] YAML 문법 오류 없음
+- [x] 단계 2: docker-compose.yml — server-c depends_on + DATASOURCE_URL 수정
+  - [x] server-c 블록에 `mysql` 참조 없음 (`mysql-c`로 교체됨)
+- [x] 단계 3: docker-compose.yml — kafka-connect + debezium-init 수정
+  - [x] debezium-init entrypoint curl 2개 확인
+  - [x] mysql-c depends_on 추가 확인
+- [x] 단계 4: debezium/payment-outbox-connector.json 신규 생성
+  - [x] JSON 문법 오류 없음
+  - [x] database.server.id 고유값(184055) 확인
+- [x] 단계 5: serverC application.yaml 로컬 기본값 수정
+  - [x] `3306/promotion` 잔존 없음 → `3308/payment`
+- [x] 단계 6: 문서 업데이트 (arch-snapshot, infra-diagram)
 
 ## 최종 검증
-- [x] `serverC/src` 내 `FinalOrder` / `final_order` 잔존 없음
-- [x] `README.md` 내 잔존 없음
-- [x] `docs/arch-snapshot.md` 내 잔존 없음
-- [x] `docs/infra-diagram.md` — 해당 없음 (원래 언급 없었음)
-- [x] 비범위 침범 없음 (serverA, serverB 미변경)
+- [x] `docker compose config --quiet` 문법 오류 없음
+- [x] serverA 관련 설정 미변경 확인 (mysql:3306/promotion은 server-a에만 존재)
+- [x] debezium server.id 충돌 없음 (184054 vs 184055)
 
 ## 발견 사항
-- plan.md / context.md / checklist.md 자체에는 이전 이름 언급이 남아있으나, 이는 작업 기록 문서이므로 정상
+- (없음)

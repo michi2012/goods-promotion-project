@@ -7,9 +7,9 @@ _생성일: 2026-05-28_
 
 | 모듈 | 포트 | 역할 | DB | Redis |
 |------|------|------|----|-------|
-| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB | ✅ |
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (port 6380) |
-| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음 | promotion DB | 없음 |
+| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음 | payment DB (3308, 전용 MySQL) | 없음 |
 | mcp | - | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·Slack 알림 | - | - |
 
 ---
@@ -94,7 +94,7 @@ sequenceDiagram
 | serverA | `Goods` | id, name, stock | 재고 원본(DB) |
 | serverA | `DeadLetter` | orderId, goodsId, quantity, reason | DLT 실패 메시지 저장 |
 | serverA | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
-| serverC | `FinalOrder` | orderId(UK), userId, goodsId, quantity, status, paymentMethod | Saga 완료 후 결제 확정 기록 |
+| serverC | `Payment` | orderId(UK), userId, goodsId, quantity, status, paymentMethod | Saga 완료 후 결제 확정 기록 (테이블: payments) |
 | serverC | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
 
 ---
@@ -184,10 +184,12 @@ sequenceDiagram
 
 ## Debezium CDC 구간
 
-- **커넥터명**: `promotion-outbox-connector`
-- **감시 DB/테이블**: `promotion.outbox_event`
+| 커넥터명 | 감시 DB/테이블 | 사용 모듈 |
+|---------|--------------|---------|
+| `promotion-outbox-connector` | `promotion.outbox_event` (MySQL 3307) | serverA |
+| `payment-outbox-connector` | `payment.outbox_event` (MySQL 3308) | serverC |
+
 - **라우팅**: `outbox_event.topic` 컬럼 값 → Kafka 토픽명으로 동적 라우팅 (`${routedByValue}`)
 - **traceparent 전파**: `outbox_event.traceparent` 컬럼 → Kafka 헤더 자동 주입 (분산 트레이싱 연속성)
-- **Outbox 사용 모듈**: serverA, serverC
 
 > **codex-reviewer 주의**: `payment-request`, `order-status-update`, `order-completed`, `payment-cancel`, `stock-snapshot`(saga 결과)은 `kafkaTemplate.send()` 직접 호출이 없고 Outbox INSERT → Debezium CDC → Kafka 순서로 발행된다. `purchase_events`와 `stock-snapshot`(구매 접수 시점)만 직접 발행이다.
