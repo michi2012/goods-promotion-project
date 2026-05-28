@@ -10,6 +10,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(PaymentNotFoundException.class)
+    public ResponseEntity<String> handlePaymentNotFound(PaymentNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+    }
+
     // 서버 B가 보상 트랜잭션을 시작할 수 있도록 400 Bad Request를 정확히 반환
     @ExceptionHandler(PgPaymentException.class)
     public ResponseEntity<String> handlePgPaymentError(PgPaymentException e) {

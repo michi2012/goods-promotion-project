@@ -1,27 +1,32 @@
-# 맥락 노트: serverC MySQL 분리 (DB-per-Service)
+# 맥락 노트: serverC 결제 조회 API 추가
 
 ## 왜 이 방식을 선택했는가
-serverA와 serverC가 같은 MySQL 인스턴스(`promotion` DB)를 공유하는 것은 마이크로서비스
-DB-per-Service 원칙 위반이다. serverA DB 장애 시 serverC 결제 처리까지 동반 중단되는
-단일 장애점(SPOF) 문제도 있다. 개발 환경에서 분리해두면 실제 운영 환경과의 갭을 줄일 수 있다.
+결제 도메인의 소유자가 serverC이므로 결제 조회도 serverC가 직접 서빙한다.
+serverB에 복제본을 두면 동기화 Kafka 토픽/Consumer/정합성 로직이 필요해 복잡도가 과도하게 증가한다.
+serverB의 `serverCClient` Circuit Breaker가 이미 선언되어 있으므로,
+외부 노출이 필요하면 serverB가 serverC를 HTTP 중계하는 방식도 가능하다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: 같은 MySQL 인스턴스 내 별도 DB (schema 분리만)
-- 무엇: `promotion` DB와 `payment` DB를 같은 MySQL 컨테이너에 두기
-- 왜 안 썼나: 컨테이너 레벨 격리가 없어 SPOF 문제가 그대로 남음
+### 대안 A: 별도 PaymentQueryService 분리
+- 무엇: 조회 전용 서비스 클래스를 따로 만들기
+- 왜 안 썼나: 조회 메서드 2개를 위한 클래스 분리는 과도함. 기존 PaymentService에 추가가 더 단순.
 
-### 대안 B: debezium-init 컨테이너 2개로 분리
-- 무엇: `debezium-init`(serverA용)과 `debezium-init-c`(serverC용) 별도 컨테이너
-- 왜 안 썼나: 단순한 curl 2번 추가인데 컨테이너를 늘리는 건 과도함
+### 대안 B: serverB에 결제 데이터 복제 후 조회
+- 무엇: Kafka로 결제 이벤트를 serverB에 동기화해서 serverB에서 조회
+- 왜 안 썼나: 동기화 인프라(토픽, Consumer, 정합성) 복잡도 과도. serverC 직접 조회가 훨씬 단순.
 
 ## 기존 코드베이스 컨벤션
-- MySQL 컨테이너: binlog ROW 포맷 필수 (Debezium CDC 요건)
-- Debezium server.id: MySQL replication 프로토콜 요건상 인스턴스별 고유값 필요
-- 기존 serverA connector server.id: 184054 → 신규 184055
+- 응답 형식: `ResponseEntity<T>` 직접 반환 (serverB 패턴 참조: OrderQueryController)
+- 공통 ApiResponse 래퍼 없음
+- 패키지: 레이어 중심 (controller/, service/, repository/, dto/, exception/)
+- DTO: Java record 사용
+- 예외: RuntimeException 상속, GlobalExceptionHandler에서 ResponseEntity 반환
 
 ## 관련 파일/위치
-- `docker-compose.yml` — mysql-c 추가, server-c/kafka-connect/debezium-init 수정
-- `debezium/outbox-connector.json` — serverA용 (변경 없음)
-- `debezium/payment-outbox-connector.json` — serverC용 (신규)
-- `serverC/src/main/resources/application.yaml` — 로컬 기본 datasource URL 수정
+- `serverC/.../dto/PaymentResponse.java` — 응답 DTO (신규)
+- `serverC/.../repository/PaymentRepository.java` — JDBC 조회 메서드 추가
+- `serverC/.../service/PaymentService.java` — 조회 서비스 메서드 추가
+- `serverC/.../controller/PaymentController.java` — HTTP 엔드포인트 (신규)
+- `serverC/.../exception/PaymentNotFoundException.java` — 404 예외 (신규)
+- `serverC/.../exception/GlobalExceptionHandler.java` — 404 핸들러 추가

@@ -10,15 +10,20 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import weverse.serverC.dto.PaymentResponse;
 import weverse.serverC.dto.PaymentResultMessage;
 import weverse.serverC.dto.PurchaseMessage;
+import weverse.serverC.exception.PaymentNotFoundException;
 import weverse.serverC.outbox.OutboxEventService;
 import weverse.serverC.repository.PaymentRepository;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -85,5 +90,50 @@ class PaymentServiceTest {
         verify(paymentRepository).updateOrderStatus(List.of(orderId), "FAILED");
         verify(outboxEventService).save(eq(orderId), eq("payment-result"),
                 eq(new PaymentResultMessage(orderId, false, "결제 거절")));
+    }
+
+    @Test
+    @DisplayName("orderId로 결제 정보를 조회하면 PaymentResponse를 반환한다")
+    void getByOrderId_Success() {
+        // given
+        String orderId = "trace-1234";
+        PaymentResponse expected = new PaymentResponse(orderId, 1L, 4L, 1, "CARD", "PAID", LocalDateTime.now());
+        when(paymentRepository.findByOrderId(orderId)).thenReturn(Optional.of(expected));
+
+        // when
+        PaymentResponse result = paymentService.getByOrderId(orderId);
+
+        // then
+        assertThat(result).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 orderId 조회 시 PaymentNotFoundException이 발생한다")
+    void getByOrderId_NotFound() {
+        // given
+        String orderId = "not-exist";
+        when(paymentRepository.findByOrderId(orderId)).thenReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> paymentService.getByOrderId(orderId))
+                .isInstanceOf(PaymentNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("userId로 결제 내역을 조회하면 repository 결과를 그대로 반환한다")
+    void getByUserId_ReturnsList() {
+        // given
+        Long userId = 1L;
+        List<PaymentResponse> expected = List.of(
+                new PaymentResponse("order-1", userId, 4L, 1, "CARD", "PAID", LocalDateTime.now()),
+                new PaymentResponse("order-2", userId, 5L, 2, "CARD", "PAID", LocalDateTime.now())
+        );
+        when(paymentRepository.findByUserId(userId, 0, 20)).thenReturn(expected);
+
+        // when
+        List<PaymentResponse> result = paymentService.getByUserId(userId, 0, 20);
+
+        // then
+        assertThat(result).hasSize(2).isEqualTo(expected);
     }
 }

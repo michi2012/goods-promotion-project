@@ -1,83 +1,68 @@
-# 계획서: serverC MySQL 분리 (DB-per-Service)
+# 계획서: serverC 결제 조회 API 추가
 
 - 작성일: 2026-05-28
 
 ## 목표
-serverA와 공유하던 MySQL(3307)에서 serverC를 분리해, serverC 전용 MySQL 컨테이너(3308)와
-`payment` DB를 추가한다. Debezium CDC connector도 serverC 전용으로 분리 등록한다.
+serverC에 결제 조회 HTTP 엔드포인트 2개를 추가한다.
+- `GET /api/v1/payments/{orderId}` — 주문 ID로 단건 조회
+- `GET /api/v1/payments/users/{userId}` — 사용자별 결제 내역 (page/size 페이징)
 
 ## 성공 기준
-- [ ] `mysql-c` 컨테이너가 3308포트로 정상 기동됨
-- [ ] `server-c`가 `mysql-c:3306/payment`에 연결됨 (기존 `mysql:3306/promotion` 미사용)
-- [ ] `payment-outbox-connector`가 Kafka Connect에 정상 등록됨
-- [ ] serverA는 기존 `mysql`(3307)을 그대로 사용 — 영향 없음
-- [ ] `docker-compose up` 후 모든 서비스 정상 기동
+- [ ] `GET /api/v1/payments/{orderId}` — 존재하면 200 + PaymentResponse, 없으면 404
+- [ ] `GET /api/v1/payments/users/{userId}` — 200 + List<PaymentResponse> (page/size 파라미터)
+- [ ] 응답에 PII(email, phone, address 등) 미포함
+- [ ] Controller에 비즈니스 로직 없음, Entity 직접 반환 없음
+- [ ] arch-snapshot.md serverC API 테이블 업데이트
 
 ## 비범위 (Out of Scope)
-- serverA MySQL 설정 변경
-- 기존 데이터 마이그레이션 (개발 환경 — 컨테이너 재시작으로 스키마 재생성)
-- 결제 조회 API 추가 — 별도 작업
+- 인증/인가 추가
+- serverB를 통한 결제 조회 중계
+- 결제 수정/삭제 API
 
 ## 단계별 작업 계획
 
-### 단계 1: docker-compose.yml — mysql-c 서비스 추가
-- 변경 파일: `docker-compose.yml`
-- 변경 내용: `mysql-c` 서비스 추가 (port 3308:3306, DB `payment`, server-id=2, 바이너리 로그 활성화)
-- 검증 방법: YAML 문법 오류 없음 확인
-- 롤백 방법: 추가한 블록 제거
+### 단계 1: dto/PaymentResponse.java 신규 생성
+- 변경 파일: `serverC/src/main/java/weverse/serverC/dto/PaymentResponse.java`
+- 변경 내용: record 타입, 핵심 필드(orderId, userId, goodsId, quantity, paymentMethod, status, createdAt)
+- 검증 방법: 파일 생성 확인
 - 예상 소요: 짧음
 
-### 단계 2: docker-compose.yml — server-c 의존성 및 환경변수 수정
-- 변경 파일: `docker-compose.yml`
+### 단계 2: repository/PaymentRepository.java — 조회 메서드 추가
+- 변경 파일: `serverC/src/main/java/weverse/serverC/repository/PaymentRepository.java`
 - 변경 내용:
-  - `server-c.depends_on`: `mysql` → `mysql-c`
-  - `SPRING_DATASOURCE_URL`: `mysql:3306/promotion` → `mysql-c:3306/payment`
-- 검증 방법: server-c 블록에 `mysql` 참조 잔존 여부 확인
-- 롤백 방법: 원복
+  - `findByOrderId(String orderId)` → `Optional<PaymentResponse>`
+  - `findByUserId(Long userId, int page, int size)` → `List<PaymentResponse>` (LIMIT/OFFSET)
+- 검증 방법: 코드 확인
 - 예상 소요: 짧음
 
-### 단계 3: docker-compose.yml — kafka-connect + debezium-init 수정
-- 변경 파일: `docker-compose.yml`
+### 단계 3: service/PaymentService.java — 조회 메서드 추가
+- 변경 파일: `serverC/src/main/java/weverse/serverC/service/PaymentService.java`
 - 변경 내용:
-  - `kafka-connect.depends_on`에 `mysql-c: condition: service_healthy` 추가
-  - `debezium-init.depends_on`에 `mysql-c: condition: service_healthy` 추가
-  - `debezium-init.entrypoint`: curl 1개 → 2개 순차 실행 (outbox-connector + payment-outbox-connector)
-- 검증 방법: entrypoint 스크립트 문법 확인
-- 롤백 방법: 원복
+  - `getByOrderId(String orderId)` — PaymentNotFoundException 발생
+  - `getByUserId(Long userId, int page, int size)` — 목록 반환
+- 검증 방법: 코드 확인
 - 예상 소요: 짧음
 
-### 단계 4: debezium/payment-outbox-connector.json 신규 생성
-- 변경 파일: `debezium/payment-outbox-connector.json` (신규)
-- 변경 내용:
-  - connector명: `payment-outbox-connector`
-  - `database.hostname`: `mysql-c`
-  - `database.server.id`: `184055` (기존 184054와 충돌 방지)
-  - `database.include.list`: `payment`
-  - `table.include.list`: `payment.outbox_event`
-  - `schema.history.internal.kafka.topic`: `schema-changes.payment`
-- 검증 방법: JSON 문법 오류 없음 확인
-- 롤백 방법: 파일 삭제
+### 단계 4: exception/PaymentNotFoundException.java 신규 + GlobalExceptionHandler 수정
+- 변경 파일: `serverC/.../exception/PaymentNotFoundException.java` (신규), `GlobalExceptionHandler.java` (수정)
+- 변경 내용: 404 RuntimeException + 핸들러 등록
+- 검증 방법: 코드 확인
 - 예상 소요: 짧음
 
-### 단계 5: serverC application.yaml 로컬 기본값 수정
-- 변경 파일: `serverC/src/main/resources/application.yaml`
-- 변경 내용: datasource 기본값 `localhost:3306/promotion` → `localhost:3308/payment`
-- 검증 방법: 파일 내 `3306/promotion` 잔존 여부 확인
-- 롤백 방법: 원복
+### 단계 5: controller/PaymentController.java 신규 생성
+- 변경 파일: `serverC/src/main/java/weverse/serverC/controller/PaymentController.java`
+- 변경 내용: GET 2개, serverB 패턴 (`ResponseEntity<T>`) 동일하게 적용
+- 검증 방법: 코드 확인
 - 예상 소요: 짧음
 
-### 단계 6: 문서 업데이트 (arch-snapshot, infra-diagram)
-- 변경 파일: `docs/arch-snapshot.md`, `docs/infra-diagram.md`
-- 변경 내용: serverC DB를 별도 MySQL(3308/payment)로 반영
-- 검증 방법: 문서 내 serverC DB 설명 확인
-- 롤백 방법: 원복
+### 단계 6: docs/arch-snapshot.md 업데이트
+- 변경 파일: `docs/arch-snapshot.md`
+- 변경 내용: serverC API 엔드포인트 테이블 추가
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- `database.server.id` 충돌: Debezium MySQL connector는 서버별 고유 ID 필요 → 184055로 분리
-- 기존 `final_order` 테이블 잔존: `docker-compose down -v` 후 재시작 시 스키마 재생성
-- debezium-init curl 2번 실행 중 첫 번째 성공, 두 번째 실패 시: `restart: on-failure`로 재시도
+- JDBC RowMapper 작성 중 컬럼명 오타 → 쿼리와 payments 테이블 DDL 대조 확인
+- page=0, size=0 등 잘못된 파라미터 → size 최솟값 1, page 최솟값 0 기본값 보정
 
 ## 의존성
-- `mysql-c` healthcheck → `debezium-init` 순서 보장 필요
-- 기존 `promotion-outbox-connector` (serverA용)는 변경 없음
+- `payments` 테이블 컬럼명은 Payment 엔티티 기준 (order_id, user_id, goods_id, payment_method, status, created_at)

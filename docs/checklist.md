@@ -1,26 +1,21 @@
-# 체크리스트: serverC MySQL 분리 (DB-per-Service)
+# 체크리스트: serverC 결제 조회 API 추가
 
 - 마지막 업데이트: 2026-05-28
 
 ## 진행 상황
-- [x] 단계 1: docker-compose.yml — mysql-c 서비스 추가
-  - [x] YAML 문법 오류 없음
-- [x] 단계 2: docker-compose.yml — server-c depends_on + DATASOURCE_URL 수정
-  - [x] server-c 블록에 `mysql` 참조 없음 (`mysql-c`로 교체됨)
-- [x] 단계 3: docker-compose.yml — kafka-connect + debezium-init 수정
-  - [x] debezium-init entrypoint curl 2개 확인
-  - [x] mysql-c depends_on 추가 확인
-- [x] 단계 4: debezium/payment-outbox-connector.json 신규 생성
-  - [x] JSON 문법 오류 없음
-  - [x] database.server.id 고유값(184055) 확인
-- [x] 단계 5: serverC application.yaml 로컬 기본값 수정
-  - [x] `3306/promotion` 잔존 없음 → `3308/payment`
-- [x] 단계 6: 문서 업데이트 (arch-snapshot, infra-diagram)
+- [x] 단계 1: dto/PaymentResponse.java 신규 생성
+- [x] 단계 2: repository/PaymentRepository.java 조회 메서드 추가
+- [x] 단계 3: service/PaymentService.java 조회 메서드 추가
+- [x] 단계 4: exception/PaymentNotFoundException.java 신규 + GlobalExceptionHandler 수정
+- [x] 단계 5: controller/PaymentController.java 신규 생성
+- [x] 단계 6: docs/arch-snapshot.md 업데이트
 
-## 최종 검증
-- [x] `docker compose config --quiet` 문법 오류 없음
-- [x] serverA 관련 설정 미변경 확인 (mysql:3306/promotion은 server-a에만 존재)
-- [x] debezium server.id 충돌 없음 (184054 vs 184055)
+## 최종 검증 (api 스킬 자가점검)
+- [x] Entity 직접 노출 없음 (PaymentResponse record 사용)
+- [x] 응답 DTO에 PII 없음 (email, phone, address 미포함 확인)
+- [x] Controller에 @Transactional 없음
+- [x] 목록 API 페이징 적용 (page/size, LIMIT/OFFSET)
+- [x] HTTP 상태 코드: 200 OK, 404 Not Found
 
 ## 발견 사항
 - (없음)

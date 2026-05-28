@@ -98,6 +98,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - 프로덕션 코드 변경 시 → 대응하는 테스트도 반드시 함께 수정할 것.
 - 새 클래스 추가 시 → 테스트 파일도 함께 생성할 것.
+- 새 메서드 추가 시 → 테스트 코드도 함께 생성할 것.
 - 테스트를 실행하지 않더라도 "이 테스트를 실행해보세요"라고 명시할 것.
 
 ## Spring Boot 공통 규칙

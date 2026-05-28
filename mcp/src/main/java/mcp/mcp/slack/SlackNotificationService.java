@@ -20,6 +20,10 @@ public class SlackNotificationService {
     private final @Qualifier("slackClient") RestClient slackClient;
 
     public void send(String report) {
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            log.warn("[Slack] SLACK_WEBHOOK_URL 미설정 - 발송 스킵");
+            return;
+        }
         try {
             slackClient.post()
                     .uri(webhookUrl)

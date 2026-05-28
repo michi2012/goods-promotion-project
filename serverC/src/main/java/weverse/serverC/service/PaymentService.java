@@ -7,8 +7,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import weverse.serverC.dto.PaymentResponse;
 import weverse.serverC.dto.PaymentResultMessage;
 import weverse.serverC.dto.PurchaseMessage;
+import weverse.serverC.exception.PaymentNotFoundException;
 import weverse.serverC.exception.PgPaymentException;
 import weverse.serverC.outbox.OutboxEventService;
 import weverse.serverC.repository.PaymentRepository;
@@ -79,5 +81,16 @@ public class PaymentService {
 
         outboxEventService.save(msg.orderId(), RESULT_TOPIC,
                 new PaymentResultMessage(msg.orderId(), success, success ? null : "결제 거절"));
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentResponse getByOrderId(String orderId) {
+        return paymentRepository.findByOrderId(orderId)
+                .orElseThrow(() -> new PaymentNotFoundException(orderId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentResponse> getByUserId(Long userId, int page, int size) {
+        return paymentRepository.findByUserId(userId, page, size);
     }
 }

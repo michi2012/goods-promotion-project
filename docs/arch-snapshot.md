@@ -117,7 +117,10 @@ sequenceDiagram
 | GET | /api/v1/goods/{goodsId}/stock | 재고 뷰 조회 (Caffeine+Redis) | 퍼블릭 |
 
 ### serverC (8082)
-- 외부 Kafka 소비 전용, HTTP 엔드포인트 없음
+| 메서드 | URL | 설명 | 인증 |
+|--------|-----|------|------|
+| GET | /api/v1/payments/{orderId} | 주문 ID로 결제 단건 조회 | 퍼블릭 |
+| GET | /api/v1/payments/users/{userId} | 사용자별 결제 내역 (page, size 파라미터) | 퍼블릭 |
 
 ---
 
