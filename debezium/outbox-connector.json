@@ -1,5 +1,5 @@
 {
-  "name": "weverse-outbox-connector",
+  "name": "promotion-outbox-connector",
   "config": {
     "connector.class": "io.debezium.connector.mysql.MySqlConnector",
     "tasks.max": "1",
@@ -8,11 +8,11 @@
     "database.user": "root",
     "database.password": "root",
     "database.server.id": "184054",
-    "topic.prefix": "weverse",
-    "database.include.list": "weverse_promo",
-    "table.include.list": "weverse_promo.outbox_event",
+    "topic.prefix": "promotion",
+    "database.include.list": "promotion",
+    "table.include.list": "promotion.outbox_event",
     "schema.history.internal.kafka.bootstrap.servers": "kafka:9092",
-    "schema.history.internal.kafka.topic": "schema-changes.weverse_promo",
+    "schema.history.internal.kafka.topic": "schema-changes.promotion",
     "database.connectionTimeZone": "Asia/Seoul",
     "snapshot.mode": "schema_only",
     "transforms": "outbox",
