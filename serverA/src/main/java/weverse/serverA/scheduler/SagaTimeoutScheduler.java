@@ -39,7 +39,7 @@ public class SagaTimeoutScheduler {
                 if (createdAt == 0L) continue;
 
                 if ((now - createdAt) >= TIMEOUT_MS) {
-                    log.warn("[SagaTimeout] 10분 초과 미완료 Saga 탐지: orderId={}", orderId);
+                    log.warn("[SagaTimeout] 3분 초과 미완료 Saga 탐지: orderId={}", orderId);
                     sagaOrchestratorService.handleSagaFailure(orderId, "TIMEOUT");
                     expiredCount++;
                 }
