@@ -21,7 +21,7 @@ export const options = {
 };
 
 export default function () {
-    const url = 'http://weverse-server-a:8080/api/v1/promotions/purchase';
+    const url = 'http://promotion-server-a:8080/api/v1/promotions/purchase';
 
     const uniqueUserId = (__VU - 1) * 100 + __ITER + 1;
 

@@ -39,3 +39,7 @@ scrape_configs:
       - targets: ['mysql-c-exporter:9104']
         labels:
           instance: 'mysql-c'
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']

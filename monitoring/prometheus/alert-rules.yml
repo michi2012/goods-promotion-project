@@ -232,9 +232,34 @@
           summary: "⚠️ [P2] MySQL 슬로우 쿼리 급증 ({{ $labels.instance }}, {{ printf \"%.1f\" $value }}/s)"
           description: "{{ $labels.instance }}에서 슬로우 쿼리가 2분간 1건/s를 초과하여 인덱스 누락 또는 풀 테이블 스캔이 의심되는 상태."
 
+      # 17. [P2] MySQL 컨테이너 CPU 포화
+      - alert: MySQLCpuHigh
+        expr: sum by (name) (rate(container_cpu_usage_seconds_total{name=~"promotion-mysql.*"}[1m])) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] MySQL 컨테이너 CPU 포화 ({{ $labels.name }}, {{ printf \"%.1f\" $value }}%)"
+          description: "{{ $labels.name }} MySQL 컨테이너 CPU 사용률이 80%를 2분간 초과하여 쿼리 폭증 또는 풀 테이블 스캔이 의심되는 상태."
+
+      # 18. [P2] MySQL 컨테이너 메모리 포화
+      - alert: MySQLMemoryHigh
+        expr: >
+          container_memory_working_set_bytes{name=~"promotion-mysql.*"}
+          / container_spec_memory_limit_bytes{name=~"promotion-mysql.*"}
+          * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] MySQL 컨테이너 메모리 포화 ({{ $labels.name }}, {{ printf \"%.1f\" $value }}%)"
+          description: "{{ $labels.name }} MySQL 컨테이너 메모리 사용률이 80%를 2분간 초과하여 버퍼풀 확장 또는 임시 테이블 급증이 의심되는 상태."
+
   - name: Tier5-Resilience
     rules:
-      # 17. [P1] 서킷브레이커 OPEN 상태
+      # 19. [P1] 서킷브레이커 OPEN 상태
       - alert: CircuitBreakerOpen
         expr: resilience4j_circuitbreaker_state{state="open"} == 1
         for: 10s
@@ -245,7 +270,7 @@
           summary: "🔥 [P1] 서킷브레이커 OPEN ({{ $labels.name }})"
           description: "{{ $labels.name }} 서킷브레이커가 OPEN 상태로 전환되어 해당 외부 연동(PG사 등)이 차단된 상태."
 
-      # 18. [P2] 서킷브레이커 HALF_OPEN 상태 지속
+      # 20. [P2] 서킷브레이커 HALF_OPEN 상태 지속
       - alert: CircuitBreakerHalfOpen
         expr: resilience4j_circuitbreaker_state{state="half_open"} == 1
         for: 30s
@@ -256,7 +281,7 @@
           summary: "⚠️ [P2] 서킷브레이커 HALF_OPEN 지속 ({{ $labels.name }})"
           description: "{{ $labels.name }} 서킷브레이커가 HALF_OPEN 상태에서 30초 이상 지속되어 외부 서비스 완전 복구 여부가 불확실한 상태."
 
-      # 19. [P1] DB 커넥션 풀 포화
+      # 21. [P1] DB 커넥션 풀 포화
       - alert: DatabaseConnectionPoolExhaustion
         expr: hikaricp_connections_pending > 0
         for: 30s
@@ -267,7 +292,7 @@
           summary: "🔥 [P1] DB 커넥션 풀 대기 발생 (풀: {{ $labels.pool }}, 대기: {{ printf \"%.0f\" $value }})"
           description: "HikariCP 커넥션 풀이 포화 상태로 대기 요청이 발생하여 슬로우 쿼리 또는 커넥션 누수가 의심되는 상태."
 
-      # 20. [P1] Redis 다운
+      # 22. [P1] Redis 다운
       - alert: RedisDown
         expr: redis_up == 0
         for: 10s

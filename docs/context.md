@@ -1,36 +1,29 @@
-# 맥락 노트: mysql-exporter 추가 및 Grafana Alertmanager datasource 연결
+# 맥락 노트: cAdvisor 추가 및 MySQL CPU/메모리 모니터링 완성
 
 ## 왜 이 방식을 선택했는가
-
-기존에 DB 상태 감지는 HikariCP(hikaricp_connections_pending)로 간접 측정하고 있었다.
-이는 "커넥션이 포화된 뒤에야 알람 발화"하는 구조라 선제 감지가 어렵다.
-mysql-exporter를 추가하면 innodb 버퍼풀 히트율, 슬로우쿼리 추이, 커넥션 수 등
-MySQL 내부 상태를 Prometheus에서 직접 수집할 수 있다.
-
-Alertmanager datasource는 Grafana에서 현재 Firing 중인 알람 목록과 히스토리를
-시각화하기 위해 추가한다. 실제 알람 처리는 mcp → Slack 경로이지만,
-Grafana 대시보드에서 알람 상태를 한눈에 확인할 수 있는 창구가 없었다.
+Redis 대시보드에는 CPU·메모리 패널이 있으나 MySQL은 없어 비대칭이 발생했다. redis_exporter는 Redis INFO 명령에서 CPU·메모리를 직접 파싱하지만, mysqld_exporter는 OS 수준 지표를 수집하지 않는다. 컨테이너 수준 CPU/메모리 수집의 표준 방법인 cAdvisor를 추가해 비대칭을 해소하기로 했다. 사용자 확인: 포트폴리오 목적이므로 Linux 표준 마운트 방식으로 작성하고 Windows 주의사항을 주석으로 명시한다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: MySQL 전용 모니터링 계정 생성
-- 무엇: `exporter` 계정을 별도 생성해 최소 권한(PROCESS, REPLICATION CLIENT, SELECT)만 부여
-- 왜 안 썼나: 포트폴리오 단일 호스트 Docker 환경에서 root 사용이 간단하고 실용적.
-  운영 환경이라면 전용 계정이 필수지만 이 프로젝트의 범위를 벗어남.
+### 대안 A: Redis CPU/메모리 패널 제거
+- 무엇: Redis 패널도 없애서 일관성 맞춤
+- 왜 안 썼나: 이미 수집 중인 정보를 버리는 것은 모니터링 품질 하락
 
-### 대안 B: mysqld-exporter를 단일 컨테이너로 multi-target 구성
-- 무엇: 하나의 exporter 컨테이너에서 두 DB를 모두 수집
-- 왜 안 썼나: prom/mysqld-exporter v0.15+ 에서 multi-target 지원하지만 설정이 복잡함.
-  redis-exporter 패턴(DB별 컨테이너 분리)과 일관성을 유지하는 게 코드베이스 컨벤션에 맞음.
+### 대안 B: Docker socket만 마운트
+- 무엇: `/var/run/docker.sock`만 마운트해 Windows 호환성 확보
+- 왜 안 썼나: 일부 메트릭 누락 가능, 포트폴리오는 Linux 서버 배포가 기준
 
-## 기존 코드베이스 컨벤션
-- exporter 패턴: DB/인프라 컴포넌트마다 전용 exporter 컨테이너 분리 (redis-exporter, redis-b-exporter, kafka-exporter)
-- 리소스 제한: exporter류는 0.25 CPU / 128M (docker-compose.yml 참고)
-- Prometheus label: instance 레이블로 exporter 구분 (instance=redis-a, redis-b 패턴 참고)
-- Grafana datasource uid: 소문자 단어 (prometheus, tempo, loki 패턴)
+### 대안 C: cAdvisor 없이 넘어가기
+- 무엇: MySQL 패널 없이 현 상태 유지
+- 왜 안 썼나: Redis와의 비대칭이 면접/리뷰에서 "빠뜨린 것"처럼 보일 수 있음
 
 ## 관련 파일/위치
-- `docker-compose.yml` — 전체 서비스 정의
-- `monitoring/prometheus/prometheus.yml` — scrape job 정의
-- `monitoring/grafana/provisioning/datasources/datasource.yml` — Grafana datasource 자동 프로비저닝
-- `docs/infra-diagram.md` — 인프라 토폴로지 다이어그램 (업데이트 필요)
+- `docker-compose.yml` — cAdvisor 서비스 추가
+- `monitoring/prometheus/prometheus.yml` — cadvisor scrape 설정
+- `monitoring/grafana/dashboards/sre-dashboard.json` — Tier4 MySQL 패널 추가
+- `monitoring/prometheus/alert-rules.yml` — MySQL CPU/메모리 알람 추가
+
+## cAdvisor 메트릭 참고
+- CPU: `rate(container_cpu_usage_seconds_total{name=~"promotion-mysql.*"}[1m]) * 100`
+- Memory: `container_memory_working_set_bytes{name=~"promotion-mysql.*"} / container_spec_memory_limit_bytes{name=~"promotion-mysql.*"} * 100`
+- `container_spec_memory_limit_bytes`가 0인 경우(제한 없음) 별도 필터 필요

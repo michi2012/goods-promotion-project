@@ -31,7 +31,7 @@ export default function () {
     // 80% 확률로 조회 트래픽 발생
     if (randomValue < 0.8) {
         // 조회 서버는 server-b 입니다.
-        const readUrl = 'http://weverse-server-b:8081/api/v1/goods/1/stock';
+        const readUrl = 'http://promotion-server-b:8081/api/v1/goods/1/stock';
         const res = http.get(readUrl);
 
         if (res.status === 200) {
@@ -47,7 +47,7 @@ export default function () {
     } else {
         // 20% 확률로 구매 트래픽 발생
         // 구매 서버는 server-a 입니다.
-        const purchaseUrl = 'http://weverse-server-a:8080/api/v1/promotions/purchase';
+        const purchaseUrl = 'http://promotion-server-a:8080/api/v1/promotions/purchase';
         const uniqueUserId = (__VU - 1) * 100 + __ITER + 1;
 
         const payload = JSON.stringify({

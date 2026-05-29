@@ -1,5 +1,5 @@
 # Infrastructure Diagram
-_생성일: 2026-05-28_
+_생성일: 2026-05-29_
 
 ## 1. 서비스 토폴로지
 
@@ -52,7 +52,7 @@ flowchart TD
 flowchart LR
     subgraph Src["Signal Sources"]
         apps["server-a / b / c"]
-        infraSrc["Redis-A·B / Kafka"]
+        infraSrc["Redis-A·B / Kafka /\nMySQL-A·C"]
     end
 
     subgraph Collect["Collection"]
@@ -64,6 +64,7 @@ flowchart LR
             kafkaExp["kafka-exporter\n:9308"]
             mysqlAExp["mysql-a-exporter\n:9104"]
             mysqlCExp["mysql-c-exporter\n:9105"]
+            cadvisor["cAdvisor\n:8090"]
         end
     end
 
@@ -83,10 +84,11 @@ flowchart LR
     apps -->|OTLP traces| otel
     apps -.->|shared-logs vol| vector
     infraSrc --> redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp
+    apps & infraSrc -.->|host cgroups| cadvisor
 
     otel -->|OTLP gRPC| tempo
     vector -->|push| loki
-    redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp -->|metrics| prometheus
+    redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp & cadvisor -->|metrics| prometheus
     prometheus -.->|scrape| apps
 
     tempo & loki & prometheus -->|query| grafana
@@ -96,5 +98,5 @@ flowchart LR
     mcp -->|notify| Slack
 ```
 
-> 점선(`-.->`)은 간접 연결(공유 볼륨 / Prometheus pull)을 나타냄.
+> 점선(`-.->`)은 간접 연결(공유 볼륨 / Prometheus pull / host cgroups)을 나타냄.
 > `debezium-init`은 일회성 init 컨테이너로 생략.

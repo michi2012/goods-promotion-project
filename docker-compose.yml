@@ -504,6 +504,29 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  # cAdvisor — 컨테이너 CPU/메모리 수집
+  # Windows Docker Desktop(WSL2)에서는 아래 volume 마운트가 WSL2 내부 경로를 가리켜
+  # 메트릭이 비어 보일 수 있음. Linux 서버 배포 환경에서는 정상 동작.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    ports:
+      - "8090:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - promotion-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
   redpanda-console:
     image: redpandadata/console:latest
     container_name: redpanda-console
@@ -549,6 +572,7 @@ services:
 
 networks:
   promotion-network:
+    name: promotion-network
     driver: bridge
 
 volumes:
