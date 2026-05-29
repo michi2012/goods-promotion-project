@@ -1,305 +1,395 @@
+# 굿즈 구매 선착순 프로모션 시스템
 
+> **1vCPU 환경에서 1만 명 동시 선착순 구매를 처리하는 분산 이벤트 시스템**
+> Kafka Saga Orchestration · Outbox + Debezium CDC · Redis 3단계 동시성 제어 · CQRS
 
-## 🚀데이터 플로우 :
+## 기술 스택
 
-
-<img width="1903" height="489" alt="image" src="https://github.com/user-attachments/assets/4771b31f-2c25-4d8e-8957-4d5465a0a88f" />
-
-
-
-
-## 1. 서버 A 시스템 아키텍처 및 상세 데이터 흐름 (Data Flow) :
-본 시스템은 1vCPU의 한계를 극복하기 위해 API 수신부와 비즈니스 처리부를 완벽히 분리한 비동기 이벤트 기반 워커(Worker) 아키텍처를 채택했습니다. 사용자의 요청은 다음 4단계의 세밀한 파이프라인을 거쳐 처리됩니다.
-
-### Phase 1. 트래픽 수신 및 부하 차단 (API Gateway Layer)
-- **요청 수신:** 사용자가 PromotionController로 구매 요청을 보내면, 고유한 traceId가 발급됩니다.
-- **Fail-Fast (부하 차단):** PromotionService.acceptPurchase에서 최대 10,000개의 용량을 가진 ArrayBlockingQueue에 offer() 메서드로 진입을 시도합니다.
-- **응답 분기:**
-    - **성공:** 큐에 안전하게 적재되면 DB 연산을 기다리지 않고 즉시 202 Accepted를 반환하여 Tomcat 커넥션을 해제합니다.
-    - **실패 (유량 제어):** 큐가 포화 상태일 경우, 대기(Blocking)하지 않고 즉시 QueueFullException을 던져 503 Service Unavailable로 튕겨냅니다. (서버 붕괴 방지)
-
-### Phase 2. 비동기 큐잉 및 영구 저장 (DB I/O Layer)
-- **Flusher 스케줄러 작동:** @Scheduled(fixedDelay = 100) 설정에 따라 0.1초마다 메모리 큐를 확인합니다.
-- **메모리 정렬 (데드락 방지):** drainTo로 최대 500건의 데이터를 꺼낸 뒤, DB 인서트 시 발생하는 B+Tree 인덱스 갭 락(Gap Lock) 충돌을 막기 위해 traceId 기준으로 오름차순 정렬(Sort)을 수행합니다.
-- **Bulk Insert:** OutboxBatchService가 JdbcTemplate을 활용해 단일 커넥션으로 500건을 한 번에 RDBMS에 PENDING 상태로 적재합니다.
-- **Fallback 처리:** RDBMS 장애로 저장이 실패할 경우, 선착순 도메인 특성을 반영하여 지연 재처리(Retry)를 포기하고, CS 보상 처리용 Audit Log(fallbackToLogFile)로 직렬화하여 데이터를 안전하게 격리합니다.
-
-### Phase 3. 재고 차감 및 동시성 제어 (Business Worker Layer)
-- **Worker 스케줄러 작동:** @Scheduled(fixedDelay = 1000) 설정으로 DB CPU 경합을 막기 위해 1초마다 PENDING 데이터를 500건씩 조회합니다.
-- **1차 중복 방어 (Memory):** ConcurrentHashMap(userCache)의 putIfAbsent를 활용하여 이미 대기열에 진입한 유저의 중복 요청을 O(1) 속도로 차단합니다.
-- **2차 중복 방어 (DB):** OutboxProcessor 내의 독립된 트랜잭션(REQUIRES_NEW)에서 existsByUserIdAndStatusIn 쿼리로 최종 결제 이력을 검증합니다.
-- **원자적 재고 차감 (Atomic Update):** goodsRepository.decreaseStockAtomically를 호출하여 레코드 락(Row Lock) 점유 시간을 최소화하며 재고를 차감합니다. 성공 시 SUCCESS, 실패 시(품절 등) FAIL로 상태를 마킹(noRollbackFor 적용)합니다.
-
-### Phase 4. 글로벌 캐시 및 이벤트 전파 (Event Propagation Layer)
-- **품절 감지:** 재고 차감 시 결과가 0건이거나 잔여 재고가 0이 되면 EventNotifier.notifySoldOutToServerB를 비동기 호출합니다.
-- **Hot Spot 방어 (Atomic Lock):** 수많은 워커가 동시에 Server B로 알림을 쏘는 폭주(Cache Stampede)를 막기 위해, recentlyNotified.compute()를 사용하여 해당 상품 ID에 대한 원자적 락을 걸고 5초의 쿨다운을 적용해 단 1회의 알림만 전파되도록 제어합니다.
-
-### Phase 5. 아웃박스 생명주기 관리 및 자가 복구
-- **좀비 메시지 초고속 복구 (15초 룰):** 장애로 인해 PUBLISHING 상태에서 멈춰버린 '좀비 데이터'를 5초 주기의 스케줄러가 탐지합니다. 선착순 도메인의 빠른 호흡을 반영하여, 15초 이상 지연된 데이터를 즉시 PENDING으로 원복(Self-Healing)시켜 사용자의 억울한 기회 박탈을 방지합니다.
-- **아웃박스 Garbage Collection:** 매일 새벽 4시, 트래픽이 가장 적은 시간에 처리가 완료된 Outbox 데이터를 DB에서 삭제합니다. 테이블 락(Lock)을 방지하기 위해 Native Query를 사용하여 LIMIT 5000의 청크(Chunk) 단위로 분할 삭제하며, DB의 인덱스 크기와 스캔 성능을 최상으로 유지합니다.
-
-## 2. 서버 B 시스템 아키텍처 및 상세 데이터 흐름 (Data Flow) :
-### Phase 1. 트래픽 수신 및 In-Flight 유량 제어 (Gateway Layer)
-- **Bulk 요청 수신:** Server A의 스케줄러가 보낸 대량의 PurchaseMessage를 ProcessController.receiveBulk에서 수신합니다.
-- **동시성 방어 (Backpressure):** AtomicInteger 기반의 currentInFlightRequests를 사용하여, 현재 처리 중인 요청이 MAX_IN_FLIGHT(20,000건)를 초과하면 즉시 SystemOverloadException을 발생시켜 서버 메모리 터짐(OOM)을 방지합니다.
-
-### Phase 2. O(1) 멱등성 검증 및 Redis Pipelining (Processing Layer)
-- **Bulk 멱등성 검증:** 재시도 로직으로 인한 중복 데이터를 막기 위해, 수신된 메시지들의 traceId를 Redis multiGet으로 한 번에 조회하여 O(1) 속도로 새로운 메시지만 필터링합니다.
-- **원자적 Pipelining 처리:** 필터링된 메시지들은 redisTemplate.executePipelined를 통해 단 한 번의 네트워크 I/O로 다음 세 가지 작업을 원자적으로 수행합니다.
-    - **Hash:** 유저 주문 상태를 PROCESSING으로 즉시 업데이트 (프론트엔드 실시간 조회용)
-    - **String:** 멱등성 방어용 traceId 기록 (TTL 1시간)
-    - **Stream:** Server C로 보낼 데이터를 queue:to_server_c 스트림에 적재
-
-### Phase 3. 분산 큐잉 및 Pending 장애 복구 (Stream Worker Layer)
-- **실시간 스트림 소비:** QueueToCWorker의 첫 번째 스케줄러(100ms)가 Redis Stream에서 최대 500건씩 데이터를 읽어와 Server C의 Bulk API로 전송합니다.
-- **ACK 및 DLQ:** Server C에서 명확한 2xx 응답을 받았을 때만 Stream 메시지를 acknowledge 및 delete 처리합니다. 데이터 파싱 에러나 400 Bad Request 발생 시 해당 메시지는 queue:dead_letters (DLQ)로 즉시 격리합니다.
-- **고아 메시지(Pending) 복구:** 서버 B가 배포/다운되어 읽어만 두고 ACK를 못한 메시지를 복구하기 위해, 두 번째 스케줄러(5초)가 ReadOffset.from("0")을 조회합니다. 이때 임의의 UUID가 아닌 고정된 Consumer ID(server-b-worker-1)를 사용하여, 자신이 처리하다 만 데이터를 정확히 찾아내어 재처리합니다.
-
-### Phase 4. Saga 패턴 기반 보상 트랜잭션 (Saga & Compensation Layer)
-- **부분 실패 감지:** Server C(결제/영구저장)에서 잔액 부족 등으로 일부 결제가 실패할 경우, 응답 객체(ServerCResponse)의 실패한 traceId 리스트를 기반으로 성공/실패를 분리합니다.
-- **보상 트랜잭션 트리거:** 결제 실패로 판명된 건에 대해 즉시 triggerCompensationToServerA를 호출하여, Server A에게 "재고 차감을 롤백하라"는 보상 트랜잭션(Compensation) API를 요청합니다.
-- **Eventual Consistency (좀비 워커):** 만약 보상 요청 시 Server A가 다운되어 있다면, 보상 데이터를 Redis의 queue:retry_compensate_to_a 리스트에 밀어 넣습니다. 세 번째 스케줄러(3초)가 이 큐를 끝까지 추적하며 Server A가 살아날 때까지 재시도하여 최종 일관성(Eventual Consistency)을 완벽히 보장합니다.
-
-### Phase 5. 다층 캐시 기반 조회 부하 분산 (Read-Heavy Defense Layer)
-- **재고 조회 (Cache Stampede 방어):** 프론트엔드의 실시간 재고 조회 시, Caffeine 로컬 캐시를 1차로 확인합니다. 캐시 미스 발생 시 get(key, function) 내부의 동기화 락(Lock) 메커니즘을 통해, 1만 명이 동시에 접근해도 단 1명의 스레드만 Redis를 조회하게 하여 DB 및 Redis 부하를 원천 차단합니다.
-- **품절 전파:** 잔여 재고가 0이 되면 즉시 글로벌 Redis 및 로컬 soldOutCache에 플래그를 세워, 이후의 모든 유입을 로컬 메모리 단에서 0.001초 만에 0으로 응답합니다.
-
-## 3. 서버 B 시스템 아키텍처 및 상세 데이터 흐름 (Data Flow) :
-### Phase 1. 벌크 요청 수신 및 Chunk 메모리 분할 (Data Partitioning)
-- **벌크 수신:** Server B의 Stream Worker가 전송한 최대 500건의 PurchaseMessage를 OrderController.receiveBulkOrders에서 수신합니다.
-- **Chunk 분할:** RDBMS의 IN 절 파라미터 개수 제한(Limits)을 회피하고 락(Lock) 점유 시간을 줄이기 위해, partition() 유틸리티를 사용하여 대량의 데이터를 다시 적절한 사이즈(500건 단위)의 Chunk로 쪼개어 순차 처리합니다.
-
-### Phase 2. RDBMS Unique 제약 기반 멱등성 검증 (Idempotency Layer)
-- **이중 결제 원천 차단:** Server B에서 Redis 기반으로 1차 멱등성을 검증했더라도, 분산 시스템의 특성상 최종 DB에서의 검증이 필수적입니다.
-- **INSERT IGNORE 로직:** FinalOrderRepository.claimOrders에서 INSERT IGNORE 쿼리와 JdbcTemplate.batchUpdate를 사용하여 RDBMS의 Unique Index(trace_id) 충돌을 활용합니다.
-- **선점(Claim) 확인:** 쿼 실행 결과 배열에서 성공(1 또는 -2)한 건수만 필터링하여 "현재 스레드가 DB에 적재를 성공한 순수한 신규 주문"만 발라냅니다. 모두 중복일 경우 즉시 다음 Chunk로 넘어갑니다.
-
-### Phase 3. DB Connection-Free 외부 API 통신 (PG Payment Layer)
-- **커넥션 풀 분리 (핵심 최적화):** DB에 주문을 선점(PENDING 상태)한 직후, 트랜잭션을 열지 않은 상태(No DB Connection)에서 pgClient.processPayments를 호출하여 PG사 결제를 시도합니다.
-- **스레드 대기 고립:** PG사 응답이 500ms 이상 지연되더라도, HikariCP 커넥션을 물고 있지 않기 때문에 DB 커넥션 풀이 고갈되는 대형 장애(Connection Pool Exhaustion)를 완벽히 차단합니다.
-
-### Phase 4. 최종 상태 업데이트 및 예외 보상 (Saga & Rollback Layer)
-- **수동 트랜잭션 제어:** PG 결제 응답(성공/실패 리스트)을 받은 후, @Transactional 어노테이션 대신 TransactionTemplate.executeWithoutResult를 사용하여 상태 업데이트 구간만 아주 짧게 트랜잭션을 엽니다.
-- **정상 처리:** updateOrderStatus를 호출하여 PG 승인 건은 SUCCESS, 거절 건은 FAIL로 DB를 업데이트합니다.
-- **망취소 (결제 강제 취소) 롤백:** 상태를 SUCCESS로 업데이트하는 도중 DB 장애(Crash)가 발생할 경우를 대비한 catch 로직이 발동합니다.
-    - 이미 고객의 돈이 결제(PG 승인)되었으나 DB에 기록을 못 하는 최악의 상황이므로, 즉각 pgClient.cancelPayments를 호출하여 고객의 결제를 강제 취소(환불) 처리합니다.
-    - 이후 해당 건들을 Server B에 반환할 totalFailedTraceIds에 포함시켜, Server B가 Server A로 재고 롤백 지시(보상 트랜잭션)를 내리도록 분산 트랜잭션 파이프라인의 최종 일관성을 완성합니다.
-
-
-
-## 🚀 핵심 평가 항목 해결 방안
-
-### 1. 대량 트래픽과 동시성 제어
-
-#### [Server A]
-- **커넥션 풀 고갈 방어 (Decoupling):** 수천 개의 요청을 즉시 수용하는 API 수신 스레드와, 실제 DB에 INSERT를 수행하는 워커 스레드를 메모리 큐를 통해 비동기로 분리했습니다. 이를 통해 트래픽이 아무리 폭주해도 DB 커넥션은 제한된 워커 스레드의 수만큼만 통제된 상태로 사용되므로, 1vCPU 환경에서 가장 흔히 발생하는 HikariCP 고갈 현상을 방지했습니다.
-- **DB 락 최소화:** 비관적 락(SELECT FOR UPDATE) 대신 원자적 업데이트 쿼리를 사용하고, Bulk Insert 전 메모리에서 Index 기준으로 정렬하여 데드락을 방지했습니다.
-
-#### [Server B]
-- MAX_IN_FLIGHT 설정을 통해 동시 진입 트래픽의 상한선을 물리적으로 통제했습니다.
-- 대량의 인서트/업데이트 로직을 Redis의 executePipelined로 묶어서 처리하여, 단일 코어 환경에서의 네트워크 I/O 병목 및 Context Switching 오버헤드를 최소화했습니다.
-
-#### [Server C]
-- **지연 격리:** 시스템 병목의 주범인 외부 API(PG) 통신 구간을 RDBMS 트랜잭션 바깥으로 완전히 분리했습니다. 결과적으로 DB Connection 점유 시간은 INSERT IGNORE와 UPDATE가 실행되는 시간이 압축되어 1vCPU 환경에서도 HikariCP 고갈을 방지합니다.
-- **네트워크 I/O 및 트랜잭션 오버헤드 최소화:** 대량의 주문 데이터를 DB에 반영할 때 발생하는 애플리케이션과 DB 간의 불필요한 네트워크 왕복을 청크(Chunk) 단위로 압축했습니다. 초기 주문 선점(INSERT) 시에는 JdbcTemplate의 batchUpdate를 적용하여 한 번의 I/O로 처리했고, 결제 상태 변경(UPDATE) 시에는 개별 업데이트 루프 대신 동적 IN 쿼리를 조합한 단일 쿼리를 사용했습니다. 이를 통해 1vCPU 환경의 치명적인 병목인 DB 커넥션 점유 시간과 I/O 오버헤드를 극단적으로 줄였습니다.
+| 분류 | 기술 |
+|------|------|
+| 언어 / 프레임워크 | Java 21, Spring Boot 3 |
+| 메시지 브로커 | Apache Kafka, Debezium CDC |
+| 캐시 | Redis, Caffeine |
+| 장애 내성 | Resilience4j (Circuit Breaker) |
+| AI / AIOps | Spring AI (ChatClient, Tool Calling) |
+| DB | MySQL (DB-per-service: promotion DB / payment DB) |
+| 모니터링 | Prometheus, Grafana, Tempo, Loki, Alertmanager, OpenTelemetry Collector, Vector |
+| 부하 테스트 | k6 |
+| 빌드 | Gradle 멀티 모듈 |
+| 인프라 | Docker Compose |
 
 ---
 
-### 2. 분산 서비스 간 데이터 정합성
+## 로컬 실행
 
-#### [Server A]
-- **조회 후 보상:** 타임아웃 발생 시 맹목적으로 보상 트랜잭션을 실행하지 않고, Server C의 최종 결제 상태를 먼저 조회(checkPaymentStatusAtServerC)하는 절차를 추가했습니다. 이를 통해 '지연된 성공'과 '성급한 보상'이 충돌하여 100개의 재고로 101건이 결제되는 레이스 컨디션(유령 재고) 문제를 완벽히 차단했습니다.
-- **Graceful Shutdown:** 서버 강제 종료 시 @PreDestroy를 통해 메모리 큐의 잔여 데이터를 RDBMS에 강제 Flush 하여 유실을 방지합니다.
-- **도메인 맞춤형 DLQ:** RDBMS마저 다운되어 저장이 불가능한 최악의 경우, 억지스러운 지연 재처리(Retry) 대신 고객 CS 보상을 위한 파일 로그로 데이터를 안전하게 격리합니다.
-- **등가성(Idempotency):** 로컬 캐시(userCache)를 통한 1차 방어와 DB EXISTS 쿼리를 통한 2차 방어로 새로고침 연타 시 발생하는 중복 주문을 방지했습니다.
-- **선착순 도메인 맞춤형 자가 복구:** 일반적인 5분~10분 주기의 아웃박스 복구는 선착순 도메인에서 무의미합니다. 따라서 임계치를 15초로 극단적으로 단축하여, 발행 중(PUBLISHING) 죽어버린 Outbox 좀비 메시지를 PENDING으로 원복시킴으로써 최종 일관성을 확보합니다.
+```bash
+docker-compose up -d
+```
 
-#### [Server B]
-- **Idempotency(등가성):** Stream 큐에 넣기 전 Redis multiGet을 활용해 전체 트랜잭션의 멱등성을 O(1) 시간복잡도로 검증했습니다.
-- **장애 유실 방지 (Saga Pattern):** Server C에서 로직이 실패했을 때 데이터 정합성이 깨지는 것을 막기 위해, Server A로 롤백 지시를 내리는 Choreography Saga 패턴의 보상 트랜잭션을 구현했습니다. 특히 서버 간 통신 장애 시 Redis List 기반의 자체 Retry 큐를 구성하여 장애 격리 및 최종 일관성을 보장했습니다.
-- **Stream Pending 복구:** 고정된 Consumer Name과 ReadOffset.from("0")을 활용하여, 서버가 갑자기 죽더라도 처리 중이던 메시지가 증발하지 않고 재시작 시 자동으로 복구되도록 구현했습니다.
+전체 스택(serverA · serverB · serverC · Kafka · MySQL · Redis · Debezium · 모니터링)이 단일 명령으로 기동된다.
 
-#### [Server C]
-- **Idempotency (등가성 보장):** RDBMS의 물리적 Unique 제약조건과 INSERT IGNORE를 활용하여, 네트워크 재시도나 서버 재시작으로 동일한 메시지가 n회 들어오더라도 이중 결제가 발생하지 않도록 최종 방어막을 구축했습니다.
-- **분산 트랜잭션 에러 복구 (Saga 망취소):** 로컬 DB 트랜잭션 실패 시, 이미 완료된 외부 시스템(PG사)의 상태를 원래대로 되돌리는(환불) 로직(cancelPayments)을 구현했습니다.
+| 서비스 | URL |
+|--------|-----|
+| serverA (구매 API) | http://localhost:8080 |
+| serverB (조회 API) | http://localhost:8081 |
+| serverC (결제 API) | http://localhost:8082 |
+| Grafana | http://localhost:3000 |
 
 ---
 
-### 3. 캐시 설계 및 Hot Spot 문제 해결
+## 핵심 성과 요약
 
-#### [Server B]
-- 특정 상품에 대한 재고 조회가 폭주하는 Hot Spot 현상을 방어하기 위해 로컬(Caffeine) - 글로벌(Redis)의 다층 캐시 구조를 설계했습니다.
-- 다수의 쓰레드가 동시에 캐시 미스를 겪어 Redis로 일제히 몰리는 Cache Stampede 현상을 방어하기 위해 Caffeine의 동기화 함수(get(key, function))를 사용하여 락(Lock)을 획득한 단일 스레드만 외부 I/O를 수행하도록 최적화했습니다.
+> 상세 내역은 [성능 개선 히스토리](#성능-개선-히스토리) 참고.
 
-#### [Server C]
-- Server C는 최종 영구 저장소의 역할을 하므로, 실시간 동기 처리 대신 Redis Stream을 쓰기 버퍼(Write Buffer)로 활용하여 부하를 분산시켰습니다. List의 partition() 메서드를 통해 유입된 데이터를 최대 500건 단위의 Chunk로 쪼개어 순차적으로 DB에 밀어 넣음으로써(Bulk Insert), 대량 트래픽 쇄도 시에도 리소스 한계에 도달하지 않도록 쓰기 속도를 안정적으로 조절했습니다.
-
----
-
-### 4. 유량 조절 (Rate Limiting / Backpressure) 및 Circuit Breaker
-
-#### [Server A]
-- 수신 한계(1vCPU)를 초과하는 트래픽으로 인한 큐 오버플로우 및 연쇄 장애를 막기 위해 Fail-Fast 전략을 적용했습니다. 큐 Capacity를 타이트하게 설정하고 offer() 메서드를 통해 초과 유입분에 대해 즉각적으로 HTTP 503 거절 응답을 반환함으로써, 수용된 요청에 집중했습니다.
-
-#### [Server B]
-- ProcessController 단에서 AtomicInteger를 활용한 MAX_IN_FLIGHT 임계치 제한으로 시스템 붕괴를 1차 방어합니다.
-- Server B와 Server C 사이에 Redis Stream 기반의 비동기 메시지 큐(queue:to_server_c)를 배치하여, Server C의 처리 능력에 맞춰 유량을 조절(Pull 기반)하는 Backpressure 파이프라인을 구축했습니다.
-
-#### Circuit Breaker 도입 (Resilience4j) - 시스템 붕괴 방어의 핵심
-- 통신 구간(Server A ↔ Server B ↔ Server C ↔ PG사) 전체에 Resilience4j 기반 서킷 브레이커를 적용하여 장애를 격리했습니다.
-- **Server C ➡️ 외부 PG사 (2단계 방어 적용):**
-    - [1단계: 서킷 브레이커 Fail-Fast] 외부 PG사 응답 지연으로 에러율이 치솟으면 서킷이 개방(Open)됩니다. DB 커넥션을 낭비하지 않고 즉시 결제 시도를 차단한 뒤 전체 FAIL 처리하여 Server A의 재고 롤백을 유도합니다. (결제 시도 자체가 차단되었으므로 망취소 생략)
-    - [2단계: DB 장애 시 망취소] 만약 정상적으로 PG 결제가 승인(결제 완료)되었으나 직후 Server C의 DB가 뻗어 상태 업데이트에 실패할 경우, 즉각 PG사 결제 취소(망취소) API를 호출하는 보상 트랜잭션을 실행해 고객 피해를 방지했습니다.
-- **Server B ➡️ Server A (보상 트랜잭션):** Server A가 다운되어 재고 롤백 요청이 실패할 경우, 서킷 브레이커의 Fallback이 작동하여 해당 데이터를 즉시 Redis 재시도 큐(Retry Queue)로 격리합니다. 이후 좀비 워커 스레드가 추적하여 최종 일관성을 맞춥니다.
-- **Server A ➡️ Server B (아웃박스 릴레이):** Server B가 응답하지 않을 때, Outbox 데이터를 강제로 밀어 넣지 않고 Fallback을 통해 발송을 중단합니다. 데이터는 RDBMS에 안전하게 보관되며, Server B가 복구(Circuit Close)되면 다음 스케줄러가 누락 없이 재전송합니다.
-
-# 🚀 [Weverse] 선착순 프로모션 시스템 부하 테스트 및 성능 개선 보고서
-
-## 1. 테스트 개요 및 환경 (Test Environment & Tools)
-대규모 트래픽이 일시적으로 집중되는 '선착순 프로모션 굿즈 구매' 시나리오를 가정하여, 시스템의 안정성 및 최대 처리량을 검증하고 병목 구간을 개선하기 위해 진행되었습니다.
-
-- **테스트 대상:** Server A (API Gateway & Promotion Service)
-- **인프라 환경:** Docker Container 기반 단일 노드 (제한: 1vCPU, 2GB Memory)
-- **사용 도구 (Tools):** k6 (부하 발생 및 지표 수집), Docker Compose
-- **부하 시나리오 (Spike Test):**
-    - 가상 사용자 (VUs): 1,000명 동시 접속
-    - 목표 재고: 100개
-    - 요청 조건: 20초간 지속적인 구매 요청 발생 (1인당 100건, 총 100,000건 집중 발송)
-- **검증 목표:** 데이터 유실 없는 안정적인 비동기 처리 확인 및 단일 노드 성능 극대화
+| 단계 | 핵심 변경                      | TPS |   p95    |  DB 처리  |
+|------|----------------------------|:---:|:--------:|:-------:|
+| Phase 1 시작 — 동기식 기준선 | Server A 단독                | 60 |   18s    |   3분    |
+| Phase 1 최종 — 가상 스레드 | 비동기 + Bulk Insert + 가상 스레드 | 630 |   4.3s   |   50초   |
+| Phase 2 Kafka 전환 | 서버 간 이벤트화                  | 3,300 |   1.6s   | **15초** |
+| Phase 3 핵심 — Lua + Orchestrator | Redis 재고선점 + Saga 일원화      | 7,900 |   1.0s   |   20초   |
+| **Phase 3 최종 — CDC 도입** | Debezium binlog 즉시 발행      | **10,300** | **1.5s** | **20초** |
 
 ---
 
-## 2. 단계별 성능 개선 과정 및 지표 분석
+## 시스템 아키텍처
 
-### 🔴 V1: 초기 동기식 아키텍처 (문제 도출)
-요청 수신 후 DB Outbox 저장까지 완료한 뒤 응답을 반환하는 동기식 구조에서의 베이스라인 지표입니다.
+### 모듈 구성
 
-- **결과:** 총 2,061건 처리 (성공률 100%)
-- **지표:** 60.34 TPS / 평균 응답 속도 13.84s (최대 18.29s)
-- **분석:** 긴 응답 시간으로 인해 Tomcat 스레드가 장시간 점유되며 심각한 병목이 발생했습니다.
+| 모듈 | 포트   | 역할 | DB | Redis    |
+|------|------|------|----|----------|
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ (6379) |
+| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (6380) |
+| serverC | 8082 | 결제 처리  | payment DB (3308) | 없음       |
+| mcp | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling으로 메트릭·로그·트레이스 자동 조회·분석 → Slack 보고서 발송 | - | - |
 
+### 전체 이벤트 흐름
 
-<img width="2098" height="986" alt="image" src="https://github.com/user-attachments/assets/08138c31-8569-491f-a1bc-ea623cb4446c" />
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as serverA
+    participant K as Kafka/CDC
+    participant B as serverB
+    participant SC as serverC
+    participant PG as PG사
 
+    C->>A: POST /api/v1/promotions/purchase
+    A->>A: 품절캐시 확인(Caffeine 60s)
+    A->>A: 중복구매 방어(Redis SETNX, TTL 1h)
+    A->>A: 재고선점(Redis Lua DECRBY)
+    A->>K: purchase_events (직접 발행, 동기 3s 타임아웃)
+    A-->>C: 202 Accepted
 
+    K->>A: PurchaseKafkaConsumer 소비
+    A->>A: Order 저장(PENDING), DB 재고 차감
+    A->>A: SagaState 초기화(Redis Hash, hold TTL 10m)
+    A->>K: Outbox→CDC→ payment-request
+    A->>K: Outbox→CDC→ order-status-update(PENDING)
 
-### 🟡 V2: 완전 비동기 아키텍처 및 신뢰성 확보
-V1의 병목을 해소하기 위해 애플리케이션 구조를 대대적으로 개편했습니다.
+    par 병렬 처리
+        K->>SC: PaymentKafkaConsumer 소비
+        SC->>PG: 결제 요청(Circuit Breaker: pgClientCb)
+        PG-->>SC: 결제 결과
+        SC->>K: payment-result (Outbox→CDC)
+    and
+        K->>B: OrderStatusKafkaConsumer 소비
+        B->>B: Redis 주문상태 갱신
+        B->>K: status-update-result 직접 발행
+    end
 
-- **개선 사항:**
-    - **비동기 즉시 응답:** API 요청 수신 시 ArrayBlockingQueue에 데이터를 적재한 직후 즉시 HTTP 202 (Accepted) 응답을 반환하여 톰캣 스레드 풀 고갈을 원천 차단했습니다.
-    - **벌크 인서트 (Batch Insert):** JDBC URL에 rewriteBatchedStatements=true 옵션을 적용하고 다중 INSERT 문을 단일 쿼리로 결합하여 네트워크 I/O 오버헤드를 최소화했습니다.
-- **지표:** 379.64 TPS / 평균 응답 속도 2.33s (최소 3.07ms)
-- **분석:** 최소 응답 시간 3ms 달성으로 코어 로직 지연이 완벽히 해소되었으며, TPS가 약 6.3배 수직 상승했습니다.
+    K->>A: SagaResultConsumer: payment-result + status-update-result 수신
+    alt 둘 다 성공
+        A->>A: Order → PAID (updateStatusIfPending, 멱등)
+        A->>K: Outbox→CDC→ order-status-update(PAID)
+        A->>K: Outbox→CDC→ order-completed
+        K->>SC: OrderCompletedConsumer 소비 (Saga 최종 확정 로그)
+    else 하나라도 실패
+        A->>A: Order → FAILED / EXPIRED
+        A->>A: Redis 재고·유저마킹 복구
+        A->>A: DB 재고 복구(increaseStockAtomically)
+        A->>K: Outbox→CDC→ payment-cancel (결제 성공했던 경우만)
+        A->>K: Outbox→CDC→ order-status-update(FAILED/EXPIRED)
+        K->>SC: PaymentCancelConsumer 소비 (PG 망취소)
+    end
+```
 
-<img width="1832" height="956" alt="image" src="https://github.com/user-attachments/assets/082c6bb5-b767-4209-af73-2c9ad3cda659" />
+### Kafka 토픽 맵
 
+| 토픽명 | 발행 주체 | 발행 방식 | 소비 모듈 | DLT |
+|--------|-----------|-----------|----------|-----|
+| `purchase_events` | serverA/PromotionService | 직접(동기 3s) | serverA/PurchaseKafkaConsumer | ✅ |
+| `payment-request` | serverA/OrderCommandService | Outbox+CDC | serverC/PaymentKafkaConsumer | ✅ |
+| `payment-result` | serverC/PaymentService | Outbox+CDC | serverA/SagaResultConsumer | ✅ |
+| `order-status-update` | serverA/OrderCommandService, SagaOrchestratorService | Outbox+CDC | serverB/OrderStatusKafkaConsumer | ✅ |
+| `status-update-result` | serverB/OrderStatusEventHandler | 직접 | serverA/SagaResultConsumer | ✅ |
+| `order-completed` | serverA/SagaOrchestratorService | Outbox+CDC | serverC/OrderCompletedConsumer | ✅ |
+| `payment-cancel` | serverA/SagaOrchestratorService | Outbox+CDC | serverC/PaymentCancelConsumer | ✅ |
+| `stock-snapshot` | serverA/PromotionService, SagaOrchestratorService | Outbox+CDC | serverB/StockSnapshotConsumer | ✅ |
 
+### 옵저버빌리티 파이프라인
 
+```mermaid
+flowchart LR
+  subgraph Src["Signal Sources"]
+    apps["server-a / b / c"]
+    infraSrc["Redis-A·B / Kafka"]
+  end
 
-### 🟢 V3: 다중 서버 확장을 고려한 B+Tree 인덱스 최적화
-- **개선 사항:** 스케줄러가 DB에 데이터를 밀어 넣기 전, 메모리 레벨에서 trace_id (Unique Key) 기준으로 오름차순 정렬(Sort) 후 Insert를 수행하도록 변경했습니다.
-- **효과:** 다중 인스턴스로 Scale-out 시 발생할 수 있는 Index Gap Lock 충돌(Deadlock)을 방지했습니다. 또한, 무작위 UUID 삽입으로 인한 B+Tree 페이지 분할 오버헤드를 방지했습니다.
-- **지표:** 463.05 TPS / 평균 응답 시간 1.9s (V2 대비 22% 추가 상승)
+  subgraph Collect["Collection"]
+    otel["OTel Collector"]
+    vector["Vector"]
+    subgraph Exp["Exporters"]
+      redisExp["redis-exporter\n:9121"]
+      redisBExp["redis-b-exporter\n:9122"]
+      kafkaExp["kafka-exporter\n:9308"]
+      mysqlAExp["mysql-a-exporter\n:9104"]
+      mysqlCExp["mysql-c-exporter\n:9105"]
+    end
+  end
 
+  subgraph Store["Storage"]
+    tempo["Tempo\n:3200"]
+    loki["Loki\n:3100"]
+    prometheus["Prometheus\n:9090"]
+  end
 
-<img width="1790" height="841" alt="image" src="https://github.com/user-attachments/assets/db83a967-ab9b-4474-b362-a174223532e3" />
+  subgraph Vis["Visualization & Alerting"]
+    grafana["Grafana\n:3000"]
+    alertmanager["Alertmanager\n:9093"]
+    mcp["MCP AIOps\n:8085"]
+    Slack(["Slack"])
+  end
 
+  apps -->|OTLP traces| otel
+  apps -.->|shared-logs vol| vector
+  infraSrc --> redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp
 
+  otel -->|OTLP gRPC| tempo
+  vector -->|push| loki
+  redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp -->|metrics| prometheus
+  prometheus -.->|scrape| apps
 
+  tempo & loki & prometheus -->|query| grafana
+  prometheus -->|alert| alertmanager
+  alertmanager -->|webhook| mcp
+  mcp -->|query| prometheus & loki & tempo
+  mcp -->|notify| Slack
+```
 
-### 🔬 [심층 분석] 1vCPU 환경의 병목 탐색과 의사결정 과정 (V4 ~ V6)
-더 높은 성능을 끌어내기 위해 여러 최적화 기법을 실험했으나, 오히려 성능이 하락하는 현상을 통해 시스템의 진짜 병목을 정확히 식별해 냈습니다.
-
-- 격리 수준 및 HTTP 커넥션 풀 조정 (V4, V5 탈락): 트랜잭션 격리 수준을 낮추고 HTTP Keep-Alive 커넥션 풀을 설정하여 성능 튜닝을 시도했으나, 유의미한 TPS 상승으로 이어지지 않았습니다.
-- Tomcat 스레드 풀 튜닝 한계와 의사결정 (V7 탈락):
-    - 1vCPU 자원 제약 하에서 Tomcat의 컨텍스트 스위칭 오버헤드를 최소화하기 위해 max-threads를 기본 200개에서 20개, 50개로 하향 조정했습니다. 이론상 CPU-bound에 가까워진 비동기 환경에서는 스레드가 적은 것이 유리할 것으로 가설을 세웠으나, 최고점 대비 성능이 하락(340~400 TPS)했습니다.
-    - 분석 결과, 큐에 데이터를 적재하는 짧은 순간에도 I/O Wait이 발생하며 이 찰나의 대기 시간 동안 CPU가 유휴(Idle) 상태에 빠지는것이 원인이었습니다. 결론적으로 현재 아키텍처에서는 기본 스레드 풀(200개)이 I/O 대기 시간을 가장 효율적으로 커버함을 데이터로 증명하고 설정을 롤백했습니다.
-
-### 🚀 V8: 가상 스레드 (Virtual Threads) 도입 및 최종 성능 검증
-I/O 블로킹 구간의 근본적 해결을 위해 Java 21의 가상 스레드를 도입했습니다.
-
-- **지표 상승:** 630 TPS
-- **부하 테스트 인사이트 :**
-    - **스레드 병목 해소:** 기존 플랫폼 스레드(OS Thread) 모델에서는 대규모 요청 인입 시 컨텍스트 스위칭(Context Switching) 오버헤드와 I/O 블로킹으로 인해 심각한 병목이 발생했습니다. 가상 스레드 도입을 통해 I/O를 논블로킹으로 전환해 제한된 자원 내에서도 스레드 효율을 높였습니다.
- 
-<img width="1838" height="866" alt="image" src="https://github.com/user-attachments/assets/e32ff7ca-7883-435d-ae9a-ecdafae4b232" />
-
-
-### 🚀 V9: 시스템 웜업(Warm-up)에 따른 지표 왜곡
-동일한 조건으로 새로운 굿즈를 만든 후 서버를 재시작 하지 않고 선착순 API 수신 부하 테스트를 연속 수행한 결과, TPS가 630에서 2,698로 급증하는 현상을 확인했습니다. 이는 성능 개선이 아닌, 단일 코어(1vCPU) 환경에서 JVM 웜업 상태에 따른 전형적인 지표 왜곡 현상입니다.
-
-- **콜드 스타트 (초기 테스트 - 630 TPS):** 초기 부하 인입 시, JVM의 JIT 컴파일러가 바이트코드를 기계어로 번역하고 Tomcat 스레드 풀 및 Jackson JSON 파서를 초기화하는 과정에서 1vCPU 자원의 심각한 병목이 발생했습니다. 이 '엔진 예열' 오버헤드로 인해 API Gateway의 초기 수신 속도는 630 TPS로 제한되었습니다.
-- **웜업 완료 (연속 테스트 - 2,698 TPS):** 시스템 웜업이 완료된 후 서버 A는 순수 메모리 연산(ArrayBlockingQueue.offer)만으로 초당 2,698건의 스파이크 트래픽을 지연 없이 흡수하여 202 Accepted 응답을 반환했습니다.
-
-<img width="1847" height="770" alt="image" src="https://github.com/user-attachments/assets/0d238d01-bd97-4a1a-94b8-21663b4b2e01" />
-
-
+> 점선(`-.->`)은 간접 연결(공유 볼륨 / Prometheus pull)을 나타냄.
 
 ---
 
-## 3. 최종 부하 테스트 결과 요약
-시스템 웜업(Warm-up)이 완료된 상태에서 성능을 측정한 최종 결과입니다.
+## 핵심 설계 결정
 
-### 📊 테스트 환경 및 조건
-- 대상: Server A → B → C 통합 부하 테스트 (각 서버 1vCPU / 2GB Memory)
-- 시나리오: 가상 유저(VU) 1,000명, 20초간 지속적인 트래픽 인입
-- 시스템 상태: JIT 컴파일 및 커넥션 풀 예열이 완료된 웜업(Warm-up) 상태
+### 1. 재고 동시성 — 3단계 방어
 
-### 📈 k6 측정 지표 (Metrics)
-- 총 처리 요청 수 (Total Requests): 54,887건
-- 성공률 (Success Rate): 99.99% (HTTP 202 Accepted 54,883건 성공)
-- 최대 수신 처리량 (Throughput): 2,698.07 TPS
-- 응답 속도 (Latency):
-    - 평균 (avg): 260.05ms
-    - 최소 (min): 15.98ms
-    - p(95): 588.16ms
+DB 락 없이 Redis 3단계로 동시성을 제어한다. 각 단계를 통과한 요청만 다음 단계로 전달해 처리 비용을 줄인다.
 
-### 💡 테스트 인사이트
-지표 분석 결과, Server A는 예열이 완료된 상태에서 HTTP 요청을 받아 메모리 큐(ArrayBlockingQueue)에 적재하고 즉시 응답하는 순수 수신 로직만을 통해 초당 약 2,700건의 스파이크 트래픽을 지연 없이 흡수했습니다. 이는 본 비동기 큐 아키텍처가 1vCPU라는 극단적인 자원 제약 속에서도 시스템 붕괴 없이 대규모 트래픽을 빨아들이는 강력한 충격 흡수 장치로 동작함을 데이터로 증명합니다.
+| 단계 | 구현 | 역할 |
+|------|------|------|
+| 1단계 | Caffeine 로컬 캐시 (TTL 60s) | Redis 왕복 없이 품절 즉시 차단 |
+| 2단계 | Redis SETNX (`user:purchase:{userId}:{goodsId}`, TTL 1h) | 동일 유저 중복 구매 원천 차단 |
+| 3단계 | Redis Lua 스크립트 (`GET → 비교 → DECRBY` 원자적 실행) | 재고 선점. 부족 시 차감 발생 안 함 |
+
+Kafka 발행 실패 시 2·3단계를 즉시 롤백(SETNX 삭제 + INCRBY)해 정합성을 유지한다.
+
+**채택하지 않은 대안:** DB 비관적 락(커넥션 풀 고갈 위험), DB 낙관적 락(충돌 시 재시도 폭탄), Redisson 분산락(락 획득·해제 왕복 오버헤드)
+
+### 2. Outbox + Debezium CDC
+
+Saga 내부 메시지는 `kafkaTemplate.send()` 직접 호출 대신 **Outbox 테이블 INSERT → Debezium CDC → Kafka** 순서로 발행한다.
+
+- **이유:** DB 트랜잭션(Order 저장, 재고 차감)과 메시지 발행을 원자적으로 묶기 위함. 직접 발행은 DB 커밋 후 Kafka 발행 실패 시 메시지 유실 위험이 있다.
+- **traceparent 전파:** `outbox_event.traceparent` 컬럼 → Kafka 헤더 자동 주입 → serverC에서 Child Span 생성 → 단일 분산 트레이스 연결
+
+
+### 3. Saga Orchestration
+
+Choreography 대신 Orchestration을 채택해 serverA가 단독으로 흐름을 제어한다.
+
+```
+PromotionService → purchase_events (직접 발행)
+       ↓
+PurchaseKafkaConsumer → Order(PENDING) 저장 + SagaState 초기화
+       ↓ (병렬)
+serverC ← payment-request     → payment-result      → SagaResultConsumer
+serverB ← order-status-update → status-update-result → SagaResultConsumer
+       ↓
+성공: Order → PAID, order-completed 발행
+실패: Order → FAILED, Redis 복구, payment-cancel 발행 (망취소)
+```
+
+- **멱등성 보장:** `updateStatusIfPending()` — PENDING 상태일 때만 변경, 중복 실행 시 0 반환
+- **타임아웃:** `SagaTimeoutScheduler`가 60초마다 SCAN → 10분 초과 미완료 Saga → EXPIRED 처리
+- **DLT 전략:** 재시도 소진 메시지를 DB `dead_letter` 테이블에 저장, 관리자 수동 재처리 API 제공
+
+### 4. CQRS — serverB 읽기 전용 분리
+
+주문 상태·재고 조회를 serverA가 아닌 serverB(DB 없음, Redis만 사용)에서 처리한다.
+
+- **이유:** 플래시세일 중 쓰기(serverA)와 읽기가 동일 서버에서 경합하면 쓰기 성능 저하
+- **트레이드오프:** 최종 일관성 모델 — 주문 직후 상태 조회 시 수십 ms 지연 가능 (의도된 설계)
+
+### 5. AIOps — Spring AI 기반 장애 자동 분석
+
+Prometheus Alertmanager가 웹훅을 mcp 서버로 발송하면 Spring AI `ChatClient`가 아래 순서로 도구를 호출해 원인을 분석하고 Slack에 보고서를 발송한다.
+
+```
+Alertmanager webhook → mcp
+  ① 중복 억제 (AlertDeduplicationService, 30분 TTL)
+  ② ChatClient + ObservabilityTools Tool Calling
+     - queryPrometheusMetrics  : 에러율·가용성 현황
+     - queryDatabaseHealth     : HikariCP 대기·슬로우 쿼리·Redis 메모리
+     - queryLokiLogs           : 대상 서비스 최근 5분 ERROR 로그
+     - queryTempoTrace         : traceId 추출 시 분산 트레이스 조회
+     - queryRecentCommits(60)  : 최근 1시간 배포 이력 (장애 시각 10분 이내 커밋 → 롤백 권장)
+  ③ 연쇄 장애 추론 (DB 부하 → CDC 지연 → Kafka 블로킹 → HTTP 5xx 등 계층별 인과 서술)
+  ④ Slack 보고서 발송 (요약·원인·영향 범위·권장 조치·핵심 지표)
+```
+
+- **중복 억제:** 동일 `groupLabels` 지문(fingerprint)으로 30분 내 재발송 차단
+- **resolved 처리:** 알람 상태가 `resolved`이면 AI 분석 없이 "정상 회복" 메시지만 발송
 
 ---
 
-## 인프라 확장(Scaling) 계획 및 계산 근거
-현재 구축된 시스템은 Server A, B, C의 로직이 모두 연동된 E2E(End-to-End) 통합 부하 테스트를 통해, 단일 노드(1vCPU, 2GB) 환경에서 최대 630 TPS의 유효 결제 처리량을 검증했습니다. 이를 바탕으로 실제 100,000명의 동시 접속(CCU)을 수용하기 위한 인프라 스케일링 계획을 다음과 같이 산정했습니다.
+## 성능 개선 히스토리
 
-### 1. 목표 시스템 트래픽(Target TPS) 도출
-선착순 프로모션의 특성상 트래픽이 이벤트 오픈 직후 극초반에 쏠리는 현상(파레토 법칙)을 반영하여, 시스템이 방어해야 할 초당 최대 요청 수(TPS)를 역산합니다.
+---
 
-- 트래픽 집중도 가정: 이벤트 오픈 직후 최초 10초(Time Window) 이내에 대기열 접속자의 80%가 결제 API를 집중적으로 호출한다고 가정합니다.
-- 초당 평균 요청 수: (100,000명 × 80%) / 10초 = 8,000 TPS
-- 안전 마진 (Safety Margin): 예상치 못한 스파이크성 트래픽 및 네트워크 지연을 대비해 25%의 버퍼(Buffer)를 추가합니다.
-- 최종 시스템 목표 처리량: 8,000 × 1.25 = 10,000 TPS
+### Phase 1. Server A 단독 최적화 (60 → 630 TPS)
 
-### 2. 총 필요 서버 인스턴스 산정
-본 아키텍처는 하나의 인스턴스(단일 노드)가 전체 구매 파이프라인을 통합 처리하여 630 TPS를 소화하는 구조입니다. 따라서 이 통합 노드를 통째로 수평 확장(Scale-out)하는 방식으로 계산합니다.
+**테스트 환경:** 단일 호스트 Docker Compose 전체 스택
+(serverA · serverB · serverC + Kafka + MySQL + Redis + Debezium), 각 컨테이너 1vCPU · 2GB 자원 제한
+**부하 시나리오:** k6 / 1,000 VU / 20초간 100,000건 스파이크 / 쓰기 100%
 
-- 기본 필요 대수: 10,000 TPS / 630 TPS = 15.87대
-- 고가용성(HA) 확보: 특정 노드 장애(Fail-over) 시 남은 노드들이 무리 없이 트래픽을 감당할 수 있도록 여유율(약 20%)을 추가 확보합니다. 15.87대 × 1.2 = 19.04대
-- 🎯 최종 산정 결과: 10만 명 동시 접속(10,000 TPS) 환경을 에러율 안정적으로 운영하기 위해 총 20대의 서버 인스턴스(1vCPU, 2GB 기준) 가 필요합니다.
-  참고: 본 시스템은 품절 이후 단순 트래픽 방어력이 2,698 TPS에 달하므로, 20대가 구성될 경우 재고 소진 후에는 이론상 50,000 TPS 이상의 잉여 트래픽을 에러 없이 쳐낼 수 있는 압도적인 가용성을 확보하게 됩니다.
+| 버전 | 핵심 변경 |   TPS   | p95  |
+|------|----------|:-------:|:----:|
+| 🔴 V1 | 동기식 기준선 |   60    | 18s  |
+| 🟡 V2 | 비동기 큐(BlockingQueue) + Bulk Insert |   370   | 3.9s |
+| 🟢 V3 | B+Tree 정렬 최적화 (UUID v7 + Gap Lock 방지) |   460   | 3.9s |
+| 🔬 V4~V7 | 격리수준·스레드 풀 튜닝 실험 → 탈락 | 340~400 |  -   |
+| 🚀 V8 | Java 21 가상 스레드 | **630** | 4.3s |
 
-### 3. 인프라 확장 시 병목 방어 및 고도화 계획
-위의 벤치마크 결과를 바탕으로, 실제 100,000명의 동시 접속자(CCU)가 몰리는 선착순 프로모션을 에러율 0%로 운영하기 위한 인프라 스케일링 계획입니다.
+---
 
-#### ① 목표 시스템 트래픽(Target TPS) 도출
-선착순 이벤트 특성상 트래픽이 이벤트 오픈 직후 극초반에 쏠리는 파레토 법칙을 반영하여 시스템이 방어해야 할 순간 최대 부하(Spike)를 역산합니다.
+#### 🔴 V1: 동기식 기준선
+요청 수신부터 serverC 최종 처리까지 전체를 동기로 묶은 구조.
+- Tomcat 스레드가 DB I/O 내내 점유 → 대규모 트래픽에서 커넥션 풀 고갈
+- **결과:** 60 TPS / p95 18s
 
-- 트래픽 집중도 가정: 이벤트 오픈 직후 최초 10초 이내에 전체 접속자의 80%가 구매 API를 집중 호출한다고 가정.
-- 초당 평균 요청 수: (100,000명 × 80%) / 10초 = 8,000 TPS
-- 안전 마진: 예상치 못한 트래픽 스파이크 및 네트워크 지연을 대비해 25%의 버퍼 추가.
-- 최종 시스템 목표 처리량: 8,000 × 1.25 = 10,000 TPS
+#### 🟡 V2: 비동기 큐 + Bulk Insert
+- `LinkedBlockingQueue`에 적재 후 즉시 202 반환 → Tomcat 스레드 즉시 해제
+- `rewriteBatchedStatements=true` + JdbcTemplate batchUpdate → 단일 I/O로 500건 처리
+- **결과:** 370 TPS / p95 3.9s 
 
-#### ② 필요 서버 인스턴스 산정
-선착순 이벤트는 오픈 정각(예: 12시 00분)에 가장 취약한 콜드 스타트(Cold Start) 상태에서 엄청난 트래픽을 맞이합니다. 따라서 인프라 사이징은 웜업 후의 최대 성능(2,698 TPS)이 아닌, 초기 JIT 컴파일 및 커넥션 생성 오버헤드가 동반된 가장 보수적인 지표(630 TPS)를 기준으로 산정하여 장애 리스크를 원천 차단합니다.
+#### 🟢 V3: B+Tree 인덱스 정렬 최적화
+- traceId를 **UUID v7(시간 기반 순차 생성)** 으로 설계했기 때문에, Bulk Insert 전 메모리에서 오름차순 정렬 후 삽입하면 B+Tree 우측 순차 삽입 패턴과 일치해 페이지 분할을 최소화할 수 있다
+- 멀티 인스턴스 Scale-out 시 여러 워커가 동시에 랜덤 범위에 Insert할 때 발생하는 Gap Lock 데드락도 예방
+- **결과:** 460 TPS / p95 3.9s
 
-- 기본 필요 대수: 10,000 TPS / 630 TPS = 15.87대
-- 고가용성(HA) 버퍼: 특정 노드 장애(Fail-over) 시 남은 노드들이 감당할 수 있도록 여유율 20% 추가 확보. (15.87대 × 1.2 = 19.04대)
-- 🎯 최종 산정 결과: 10만 명 동시 접속(10,000 TPS) 환경을 안정적으로 운영하기 위해 총 20대의 Server A 인스턴스 (1vCPU 기준)가 필요합니다.
-- 🚀 시스템 방어력 (Headroom): 20대로 구성된 클러스터는 오픈 후 수 초 내에 웜업이 완료되면, 노드당 2,600 TPS 이상의 성능을 발휘하여 최대 총합 50,000 TPS 이상의 폭발적인 트래픽을 메모리 큐로 흡수해 내는 압도적인 맷집을 확보하게 됩니다.
+#### 🔬 V4~V7: 격리 수준·스레드 풀 튜닝 실험 (탈락)
+- 트랜잭션 격리 수준 하향, HTTP Keep-Alive 커넥션 풀 조정 → 유의미한 TPS 상승 없음
+- Tomcat max-threads를 200→20·50으로 축소 실험: CPU-bound 환경에서 유리할 것으로 가설 → 오히려 340~400 TPS로 하락
 
-#### ③ 인프라 확장 시 예상 병목 및 고도화 계획
-클러스터(서버 20대)가 초당 1만 건 이상의 트래픽을 성공적으로 수신하더라도, 이를 뒷단에서 처리하는 RDBMS에 부하가 집중되면 시스템 전체가 마비됩니다. 이를 완벽히 해소하기 위해 다음과 같은 아키텍처 고도화를 병행해야 합니다.
+#### 🚀 V8: Java 21 가상 스레드
+- I/O 블로킹 구간에서 OS 스레드를 점유하지 않아 스레드 효율 상승
+- **결과:** **630 TPS** / p95 4.3s
 
-- DB 커넥션 풀 고갈 방어: 20대의 서버가 동시다발적으로 DB와 연결을 시도하여 리소스가 고갈되는 것을 막기 위해, 애플리케이션과 DB 사이에 ProxySQL 또는 PgBouncer 같은 Connection Pooler를 배치하여 커넥션을 다중화합니다.
-- 재고 DB 락(Row Lock) 경합 해소: 앞단에서 큐잉된 데이터가 백그라운드 Worker를 통해 일정한 유량으로 DB에 도달하더라도, 단일 레코드에 대한 Update 경합은 여전히 존재합니다. 이를 원천 해결하기 위해 DB 앞단에 Redis 기반의 재고 차감 큐를 도입하여, 실시간 차감은 메모리에서 단일 스레드로 처리하고 RDBMS에는 최종 결과만 비동기로 반영하는 구조 고도화가 필수적입니다.
+---
+
+### Phase 2. Kafka 아키텍처 전환 (DB 처리 12분 → 15초)
+
+**테스트 환경:** 단일 호스트 Docker Compose 전체 스택
+(serverA · serverB · serverC + Kafka + MySQL + Redis + Debezium), 각 컨테이너 1vCPU · 2GB 자원 제한
+**부하 시나리오:** k6 / 1,000 VU / 20초간 100,000건 스파이크 / 쓰기 100% / 재고 100개 DB 처리 완료 시간 병행 측정
+
+> Phase 2에서는 **구 아키텍처(큐 기반·HTTP 직통) 코드로 기준선을 먼저 측정**하고 Kafka 전환 전후를 비교한다. 구 아키텍처 기준선도 serverB·serverC를 포함한 전체 흐름 측정이다.
+
+| 단계 | 핵심 변경                |    TPS    | p95 |   DB 처리    |
+|------|----------------------|:---------:|:---:|:----------:|
+| 🔴 구 아키텍처 (큐 한도 10,000 유지) | 기준선 유지               |    630    | 4.3s |    50초     |
+| 🟠 구 아키텍처 (큐 한도 제거) | 모든 요청 202 수용, 메모리 누적 |   5,700   | 1.3s |  **12분**   |
+| 🟡 Kafka 도입 + skip lock | 서버 간 이벤트화            |   2,700   | 2.2s |  **15초**   |
+| 🟢 Kafka + 가상 스레드 도입 | I/O 블로킹 해소           | **3,300** | **1.6s** |    15초     |
+| 🔬 Kafka 리소스 → Server A (대조) | 단순 리소스 증설            |   4,300   | 1.3s | **1분 30초** |
+
+---
+
+#### 🔴 구 아키텍처 — 큐 한도 유지 (기준선)
+- 큐 한도(10,000)를 초과하는 요청은 즉시 503 반환 → 초과분 손실
+- **결과:** 630 TPS / p95 4.3s
+
+#### 🟠 구 아키텍처 — 큐 한도 제거
+- 모든 요청을 메모리 큐에 수용 → 202 응답률 급상승(5,700 TPS)
+- 그러나 대량의 요청이 DB로 한꺼번에 몰리며 DB 경합으로 최종 처리에 **12분** 소요
+- **결론:** 큐 한도 조정만으로는 근본 해결 불가. Kafka 전환 결정
+
+#### 🟡 Kafka 도입 + skip lock 스케줄러
+- 서버 간 이벤트를 HTTP 직통 대신 Kafka 토픽으로 전달
+- Outbox 폴링 스케줄러에 skip lock 적용 → 다중 인스턴스 중복 발행 방지
+- **결과:** 2,700 TPS (이전 대비 약 4.3배 증가) / p95 2.2s (이전 대비 약 2배 단축) / DB 처리 **15초** (이전 대비 12분 → **48배 단축**)
+- TPS가 구 아키텍처보다 낮아 보이지만, 구 아키텍처의 5,700 TPS는 "202 응답을 반환했을 뿐 DB 처리가 12분 걸리는 상태"였음. 실질 처리량 기준으로는 Kafka 도입이 월등히 우세
+
+#### 🟢 가상 스레드 도입으로 3,300 TPS 달성
+- Kafka 기반 전체 스택에서도 가상 스레드 도입 시 2,700 → **3,300 TPS** 향상
+- Phase 1에 이어 전체 스택에서도 I/O 블로킹 해소 효과 확인
+- **결과:** 3,300 TPS (이전 대비 약 1.2배 증가) / p95 1.6s (이전 대비 약 1.4배 단축) / DB 처리 15초
+
+#### 🔬 대조 실험 — Kafka 리소스를 Server A에 직접 증설
+Kafka 브로커 리소스를 Server A에 할당 시 4,300 TPS (이전 대비 약 1.3배 증가) / p95 1.3s (이전 대비 약 1.2배 단축)로 TPS는 높음
+- 그러나 DB 처리는 **1분 30초** — Kafka가 단순 리소스 증설보다 처리 안정성 면에서 6배 우세
+
+---
+
+### Phase 3. 현재 아키텍처 고도화 (3,300 → 10,300 TPS)
+
+**테스트 환경:** Phase 2와 동일
+**부하 시나리오:** 쓰기 100% 또는 쓰기 20% / 읽기 80% 혼합 (항목별 상이)
+
+**쓰기 100% 흐름 — 단일 파이프라인 처리량 추적**
+
+| 단계                         | 핵심 변경                 | TPS | p95 | DB 처리 |
+|----------------------------|-----------------------|:---:|:---:|:-------:|
+| 🔴 Phase 2 최종 (기준선)        | Kafka + 가상 스레드        | 3,300 | 1.6s | 15초 |
+| 🚀 Lua + Orchestrator Saga | Redis 재고선점 + Saga 일원화 | **7,900** | **1.0s** | 20초 |
+| 🟢 품절 로컬 캐시 사전 필터링         | Caffeine 즉시 차단        | 9,400 | 1.9s | 20초 |
+| 🟡 Outbox 폴링               | 비교 기준선                | 9,300 | 1.9s | 20초 |
+| 🏁 **CDC 도입 (최종)**         | Debezium binlog 즉시 발행 | **10,300** | **1.5s** | **20초** |
+
+**쓰기 20% / 읽기 80% 혼합 흐름 — CQRS 효과 검증**
+
+| 단계 | 핵심 변경 | TPS | p95 | DB 처리 |
+|------|----------|:---:|:---:|:-------:|
+| 🟢 CQRS — serverB 읽기 전담 | 읽기/쓰기 경합 제거 | 7,200 | 900ms | 18초 |
+| 🔬 대조: serverA 읽기 포함 (리소스 2배) | 읽기·쓰기 경합 발생 | 4,175 | 690ms | 20초 |
+| 🟢 품절 로컬 캐시 사전 필터링 | Caffeine 즉시 차단 | **11,600** | **1.6s** | 20초 |
+
+---
+
+#### 🚀 Lua 스크립트 재고선점 + Orchestrator Saga 전환 — 가장 큰 도약
+- **기존:** DB 비관적 락(SELECT FOR UPDATE)으로 재고 검증 → DB 커넥션 점유 시간 길고 락 경합 심각
+- **개선:** Redis Lua 스크립트로 요청 단계에서 재고를 원자적으로 선점 → 재고 부족 시 Kafka에도 쌓지 않아 하위 서버 불필요 부하 제거
+- **기존:** Choreography Saga → 서버 간 직접 보상, 흐름 추적 어려움, 보상 누락 위험
+- **개선:** Orchestration Saga → serverA 단독 제어, 보상 트랜잭션 일원화
+- **결과:** 3,300 → **7,900 TPS** / p95 1.0s (**2.4배 상승**)
+- **DB 처리 15초 → 20초 이유:** Saga Orchestration 도입으로 주문당 Outbox 레코드 수가 증가(payment-request·order-status-update·order-completed 등 최대 3건)하고 SagaState 초기화·갱신 쓰기가 추가돼 총 DB 쓰기량이 Phase 2 대비 증가. 단, TPS가 2.4배 향상된 점을 고려하면 단위 시간당 처리 효율은 오히려 개선됨
+
+#### 🟢 CQRS 효과 실측 검증
+- serverB(Redis 전용)로 읽기를 전담시킨 경우: **7,200 TPS** / p95 900ms
+- serverA에 읽기까지 몰아준 경우(리소스 2배): **4,175 TPS** / p95 690ms
+- **결론:** CQRS 분리가 리소스 2배 증설보다 TPS 기준 **1.7배** 효과적. 읽기·쓰기 경합이 핵심 병목임을 실증
+
+#### 🟢 품절 로컬 캐시 사전 필터링 — 최대 TPS 구간
+- 구매 요청과 재고 조회 모두 품절 플래그를 Caffeine 로컬 캐시(60s)에서 1차 필터링
+- 이미 품절된 상품에 대한 Redis·Kafka·DB 접근 자체를 원천 차단
+- **결과 (쓰기 20%/읽기 80%):** **11,600 TPS** / p95 1.6s (혼합 부하 최대치)
+- **결과 (쓰기 100% 재측정):** 9,400 TPS / p95 1.9s
+
+#### 🟡 Outbox 폴링 → 🏁 Debezium CDC 전환
+- **폴링 방식 기준선:** 9,300 TPS / p95 1.9s
+  - 스케줄러 주기 동안 발행 지연, 폴링 쿼리 자체가 DB 부하
+- **CDC 전환 후:** **10,300 TPS** / p95 **1.5s** / DB 처리 20초
+  - MySQL binlog 감지 → Debezium → Kafka 즉시 발행
+  - DB 폴링 부하 제거, `traceparent` 헤더 자동 주입으로 분산 트레이싱 연결
+  - 폴링 대비 TPS +10.7%, p95 0.4초 단축
