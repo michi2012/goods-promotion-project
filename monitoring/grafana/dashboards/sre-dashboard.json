@@ -1,5 +1,7 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -11,7 +13,10 @@
         "name": "application",
         "label": "서비스",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
         "query": {
           "query": "label_values(jvm_memory_used_bytes, application)",
           "refId": "A"
@@ -19,7 +24,10 @@
         "includeAll": true,
         "allValue": ".*",
         "multi": false,
-        "current": { "text": "All", "value": "$__all" },
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "refresh": 2,
         "sort": 1,
         "hide": 0
@@ -29,7 +37,12 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
       "panels": [],
       "title": "🔴 [Tier 1] Business Impact & SLO (서비스 생존 및 목표 달성률)",
@@ -38,7 +51,12 @@
     {
       "title": "1. [SLI] 결제 API 성공률 (Availability)",
       "type": "gauge",
-      "gridPos": { "h": 7, "w": 5, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
       "targets": [
         {
           "expr": "(sum(rate(http_server_requests_seconds_count{status!~\"5..\",application=~\"$application\"}[1m])) or sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[1m])) * 0) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[1m])) * 100"
@@ -51,9 +69,18 @@
           "max": 100,
           "thresholds": {
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 99.5 },
-              { "color": "green", "value": 99.9 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 99.5
+              },
+              {
+                "color": "green",
+                "value": 99.9
+              }
             ]
           }
         }
@@ -62,7 +89,12 @@
     {
       "title": "2. [Alert] 에러 예산 소진 속도 (Burn Rate)",
       "type": "gauge",
-      "gridPos": { "h": 7, "w": 5, "x": 5, "y": 1 },
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 5,
+        "y": 1
+      },
       "targets": [
         {
           "expr": "((sum(rate(http_server_requests_seconds_count{status=~\"5..\",application=~\"$application\"}[5m])) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[5m]))) / 0.001) or vector(0)"
@@ -75,9 +107,18 @@
           "max": 20,
           "thresholds": {
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 14.4 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
             ]
           }
         }
@@ -86,7 +127,12 @@
     {
       "title": "3. [SLO] 남은 에러 예산 (Error Budget)",
       "type": "stat",
-      "gridPos": { "h": 7, "w": 5, "x": 10, "y": 1 },
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 10,
+        "y": 1
+      },
       "targets": [
         {
           "expr": "100 - ((sum(rate(http_server_requests_seconds_count{status=~\"5..\",application=~\"$application\"}[30m])) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[30m]))) / 0.001 * 100) or vector(100)"
@@ -97,9 +143,18 @@
           "unit": "percent",
           "thresholds": {
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 20 },
-              { "color": "green", "value": 80 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
             ]
           }
         }
@@ -108,7 +163,12 @@
     {
       "title": "4. [P0] 자동 복구 실패 (상세 분석용)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 4, "x": 15, "y": 1 },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 15,
+        "y": 1
+      },
       "targets": [
         {
           "expr": "sum(rate(business_payment_pg_refund_fatal_total{application=~\"$application\"}[1m]))",
@@ -118,8 +178,14 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "red" },
-          "custom": { "drawStyle": "bars", "pointSize": 10 },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "pointSize": 10
+          },
           "unit": "short"
         }
       }
@@ -127,7 +193,12 @@
     {
       "title": "5. [Business] 자동 환불 방어율 (Fallback Success Rate)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 5, "x": 19, "y": 1 },
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 19,
+        "y": 1
+      },
       "targets": [
         {
           "expr": "(sum(rate(business_payment_pg_refund_request_total{application=~\"$application\"}[1m])) / (sum(rate(business_payment_pg_refund_request_total{application=~\"$application\"}[1m])) + sum(rate(business_payment_pg_refund_fatal_total{application=~\"$application\"}[1m]))) * 100) or vector(100)",
@@ -143,9 +214,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 80 },
-              { "color": "green", "value": 95 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
             ]
           }
         }
@@ -153,7 +233,12 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
       "id": 200,
       "panels": [],
       "title": "🟡 [Tier 2] Application Performance (애플리케이션 RED 지표)",
@@ -162,7 +247,12 @@
     {
       "title": "6. [Latency] API 응답 지연 시간 (p95)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 9 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=~\"$application\"}[5m])) by (le))",
@@ -182,16 +272,30 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 0.5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
             ]
           }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "p95 Latency" },
+            "matcher": {
+              "id": "byName",
+              "options": "p95 Latency"
+            },
             "properties": [
-              { "id": "custom.lineStyle", "value": { "fill": "solid" } }
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              }
             ]
           }
         ]
@@ -200,7 +304,12 @@
     {
       "title": "7. [Errors] 서버 내부 에러율 (5xx Rate)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 9 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
       "targets": [
         {
           "expr": "((sum(rate(http_server_requests_seconds_count{status=~\"5..\",application=~\"$application\"}[1m])) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[1m]))) * 100) or vector(0)",
@@ -221,9 +330,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         }
@@ -232,7 +350,12 @@
     {
       "title": "8. [Traffic] 결제 처리량 (RPS)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 9 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
       "targets": [
         {
           "expr": "sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[1m]))",
@@ -251,7 +374,12 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "id": 300,
       "panels": [],
       "title": "🟢 [Tier 3] System Saturation (서버 리소스 포화도)",
@@ -260,7 +388,12 @@
     {
       "title": "9. [Thread] JVM 라이브 스레드 수 (Virtual Thread)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 17 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 17
+      },
       "targets": [
         {
           "expr": "jvm_threads_live_threads{application=~\"$application\"}",
@@ -270,14 +403,21 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "fillOpacity": 10 }
+          "custom": {
+            "fillOpacity": 10
+          }
         }
       }
     },
     {
       "title": "10. [Memory] JVM Heap 메모리 사용률",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 17 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 17
+      },
       "targets": [
         {
           "expr": "sum(jvm_memory_used_bytes{area=\"heap\",application=~\"$application\"}) by (instance) / sum(jvm_memory_max_bytes{area=\"heap\",application=~\"$application\"} > 0 or jvm_memory_committed_bytes{area=\"heap\",application=~\"$application\"}) by (instance)",
@@ -289,14 +429,21 @@
           "unit": "percentunit",
           "min": 0,
           "max": 1,
-          "custom": { "fillOpacity": 10 }
+          "custom": {
+            "fillOpacity": 10
+          }
         }
       }
     },
     {
       "title": "11. [CPU] 시스템 CPU 사용률",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 17 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
       "targets": [
         {
           "expr": "system_cpu_usage{application=~\"$application\"}",
@@ -306,22 +453,34 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "custom": { "fillOpacity": 10 }
+          "custom": {
+            "fillOpacity": 10
+          }
         }
       }
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
       "id": 400,
       "panels": [],
-      "title": "🔵 [Tier 4] Infrastructure (Redis & Kafka 인프라 지표)",
+      "title": "🔵 [Tier 4] Infrastructure (Redis · Kafka · MySQL 인프라 지표)",
       "type": "row"
     },
     {
       "title": "12. [Redis] 메모리 사용률",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 25 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 25
+      },
       "targets": [
         {
           "expr": "(redis_memory_used_bytes / redis_memory_max_bytes) * 100",
@@ -342,7 +501,12 @@
     {
       "title": "13. [Redis] CPU 사용률",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 25 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 25
+      },
       "targets": [
         {
           "expr": "rate(redis_cpu_sys_seconds_total[1m]) + rate(redis_cpu_user_seconds_total[1m])",
@@ -352,14 +516,23 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "custom": { "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "smooth" }
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          }
         }
       }
     },
     {
       "title": "14. [Redis] 연결 클라이언트 수",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 25 },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 25
+      },
       "targets": [
         {
           "expr": "redis_connected_clients",
@@ -369,14 +542,22 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "fillOpacity": 10, "drawStyle": "line" }
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "line"
+          }
         }
       }
     },
     {
       "title": "15. [Kafka] 브로커 상태",
       "type": "stat",
-      "gridPos": { "h": 7, "w": 4, "x": 0, "y": 32 },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 32
+      },
       "targets": [
         {
           "expr": "kafka_brokers"
@@ -387,8 +568,14 @@
           "unit": "short",
           "thresholds": {
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
             ]
           },
           "displayName": "활성 브로커"
@@ -398,7 +585,12 @@
     {
       "title": "16. [Kafka] 컨슈머 렉 (그룹별)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 20, "x": 4, "y": 32 },
+      "gridPos": {
+        "h": 7,
+        "w": 20,
+        "x": 4,
+        "y": 32
+      },
       "targets": [
         {
           "expr": "sum(kafka_consumergroup_lag) by (consumergroup, topic)",
@@ -408,21 +600,250 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 100 },
-              { "color": "red", "value": 500 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
             ]
           }
         }
       }
     },
     {
+      "type": "stat",
+      "title": "23. [MySQL] DB 상태 (Up/Down)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "min(mysql_up) by (instance)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 39
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "24. [MySQL] 연결 스레드 수",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "mysql_global_status_threads_connected{instance=\"mysql-a\"}",
+          "legendFormat": "promotion DB",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "mysql_global_status_threads_connected{instance=\"mysql-c\"}",
+          "legendFormat": "payment DB",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 20,
+        "x": 4,
+        "y": 39
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "25. [MySQL] 슬로우 쿼리 (rate/min)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(mysql_global_status_slow_queries{instance=\"mysql-a\"}[1m])",
+          "legendFormat": "promotion DB",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(mysql_global_status_slow_queries{instance=\"mysql-c\"}[1m])",
+          "legendFormat": "payment DB",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "26. [MySQL] InnoDB 버퍼풀 히트율",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - rate(mysql_global_status_innodb_buffer_pool_reads{instance=\"mysql-a\"}[1m]) / rate(mysql_global_status_innodb_buffer_pool_read_requests{instance=\"mysql-a\"}[1m])",
+          "legendFormat": "promotion DB",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - rate(mysql_global_status_innodb_buffer_pool_reads{instance=\"mysql-c\"}[1m]) / rate(mysql_global_status_innodb_buffer_pool_read_requests{instance=\"mysql-c\"}[1m])",
+          "legendFormat": "payment DB",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      }
+    },
+    {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
       "id": 500,
       "panels": [],
       "title": "🟣 [Tier 5] Business Metrics (결제 & 환불 비즈니스 지표)",
@@ -431,7 +852,12 @@
     {
       "title": "17. [결제] 시도 / 성공 / 실패 (RPS)",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 40 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
       "targets": [
         {
           "expr": "rate(business_payment_attempts_total[1m])",
@@ -449,16 +875,42 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "custom": { "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "smooth" }
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "실패" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "실패"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "성공" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "성공"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
           }
         ]
       }
@@ -466,7 +918,12 @@
     {
       "title": "18. [결제] 성공률",
       "type": "gauge",
-      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 40 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 54
+      },
       "targets": [
         {
           "expr": "(rate(business_payment_success_total[5m]) / rate(business_payment_attempts_total[5m]) * 100) or vector(100)"
@@ -479,9 +936,18 @@
           "max": 100,
           "thresholds": {
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 90 },
-              { "color": "green", "value": 99 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
             ]
           }
         }
@@ -490,7 +956,12 @@
     {
       "title": "19. [환불] 요청 건수 & 처리 지연",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 40 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 54
+      },
       "targets": [
         {
           "expr": "rate(business_payment_pg_refund_request_total[1m])",
@@ -504,13 +975,22 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "smooth" }
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          }
         }
       }
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
       "id": 600,
       "panels": [],
       "title": "🔶 [Tier 6] Dependencies & Resilience (외부 API 의존성 및 서킷 방어)",
@@ -519,7 +999,12 @@
     {
       "title": "20. [방어 상태] 외부 API 연동 상태 (OPEN = 접속 차단 중)",
       "type": "stat",
-      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 48 },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 62
+      },
       "targets": [
         {
           "expr": "resilience4j_circuitbreaker_state{application=~\"$application\", state=\"open\"}",
@@ -531,16 +1016,28 @@
           "unit": "short",
           "thresholds": {
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           },
           "mappings": [
             {
               "type": "value",
               "options": {
-                "0": { "text": "안전 (CLOSED)", "color": "green" },
-                "1": { "text": "위험! 차단 중 (OPEN)", "color": "red" }
+                "0": {
+                  "text": "안전 (CLOSED)",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "위험! 차단 중 (OPEN)",
+                  "color": "red"
+                }
               }
             }
           ]
@@ -551,7 +1048,12 @@
       "title": "21. [에러율] 외부 API 호출 실패율 (Failure Rate %)",
       "description": "50%를 초과하면 서킷이 OPEN되어 트래픽이 차단됩니다. (-1%는 아직 초기 데이터가 부족한 상태를 의미합니다)",
       "type": "gauge",
-      "gridPos": { "h": 7, "w": 9, "x": 6, "y": 48 },
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 6,
+        "y": 62
+      },
       "targets": [
         {
           "expr": "clamp_min(resilience4j_circuitbreaker_failure_rate{application=~\"$application\"}, 0)",
@@ -565,9 +1067,18 @@
           "max": 100,
           "thresholds": {
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 30 },
-              { "color": "red", "value": 50 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
             ]
           }
         }
@@ -577,7 +1088,12 @@
       "title": "22. [호출 통계] 서킷 브레이커 트래픽 제어 현황",
       "description": "외부 API로 보낸 요청의 최종 결과입니다. '차단(Ignored)'이 급증하면 서킷 브레이커가 우리 서버를 방어하고 있다는 뜻입니다.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 9, "x": 15, "y": 48 },
+      "gridPos": {
+        "h": 7,
+        "w": 9,
+        "x": 15,
+        "y": 62
+      },
       "targets": [
         {
           "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{application=~\"$application\", kind=~\"successful.*\"}[1m])) by (name)",
@@ -595,20 +1111,57 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "custom": { "fillOpacity": 15, "drawStyle": "line", "lineInterpolation": "smooth" }
+          "custom": {
+            "fillOpacity": 15,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byRegexp", "options": ".*에러 발생.*" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*에러 발생.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byRegexp", "options": ".*서킷 차단.*" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*서킷 차단.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byRegexp", "options": ".*성공.*" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*성공.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
           }
         ]
       }
@@ -616,8 +1169,14 @@
   ],
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["SRE", "Production"],
-  "time": { "from": "now-30m", "to": "now" },
+  "tags": [
+    "SRE",
+    "Production"
+  ],
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
   "title": "프로모션 결제 서비스 SRE 관제 대시보드",
   "uid": "promotion-sre-dash-noc"
 }

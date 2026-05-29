@@ -21,6 +21,8 @@ flowchart TD
         kafka[["Kafka\n:9092"]]
         kafkaConnect["Kafka Connect\n:8083\n(Debezium)"]
         rpConsole["Redpanda Console\n:9080"]
+        mysqlExp["mysql-a-exporter\n:9104"]
+        mysqlCExp["mysql-c-exporter\n:9105"]
     end
 
     Client -->|HTTP| svcA
@@ -38,6 +40,8 @@ flowchart TD
     kafkaConnect -->|CDC watch| mysqlC
     kafkaConnect -->|CDC events| kafka
     rpConsole -->|Kafka API| kafka
+    mysqlExp -->|scrape| mysql
+    mysqlCExp -->|scrape| mysqlC
 ```
 
 ---
@@ -58,6 +62,8 @@ flowchart LR
             redisExp["redis-exporter\n:9121"]
             redisBExp["redis-b-exporter\n:9122"]
             kafkaExp["kafka-exporter\n:9308"]
+            mysqlAExp["mysql-a-exporter\n:9104"]
+            mysqlCExp["mysql-c-exporter\n:9105"]
         end
     end
 
@@ -76,11 +82,11 @@ flowchart LR
 
     apps -->|OTLP traces| otel
     apps -.->|shared-logs vol| vector
-    infraSrc --> redisExp & redisBExp & kafkaExp
+    infraSrc --> redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp
 
     otel -->|OTLP gRPC| tempo
     vector -->|push| loki
-    redisExp & redisBExp & kafkaExp -->|metrics| prometheus
+    redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp -->|metrics| prometheus
     prometheus -.->|scrape| apps
 
     tempo & loki & prometheus -->|query| grafana

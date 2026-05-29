@@ -42,3 +42,11 @@ datasources:
           matcherRegex: '"traceId":"([a-zA-Z0-9]+)"'
           name: trace_id
           url: "$${__value.raw}"
+
+  - name: Alertmanager
+    type: alertmanager
+    uid: alertmanager
+    url: http://alertmanager:9093
+    jsonData:
+      handleGrafanaManagedAlerts: false
+      implementation: prometheus

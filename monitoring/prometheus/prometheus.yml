@@ -30,3 +30,12 @@ scrape_configs:
   - job_name: 'kafka'
     static_configs:
       - targets: ['kafka-exporter:9308']
+
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql-a-exporter:9104']
+        labels:
+          instance: 'mysql-a'
+      - targets: ['mysql-c-exporter:9104']
+        labels:
+          instance: 'mysql-c'

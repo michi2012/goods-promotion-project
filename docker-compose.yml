@@ -464,6 +464,46 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  mysql-a-exporter:
+    image: prom/mysqld-exporter:latest
+    container_name: mysql-a-exporter
+    command:
+      - --config.my-cnf=/etc/mysql/my.cnf
+    volumes:
+      - ./monitoring/mysql/mysql-a.cnf:/etc/mysql/my.cnf:ro
+    ports:
+      - "9104:9104"
+    networks:
+      - promotion-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  mysql-c-exporter:
+    image: prom/mysqld-exporter:latest
+    container_name: mysql-c-exporter
+    command:
+      - --config.my-cnf=/etc/mysql/my.cnf
+    volumes:
+      - ./monitoring/mysql/mysql-c.cnf:/etc/mysql/my.cnf:ro
+    ports:
+      - "9105:9104"
+    networks:
+      - promotion-network
+    depends_on:
+      mysql-c:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
   redpanda-console:
     image: redpandadata/console:latest
     container_name: redpanda-console

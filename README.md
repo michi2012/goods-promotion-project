@@ -253,6 +253,33 @@ Alertmanager webhook → mcp
 
 ---
 
+### 6. 모니터링 — SRE 대시보드 & 알람 체계
+
+#### Grafana SRE 대시보드 (6-Tier 계층 구조)
+
+대시보드는 "비즈니스 임팩트 → 애플리케이션 → 시스템 → 인프라" 순으로 중요도가 높은 지표를 먼저 확인하도록 설계됐다.
+
+| Tier | 범주 | 주요 지표 |
+|------|------|----------|
+| Tier 1 | Business Impact & SLO | 결제 API 가용성(SLI), 에러 예산 소진 속도(Burn Rate), 남은 에러 예산 |
+| Tier 2 | Application RED | p95 응답 지연, 5xx 에러율, 결제 처리량(RPS) |
+| Tier 3 | System Saturation | JVM Heap, 가상 스레드 수, CPU 사용률 |
+| Tier 4 | Infrastructure | Redis 메모리·CPU·연결 수, Kafka 컨슈머 렉, MySQL 커넥션·슬로우 쿼리·버퍼풀 히트율 |
+| Tier 5 | Business Metrics | 결제 시도/성공/실패 RPS, 결제 성공률, 환불 요청 건수·처리 지연 |
+| Tier 6 | Resilience | 서킷 브레이커 상태(OPEN/HALF_OPEN), 외부 API 호출 실패율 |
+
+#### Prometheus 알람 규칙 (P0 · P1 · P2 심각도)
+
+| 심각도 | 기준 | 알람 예시 |
+|--------|------|----------|
+| 🚨 P0 | 즉각 수기 대응 필요 | PG 결제 성공 후 환불 보상 트랜잭션까지 연달아 실패 → 수기 정산 발생 |
+| 🔥 P1 | 서비스 중단·SLO 위반 임박 | 인스턴스 다운, 가용성 < 99.9%, Heap > 90%, 서킷브레이커 OPEN, DB 커넥션 풀 포화, MySQL 인스턴스 다운 |
+| ⚠️ P2 | 전조 증상·성능 저하 | p95 > 500ms, 5xx 에러율 > 1% 3분 지속, 카프카 컨슈머 렉 > 500건, CPU > 80%, MySQL 슬로우 쿼리 > 1/s |
+
+P1 이상 알람은 Alertmanager → MCP 서버 웹훅을 통해 [AIOps 자동 분석](#5-aiops--spring-ai-기반-장애-자동-분석) 후 Slack으로 보고서가 발송된다.
+
+---
+
 ## 성능 개선 히스토리
 
 ---
