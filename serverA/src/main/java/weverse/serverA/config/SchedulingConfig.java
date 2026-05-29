@@ -16,7 +16,7 @@ public class SchedulingConfig implements SchedulingConfigurer {
     public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(3);
-        scheduler.setThreadNamePrefix("weverse-scheduler-a");
+        scheduler.setThreadNamePrefix("scheduler-a");
         scheduler.initialize();
 
         taskRegistrar.setTaskScheduler(scheduler);

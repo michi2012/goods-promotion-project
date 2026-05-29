@@ -11,9 +11,6 @@ import weverse.serverA.dto.StockSnapshotMessage;
 import weverse.serverA.exception.DuplicateOrderException;
 import weverse.serverA.exception.SoldOutException;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -46,31 +43,22 @@ public class PromotionService {
         }
         publishStockSnapshot(message.goodsId());
 
-        // 4. Kafka produce — 실패 시 Redis 롤백
+        // 4. Kafka produce — 비동기 발행, 실패 시 콜백에서 Redis 롤백
         try {
             String payload = objectMapper.writeValueAsString(message);
-
-            // whenComplete(비동기) 대신 get(동기 대기) 사용
-            // 타임아웃(3초)을 주어 무한 대기를 방지합니다.
             kafkaTemplate.send(PURCHASE_TOPIC, String.valueOf(message.userId()), payload)
-                         .get(3, TimeUnit.SECONDS);
-
-            log.info("[구매 요청 접수 완료] TraceId: {}", message.orderId());
-
-        } catch (TimeoutException e) {
-            log.error("[Kafka produce 타임아웃] 브로커 응답 지연. Redis 롤백 진행 | TraceId: {}", message.orderId());
-            rollbackRedis(message);
-            throw new RuntimeException("주문 처리 지연. 다시 시도해주세요."); // 유저에게 에러 반환
-
+                         .whenComplete((result, ex) -> {
+                             if (ex != null) {
+                                 log.error("[Kafka produce 실패] Redis 롤백 진행 | TraceId: {} | 사유: {}", message.orderId(), ex.getMessage());
+                                 rollbackRedis(message);
+                             } else {
+                                 log.info("[구매 요청 접수 완료] TraceId: {}", message.orderId());
+                             }
+                         });
         } catch (JsonProcessingException e) {
             log.error("[직렬화 실패] PurchaseMessage 변환 오류 | TraceId: {}", message.orderId(), e);
             rollbackRedis(message);
             throw new RuntimeException("PurchaseMessage 직렬화 실패", e);
-
-        } catch (Exception e) {
-            log.error("[Kafka produce 실패] 브로커 장애. Redis 롤백 진행 | TraceId: {} | 사유: {}", message.orderId(), e.getMessage());
-            rollbackRedis(message);
-            throw new RuntimeException("시스템 오류. 다시 시도해주세요.");
         }
     }
 
