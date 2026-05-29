@@ -62,7 +62,60 @@ docker-compose up -d
 | serverC | 8082 | 결제 처리  | payment DB (3308) | 없음       |
 | mcp | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling으로 메트릭·로그·트레이스 자동 조회·분석 → Slack 보고서 발송 | - | - |
 
-### 전체 이벤트 흐름
+### Before Kafka — Phase 1 최종 아키텍처
+
+> 큐 기반 비동기 + 서버 간 HTTP 직통 구조. **630 TPS / p95 4.3s / DB 처리 50초**
+> 상세 데이터 플로우는 [docs/arch-v1.md](docs/arch-v1.md) 참고.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as serverA
+    participant DB_A as promotionDB
+    participant B as serverB
+    participant SC as serverC
+    participant PG as PG사
+
+    C->>A: POST /api/v1/promotions/purchase
+    alt ArrayBlockingQueue 포화 (10,000건 초과)
+        A-->>C: 503 Service Unavailable
+    else 큐 적재 성공
+        A-->>C: 202 Accepted
+    end
+
+    Note over A: @Scheduled(100ms) Flusher
+    A->>A: drainTo(500건) → traceId 오름차순 정렬(Gap Lock 방지)
+    A->>DB_A: Bulk INSERT PENDING (JdbcTemplate batchUpdate)
+
+    Note over A: @Scheduled(1s) Worker
+    A->>DB_A: SELECT PENDING 500건 (skip lock)
+    A->>A: 1차 중복 방어(ConcurrentHashMap) + 2차(DB EXISTS)
+    A->>DB_A: decreaseStockAtomically → SUCCESS / FAIL
+    A->>B: HTTP POST /process/bulk (PurchaseMessage 500건)
+
+    B->>B: MAX_IN_FLIGHT 초과 검사(AtomicInteger)
+    B->>B: Redis multiGet 멱등성 검증
+    B->>B: executePipelined (Hash 상태갱신 + String 멱등키 + Stream queue:to_server_c)
+
+    Note over B: @Scheduled(100ms) QueueToCWorker
+    B->>SC: HTTP POST /orders/bulk (500건)
+    SC->>SC: Chunk 분할 → INSERT IGNORE (Unique trace_id)
+    SC->>PG: 결제 요청 (트랜잭션 밖, No DB Connection)
+    PG-->>SC: 결제 결과
+    SC->>SC: TransactionTemplate UPDATE SUCCESS / FAIL
+    alt DB 장애 — PG 승인 후 UPDATE 실패
+        SC->>PG: cancelPayments (망취소)
+    end
+    SC-->>B: 실패 traceId 목록 반환
+
+    alt 결제 실패 건 존재
+        B->>A: HTTP POST 보상 트랜잭션 (재고 롤백)
+    end
+```
+
+---
+
+### After Kafka — Phase 3 전체 최종 아키텍처
 
 ```mermaid
 sequenceDiagram
