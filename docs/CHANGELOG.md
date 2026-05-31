@@ -4,6 +4,31 @@
 
 ---
 
+## v1.0.1 — 2026-05-31
+
+> v1.0.0 이후 안정성 보강 및 인프라 개선 패치. Redis 롤백 처리 강화, Flyway 마이그레이션 도입, 테스트 환경 고도화.
+
+### ♻️ Refactor
+
+- Redis 롤백 예외 처리 강화 및 안정성 보강 (5017100)
+
+### 🔧 Chore / Docs
+
+- [serverA] Flyway 도입 및 JPA 스키마 자동 생성 속성 변경 (f5e403d)
+- SagaState 임시 홀딩 TTL 30초로 조정 (1261531)
+- PromotionService.acceptPurchase() 변경에 따른 README.md 수정 (4bc073d)
+- 장애 원인 분석 및 DB 마이그레이션 위험도 Claude Code 자동화 스크립트 추가 (075ae8a, e2d641c 외 1건)
+
+### 🧪 Test
+
+- MySQL 테스트컨테이너 도입 및 Redis 롤백 예외 처리 강화 (1ddb0a8)
+
+---
+
+Full diff: `git log af315ca..HEAD --oneline`
+
+---
+
 ## v1.0.0 — 2026-05-31
 
 > Redis·Kafka·Saga 기반 고성능 선착순 프로모션 플랫폼 초기 릴리즈 — 분산 트랜잭션, 관측성, AIOps 자동화까지 포함한 프로덕션 레디 아키텍처 완성
