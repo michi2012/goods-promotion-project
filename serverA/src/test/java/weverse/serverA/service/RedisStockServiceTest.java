@@ -48,32 +48,45 @@ class RedisStockServiceTest {
     }
 
     @Test
-    @DisplayName("Lua 스크립트를 통해 정확히 요청한 수량만큼 재고가 차감된다.")
+    @DisplayName("Lua 스크립트를 통해 정확히 요청한 수량만큼 재고가 차감되고 남은 재고를 반환한다.")
     void reserveStock_Success() {
         // Given
         Long goodsId = 1L;
         redisStockService.initStock(goodsId, 10);
 
         // When
-        boolean result = redisStockService.reserveStock(goodsId, 3);
+        Long result = redisStockService.reserveStock(goodsId, 3);
 
         // Then
-        assertThat(result).isTrue();
+        assertThat(result).isEqualTo(7L); // 10 - 3 = 7
         String currentStock = redisTemplate.opsForValue().get("goods:stock:" + goodsId);
         assertThat(currentStock).isEqualTo("7");
     }
 
     @Test
-    @DisplayName("남은 재고보다 많은 수량을 차감 시도하면 실패(false)를 반환한다.")
+    @DisplayName("남은 재고보다 많은 수량을 차감 시도하면 -1을 반환한다.")
     void reserveStock_Fail_NotEnoughStock() {
         // Given
         Long goodsId = 1L;
         redisStockService.initStock(goodsId, 2); // 재고 2개
 
         // When
-        boolean result = redisStockService.reserveStock(goodsId, 3); // 3개 차감 시도
+        Long result = redisStockService.reserveStock(goodsId, 3); // 3개 차감 시도
 
         // Then
-        assertThat(result).isFalse();
+        assertThat(result).isEqualTo(-1L);
+    }
+
+    @Test
+    @DisplayName("Redis에 재고 키가 없으면 -2를 반환한다.")
+    void reserveStock_Fail_KeyNotFound() {
+        // Given: initStock 없이 바로 차감 시도
+        Long goodsId = 99L;
+
+        // When
+        Long result = redisStockService.reserveStock(goodsId, 1);
+
+        // Then
+        assertThat(result).isEqualTo(-2L);
     }
 }

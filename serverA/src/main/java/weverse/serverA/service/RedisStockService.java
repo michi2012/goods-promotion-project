@@ -23,7 +23,7 @@ public class RedisStockService {
             .expireAfterWrite(60, TimeUnit.SECONDS)
             .build();
 
-    // stock > 0이면 DECRBY 후 남은 재고 반환, 부족하면 -1 반환
+    // stock >= quantity이면 DECRBY 후 남은 재고 반환, 부족하면 -1, 키 없으면 -2 반환
     private static final DefaultRedisScript<Long> RESERVE_SCRIPT = new DefaultRedisScript<>("""
             local stock = tonumber(redis.call('GET', KEYS[1]))
             if stock == nil then return -2 end
@@ -43,15 +43,14 @@ public class RedisStockService {
     }
 
     /**
-     * @return true: 재고 선점 성공 / false: 재고 부족 또는 키 없음
+     * @return >= 0: 선점 성공(남은 재고), -1: 재고 부족, -2: Redis 키 없음(미초기화)
      */
-    public boolean reserveStock(Long goodsId, int quantity) {
+    public Long reserveStock(Long goodsId, int quantity) {
         Long result = redisTemplate.execute(RESERVE_SCRIPT, List.of(stockKey(goodsId)), String.valueOf(quantity));
-        boolean success = result != null && result >= 0;
-        if (!success) {
+        if (result == null || result == -1L) {
             soldOutCache.put(goodsId, true);
         }
-        return success;
+        return result;
     }
 
     public boolean isKnownSoldOut(Long goodsId) {

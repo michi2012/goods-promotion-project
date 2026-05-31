@@ -11,15 +11,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import weverse.serverA.dto.PurchaseMessage;
+import weverse.serverA.dto.StockSnapshotMessage;
 import weverse.serverA.exception.DuplicateOrderException;
 import weverse.serverA.exception.SoldOutException;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -62,8 +63,8 @@ class PromotionServiceTest {
     void acceptPurchase_SoldOut_ThrowsException() {
         // Given
         PurchaseMessage msg = createDummyMessage();
-        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true); // 통과
-        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(false); // 품절 판정
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(-1L); // 재고 부족
 
         // When & Then
         assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
@@ -75,13 +76,32 @@ class PromotionServiceTest {
     }
 
     @Test
+    @DisplayName("API 수신: Redis에 재고 키가 없으면 RuntimeException이 발생하고 유저 구매 플래그가 롤백된다.")
+    void acceptPurchase_StockNotInitialized_ThrowsException() {
+        // Given
+        PurchaseMessage msg = createDummyMessage();
+        given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(-2L); // Redis 키 없음
+
+        // When & Then
+        assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("재고 정보 미초기화");
+
+        // 검증: 키 없음 시에도 유저 구매 플래그가 롤백되어야 함
+        verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
+        verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
     @DisplayName("API 수신: Redis 검증 통과 및 Kafka 전송 성공 시 예외 없이 정상 종료된다.")
     void acceptPurchase_Success() throws Exception {
         // Given
         PurchaseMessage msg = createDummyMessage();
         given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
-        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
-        given(objectMapper.writeValueAsString(msg)).willReturn("{\"payload\":\"test\"}");
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(5L); // 재고 선점 성공
+        given(objectMapper.writeValueAsString(any(PurchaseMessage.class))).willReturn("{\"payload\":\"test\"}");
+        given(objectMapper.writeValueAsString(any(StockSnapshotMessage.class))).willReturn("{}");
 
         // Kafka Future 모킹 (정상 응답)
         CompletableFuture<SendResult<String, String>> future = mock(CompletableFuture.class);
@@ -97,49 +117,47 @@ class PromotionServiceTest {
     }
 
     @Test
-    @DisplayName("API 수신: Kafka 전송 중 타임아웃 발생 시 롤백이 진행되고 RuntimeException이 발생한다.")
+    @DisplayName("API 수신: Kafka 전송 실패(타임아웃) 시 whenComplete 콜백에서 Redis 롤백이 진행된다.")
     void acceptPurchase_KafkaTimeout_RollbacksAndThrows() throws Exception {
         // Given
         PurchaseMessage msg = createDummyMessage();
         given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
-        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
-        given(objectMapper.writeValueAsString(msg)).willReturn("{\"payload\":\"test\"}");
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(5L);
+        given(objectMapper.writeValueAsString(any(PurchaseMessage.class))).willReturn("{\"payload\":\"test\"}");
+        given(objectMapper.writeValueAsString(any(StockSnapshotMessage.class))).willReturn("{}");
 
-        // Kafka Future 모킹 (타임아웃 발생)
-        CompletableFuture<SendResult<String, String>> future = mock(CompletableFuture.class);
-        given(kafkaTemplate.send(anyString(), anyString(), anyString())).willReturn(future);
-        given(future.get(3, TimeUnit.SECONDS)).willThrow(new TimeoutException("Kafka Timeout"));
+        // 이미 실패 완료된 Future → whenComplete 콜백이 동기적으로 즉시 실행됨
+        CompletableFuture<SendResult<String, String>> failedFuture =
+                CompletableFuture.failedFuture(new RuntimeException("Kafka Timeout"));
+        given(kafkaTemplate.send(anyString(), anyString(), anyString())).willReturn(failedFuture);
 
-        // When & Then
-        assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("주문 처리 지연");
+        // When: 비동기 패턴이므로 acceptPurchase 자체는 예외 없이 반환
+        assertDoesNotThrow(() -> promotionService.acceptPurchase(msg));
 
-        // 검증: 타임아웃 예외가 터졌으므로 재고 및 유저 구매 플래그가 모두 롤백되어야 함
+        // Then: whenComplete 콜백에서 롤백이 동기적으로 실행되었는지 검증
         verify(redisStockService, times(1)).releaseStock(msg.goodsId(), msg.quantity());
         verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
     }
 
     @Test
-    @DisplayName("API 수신: Kafka 전송 중 시스템 오류 발생 시 롤백이 진행되고 RuntimeException이 발생한다.")
+    @DisplayName("API 수신: Kafka 전송 실패(시스템 오류) 시 whenComplete 콜백에서 Redis 롤백이 진행된다.")
     void acceptPurchase_KafkaException_RollbacksAndThrows() throws Exception {
         // Given
         PurchaseMessage msg = createDummyMessage();
         given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
-        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
-        given(objectMapper.writeValueAsString(msg)).willReturn("{\"payload\":\"test\"}");
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(5L);
+        given(objectMapper.writeValueAsString(any(PurchaseMessage.class))).willReturn("{\"payload\":\"test\"}");
+        given(objectMapper.writeValueAsString(any(StockSnapshotMessage.class))).willReturn("{}");
 
-        // Kafka Future 모킹 (일반 시스템 에러 발생)
-        CompletableFuture<SendResult<String, String>> future = mock(CompletableFuture.class);
-        given(kafkaTemplate.send(anyString(), anyString(), anyString())).willReturn(future);
-        given(future.get(3, TimeUnit.SECONDS)).willThrow(new RuntimeException("Kafka Broker Down"));
+        // 이미 실패 완료된 Future → whenComplete 콜백이 동기적으로 즉시 실행됨
+        CompletableFuture<SendResult<String, String>> failedFuture =
+                CompletableFuture.failedFuture(new RuntimeException("Kafka Broker Down"));
+        given(kafkaTemplate.send(anyString(), anyString(), anyString())).willReturn(failedFuture);
 
-        // When & Then
-        assertThatThrownBy(() -> promotionService.acceptPurchase(msg))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("시스템 오류");
+        // When: 비동기 패턴이므로 acceptPurchase 자체는 예외 없이 반환
+        assertDoesNotThrow(() -> promotionService.acceptPurchase(msg));
 
-        // 검증: 예외가 터졌으므로 롤백되어야 함
+        // Then: whenComplete 콜백에서 롤백이 동기적으로 실행되었는지 검증
         verify(redisStockService, times(1)).releaseStock(msg.goodsId(), msg.quantity());
         verify(redisStockService, times(1)).releaseUserPurchase(msg.userId(), msg.goodsId());
     }
@@ -150,7 +168,7 @@ class PromotionServiceTest {
         // Given
         PurchaseMessage msg = createDummyMessage();
         given(redisStockService.tryMarkUserPurchased(msg.userId(), msg.goodsId())).willReturn(true);
-        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(true);
+        given(redisStockService.reserveStock(msg.goodsId(), msg.quantity())).willReturn(5L);
 
         // 직렬화 실패 예외 모킹 (JsonProcessingException은 abstract이므로 mock으로 생성)
         JsonProcessingException jsonException = mock(JsonProcessingException.class);

@@ -36,7 +36,13 @@ public class PromotionService {
         }
 
         // 3. 재고 선점 (Redis Lua)
-        if (!redisStockService.reserveStock(message.goodsId(), message.quantity())) {
+        Long stockResult = redisStockService.reserveStock(message.goodsId(), message.quantity());
+        if (stockResult == null || stockResult == -2L) {
+            redisStockService.releaseUserPurchase(message.userId(), message.goodsId());
+            log.error("[재고 미초기화] Redis 키 없음 | GoodsId: {}", message.goodsId());
+            throw new RuntimeException("재고 정보 미초기화: goodsId=" + message.goodsId());
+        }
+        if (stockResult == -1L) {
             redisStockService.releaseUserPurchase(message.userId(), message.goodsId());
             log.info("[품절] 재고 부족 | GoodsId: {}", message.goodsId());
             throw new SoldOutException();
