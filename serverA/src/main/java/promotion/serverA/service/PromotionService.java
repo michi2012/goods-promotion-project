@@ -56,7 +56,12 @@ public class PromotionService {
                          .whenComplete((result, ex) -> {
                              if (ex != null) {
                                  log.error("[Kafka produce 실패] Redis 롤백 진행 | TraceId: {} | 사유: {}", message.orderId(), ex.getMessage());
-                                 rollbackRedis(message);
+                                 try {
+                                     rollbackRedis(message);
+                                 } catch (Exception redisEx) {
+                                     log.error("[롤백 실패 — 수동 복구 필요] orderId: {} | goodsId: {} | userId: {} | qty: {} | 사유: {}",
+                                             message.orderId(), message.goodsId(), message.userId(), message.quantity(), redisEx.getMessage());
+                                 }
                              } else {
                                  log.info("[구매 요청 접수 완료] TraceId: {}", message.orderId());
                              }
