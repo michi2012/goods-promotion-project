@@ -21,13 +21,13 @@
 ## 단계별 작업 계획
 
 ### 단계 1: RedisStockService.reserveStock() 반환 타입 변경
-- 변경 파일: serverA/src/main/java/weverse/serverA/service/RedisStockService.java
+- 변경 파일: serverA/src/main/java/promotion/serverA/service/RedisStockService.java
 - 변경 내용: boolean → Long 반환. soldOutCache 등록 조건을 result == -1L 시에만 실행.
 - 검증 방법: PromotionService 컴파일 오류 확인 (reserveStock 호출부 타입 불일치 예상)
 - 예상 소요: 짧음
 
 ### 단계 2: PromotionService.acceptPurchase() 분기 처리
-- 변경 파일: serverA/src/main/java/weverse/serverA/service/PromotionService.java
+- 변경 파일: serverA/src/main/java/promotion/serverA/service/PromotionService.java
 - 변경 내용: reserveStock() 반환 Long으로 받아서 분기.
   - result >= 0 → 정상
   - result == -1L → releaseUserPurchase + throw SoldOutException
@@ -36,7 +36,7 @@
 - 예상 소요: 짧음
 
 ### 단계 3: 테스트 업데이트
-- 변경 파일: serverA/src/test/java/weverse/serverA/service/PromotionServiceTest.java
+- 변경 파일: serverA/src/test/java/promotion/serverA/service/PromotionServiceTest.java
 - 변경 내용:
   - 기존 SoldOut 테스트: willReturn(false) → willReturn(-1L)
   - 기존 Success 테스트: willReturn(true) → willReturn(5L)

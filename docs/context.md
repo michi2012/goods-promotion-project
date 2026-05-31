@@ -18,9 +18,9 @@ PromotionService에서 분기 처리하는 것이 가장 단순하고 추가 추
 
 ## 기존 코드베이스 컨벤션
 - 예외 계층: BusinessException(400) / PromotionException / RuntimeException(500 via handleGeneralError)
-- 예외 파일 위치: serverA/src/main/java/weverse/serverA/exception/
+- 예외 파일 위치: serverA/src/main/java/promotion/serverA/exception/
 - 테스트 구조: @ExtendWith(MockitoExtension.class), BDDMockito 스타일
-- 테스트 파일: serverA/src/test/java/weverse/serverA/service/PromotionServiceTest.java
+- 테스트 파일: serverA/src/test/java/promotion/serverA/service/PromotionServiceTest.java
 
 ## 관련 파일/위치
 - RedisStockService.java — reserveStock() Lua 실행 및 soldOutCache 관리
