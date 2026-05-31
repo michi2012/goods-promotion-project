@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 import weverse.serverC.dto.PurchaseMessage;
 import weverse.serverC.exception.PgPaymentException;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -35,29 +34,22 @@ public class MockPgClient implements PgClient {
     }
 
     @Override
-    @CircuitBreaker(name = "pgClientCb", fallbackMethod = "fallbackProcessPayments")
-    public List<String> processPayments(List<PurchaseMessage> messages) {
-        log.info("[MockPgClient] PG 결제 요청 처리 시작: 대상 건수 = {}", messages.size());
-        List<String> failedTraceIds = new ArrayList<>();
+    @CircuitBreaker(name = "pgClientCb", fallbackMethod = "fallbackProcessPayment")
+    public boolean processPayment(PurchaseMessage message) {
+        log.info("[MockPgClient] PG 결제 요청 처리 시작: orderId={}", message.orderId());
+        try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
-        try { Thread.sleep(500);
-        } catch (InterruptedException e) {
+        if (Math.random() < 0.01) {
+            log.warn("🚨 [MockPgClient] 결제 실패: orderId={}", message.orderId());
+            return false;
         }
-
-        for (PurchaseMessage msg : messages) {
-            if (Math.random() < 0.01) {
-                log.warn("🚨 [MockPgClient] 결제 실패 시뮬레이션 당첨!: orderId={}", msg.orderId());
-                failedTraceIds.add(msg.orderId());
-            } else {
-                log.info("✅ [MockPgClient] 결제 승인 성공: orderId={}", msg.orderId());
-            }
-        }
-        return failedTraceIds;
+        log.info("✅ [MockPgClient] 결제 승인 성공: orderId={}", message.orderId());
+        return true;
     }
 
     // 차단(Open) 상태일 때 실행될 Fallback 로직
     // PgPaymentException을 throw해 PaymentService가 pg_system_error로 분류하도록 시그널을 전달한다.
-    public List<String> fallbackProcessPayments(List<PurchaseMessage> messages, Throwable t) {
+    public boolean fallbackProcessPayment(PurchaseMessage message, Throwable t) {
         log.error("🚨 [Circuit Breaker OPEN] PG사 장애 감지. 사유: {}", t.getMessage());
         throw new PgPaymentException("PG 시스템 장애: " + t.getMessage());
     }

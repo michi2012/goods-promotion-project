@@ -5,9 +5,9 @@ import java.util.List;
 
 public interface PgClient {
 
-    List<String> processPayments(List<PurchaseMessage> messages);
+    boolean processPayment(PurchaseMessage message);
 
-    // DB 에러 발생 시 호출할 망취소(환불) API 추가
+    // DB 에러 발생 시 호출할 망취소(환불) API
     void cancelPayments(List<String> orderIds);
 
 }

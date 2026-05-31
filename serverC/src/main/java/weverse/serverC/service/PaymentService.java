@@ -55,11 +55,14 @@ public class PaymentService {
     @Transactional
     public void processPayment(PurchaseMessage msg) {
         paymentAttempts.increment();
-        paymentRepository.claimOrders(List.of(msg));
+        if (!paymentRepository.claimOrder(msg)) {
+            log.info("[Payment] 중복 수신 무시: orderId={}", msg.orderId());
+            return;
+        }
 
-        List<String> failedTraceIds;
+        boolean success;
         try {
-            failedTraceIds = pgClient.processPayments(List.of(msg));
+            success = pgClient.processPayment(msg);
         } catch (PgPaymentException e) {
             // 서킷브레이커 개방 또는 PG 시스템 무응답 — re-throw 금지: 트랜잭션 커밋으로 SAGA 보상 트리거 보장
             paymentErrorPgSystemError.increment();
@@ -68,8 +71,6 @@ public class PaymentService {
                     new PaymentResultMessage(msg.orderId(), false, "PG 시스템 장애"));
             return;
         }
-
-        boolean success = !failedTraceIds.contains(msg.orderId());
         paymentRepository.updateOrderStatus(List.of(msg.orderId()), success ? "PAID" : "FAILED");
 
         if (success) {

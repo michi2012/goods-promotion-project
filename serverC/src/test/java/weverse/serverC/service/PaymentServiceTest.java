@@ -18,14 +18,15 @@ import weverse.serverC.outbox.OutboxEventService;
 import weverse.serverC.repository.PaymentRepository;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -60,13 +61,14 @@ class PaymentServiceTest {
         PurchaseMessage message = new PurchaseMessage(
                 orderId, 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"
         );
-        when(pgClient.processPayments(anyList())).thenReturn(Collections.emptyList());
+        when(paymentRepository.claimOrder(any())).thenReturn(true);
+        when(pgClient.processPayment(any())).thenReturn(true);
 
         // when
         paymentService.processPayment(message);
 
         // then
-        verify(paymentRepository).claimOrders(anyList());
+        verify(paymentRepository).claimOrder(any());
         verify(paymentRepository).updateOrderStatus(List.of(orderId), "PAID");
         verify(outboxEventService).save(eq(orderId), eq("payment-result"),
                 eq(new PaymentResultMessage(orderId, true, null)));
@@ -80,16 +82,35 @@ class PaymentServiceTest {
         PurchaseMessage message = new PurchaseMessage(
                 orderId, 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"
         );
-        when(pgClient.processPayments(anyList())).thenReturn(List.of(orderId));
+        when(paymentRepository.claimOrder(any())).thenReturn(true);
+        when(pgClient.processPayment(any())).thenReturn(false);
 
         // when
         paymentService.processPayment(message);
 
         // then
-        verify(paymentRepository).claimOrders(anyList());
+        verify(paymentRepository).claimOrder(any());
         verify(paymentRepository).updateOrderStatus(List.of(orderId), "FAILED");
         verify(outboxEventService).save(eq(orderId), eq("payment-result"),
                 eq(new PaymentResultMessage(orderId, false, "결제 거절")));
+    }
+
+    @Test
+    @DisplayName("중복 수신된 메시지는 claimOrders 선점 실패 시 PG 호출 없이 무시된다")
+    void processPayment_DuplicateMessage() {
+        // given
+        PurchaseMessage message = new PurchaseMessage(
+                "trace-1234", 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"
+        );
+        when(paymentRepository.claimOrder(any())).thenReturn(false);
+
+        // when
+        paymentService.processPayment(message);
+
+        // then
+        verify(pgClient, never()).processPayment(any());
+        verify(paymentRepository, never()).updateOrderStatus(anyList(), any());
+        verify(outboxEventService, never()).save(any(), any(), any());
     }
 
     @Test
