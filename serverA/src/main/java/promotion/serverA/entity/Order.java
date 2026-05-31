@@ -52,7 +52,7 @@ public class Order extends BaseTimeEntity {
     @Column(updatable = false)
     private String deliveryMemo;
 
-    @Column(updatable = false)
+    @Column(updatable = false, nullable = false)
     private String clientIp;
 
     @Enumerated(EnumType.STRING)
