@@ -32,8 +32,8 @@ public class SagaStateService {
                 "createdAt",              String.valueOf(System.currentTimeMillis())
         ));
 
-        // 소프트 홀드: 10분 TTL (스케줄러가 만료 여부 기준으로 활용)
-        redisTemplate.opsForValue().set(HOLD_PREFIX + orderId, "HOLDING", Duration.ofMinutes(10));
+        // 소프트 홀드: 30초 TTL (스케줄러가 만료 여부 기준으로 활용)
+        redisTemplate.opsForValue().set(HOLD_PREFIX + orderId, "HOLDING", Duration.ofSeconds(30));
 
         log.info("[SagaState] 초기화 완료: orderId={}", orderId);
     }
