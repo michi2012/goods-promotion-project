@@ -1,28 +1,25 @@
-# 맥락 노트: reserveStock -1/-2 분기 처리
+# 맥락 노트: JaCoCo 설정 및 커버리지 가이드 구축
 
 ## 왜 이 방식을 선택했는가
-Lua 스크립트는 이미 -2(키 없음)와 -1(재고 부족)을 구분해 반환하고 있었으나,
-Java에서 boolean으로 압축하면서 두 케이스가 동일하게 처리됐다.
-reserveStock() 반환 타입을 Long으로 바꿔 Lua 결과를 그대로 올리고,
-PromotionService에서 분기 처리하는 것이 가장 단순하고 추가 추상화 없이 해결된다.
+JaCoCo는 커밋 훅이나 CI에 강제하지 않고, 필요할 때 수동으로 확인하는 용도로 도입.
+루트 `subprojects {}` 블록에만 추가해 각 서브모듈 build.gradle 수정 없이 일괄 적용.
+임계값 없이 리포트 생성만 → 현황 파악 후 나중에 기준 잡는 방식.
 
 ## 검토했으나 채택하지 않은 대안
-### 대안 A: 새 예외 클래스 StockNotInitializedException 추가
-- 무엇: BusinessException 하위 클래스로 별도 예외 추가
-- 왜 안 썼나: 기존 handleGeneralError(Exception → 500)가 이미 RuntimeException을 처리하므로
-  새 클래스 없이도 동일한 HTTP 응답을 낼 수 있다. 불필요한 추상화.
 
-### 대안 B: reserveStockRaw() 메서드 별도 추가
-- 무엇: 기존 reserveStock(boolean)은 유지하고 Long 반환 메서드 추가
-- 왜 안 썼나: 두 메서드가 동일한 Lua 스크립트를 호출하는 중복. 기존 메서드를 직접 변경하는 게 단순하다.
+### 대안 A: aggregate 리포트 (jacoco-report-aggregation)
+- 무엇: 루트에서 4개 모듈 커버리지를 하나로 합산한 리포트 생성
+- 왜 안 썼나: 추가 플러그인 및 설정 복잡도 대비 수동 확인 용도에서 오버엔지니어링
 
-## 기존 코드베이스 컨벤션
-- 예외 계층: BusinessException(400) / PromotionException / RuntimeException(500 via handleGeneralError)
-- 예외 파일 위치: serverA/src/main/java/promotion/serverA/exception/
-- 테스트 구조: @ExtendWith(MockitoExtension.class), BDDMockito 스타일
-- 테스트 파일: serverA/src/test/java/promotion/serverA/service/PromotionServiceTest.java
+### 대안 B: pre-commit 훅에 JaCoCo 자동 실행
+- 무엇: 커밋마다 test + jacocoTestReport 강제 실행
+- 왜 안 썼나: 멀티모듈 전체 테스트 실행으로 커밋마다 수분 소요. 개발 흐름 방해.
+
+### 대안 C: 각 서브모듈 build.gradle에 직접 추가
+- 무엇: serverA/build.gradle, serverB/build.gradle 등에 각각 jacoco 설정
+- 왜 안 썼나: 루트 subprojects 블록으로 일괄 적용하면 4개 파일 수정 불필요
 
 ## 관련 파일/위치
-- RedisStockService.java — reserveStock() Lua 실행 및 soldOutCache 관리
-- PromotionService.java — acceptPurchase() 구매 플로우
-- PromotionServiceTest.java — 단위 테스트 (Mockito)
+- `build.gradle` — subprojects 블록에 JaCoCo 플러그인 적용
+- `docs/coverage.md` — 수동 실행 커맨드 가이드
+- `serverA/build/reports/jacoco/test/html/index.html` — 리포트 생성 위치 (예시)

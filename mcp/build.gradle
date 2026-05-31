@@ -7,3 +7,7 @@ dependencyManagement {
 dependencies {
 	implementation 'org.springframework.ai:spring-ai-starter-model-google-genai'
 }
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
