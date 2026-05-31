@@ -99,7 +99,7 @@ sequenceDiagram
 
     Note over B: @Scheduled(100ms) QueueToCWorker
     B->>SC: HTTP POST /orders/bulk (500건)
-    SC->>SC: Chunk 분할 → INSERT IGNORE (Unique trace_id)
+    SC->>SC: Chunk 분할 → INSERT + catch DuplicateKeyException (Unique order_id, 멱등)
     SC->>PG: 결제 요청 (트랜잭션 밖, No DB Connection)
     PG-->>SC: 결제 결과
     SC->>SC: TransactionTemplate UPDATE SUCCESS / FAIL
@@ -130,8 +130,9 @@ sequenceDiagram
     A->>A: 품절캐시 확인(Caffeine 60s)
     A->>A: 중복구매 방어(Redis SETNX, TTL 1h)
     A->>A: 재고선점(Redis Lua DECRBY)
-    A->>K: purchase_events (직접 발행, 동기 3s 타임아웃)
+    A->>K: purchase_events 발행 (직접, 비동기 — 실패 시 whenComplete 콜백에서 Redis 롤백)
     A-->>C: 202 Accepted
+    Note right of C: serverB 주문 상태 api 폴링 <br/>1-2s 후 시작 · NOT_FOUND 5s 이상 지속 → 주문 실패로 간주<br/>PENDING 확인 시 Saga 대기 및 폴링 지속 (PAID / FAILED / EXPIRED)
 
     K->>A: PurchaseKafkaConsumer 소비
     A->>A: Order 저장(PENDING), DB 재고 차감
@@ -170,7 +171,7 @@ sequenceDiagram
 
 | 토픽명 | 발행 주체 | 발행 방식 | 소비 모듈 | DLT |
 |--------|-----------|-----------|----------|-----|
-| `purchase_events` | serverA/PromotionService | 직접(동기 3s) | serverA/PurchaseKafkaConsumer | ✅ |
+| `purchase_events` | serverA/PromotionService | 직접(비동기, 실패 시 콜백 롤백) | serverA/PurchaseKafkaConsumer | ✅ |
 | `payment-request` | serverA/OrderCommandService | Outbox+CDC | serverC/PaymentKafkaConsumer | ✅ |
 | `payment-result` | serverC/PaymentService | Outbox+CDC | serverA/SagaResultConsumer | ✅ |
 | `order-status-update` | serverA/OrderCommandService, SagaOrchestratorService | Outbox+CDC | serverB/OrderStatusKafkaConsumer | ✅ |
