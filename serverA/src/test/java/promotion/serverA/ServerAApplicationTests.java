@@ -1,13 +1,11 @@
 package promotion.serverA;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import promotion.serverA.support.AbstractSpringBootTest;
 
-@SpringBootTest
-class ServerAApplicationTests {
+class ServerAApplicationTests extends AbstractSpringBootTest {
 
-	@Test
-	void contextLoads() {
-	}
-
+    @Test
+    void contextLoads() {
+    }
 }

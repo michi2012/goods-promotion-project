@@ -4,36 +4,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
+import promotion.serverA.support.AbstractSpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@Testcontainers
-class RedisStockServiceTest {
-
-    private static final String REDIS_IMAGE = "redis:7.0-alpine";
-    private static final int REDIS_PORT = 6379;
-
-    // 도커를 통해 레디스 컨테이너 실행
-    @Container
-    private static final GenericContainer<?> REDIS_CONTAINER =
-            new GenericContainer<>(DockerImageName.parse(REDIS_IMAGE))
-                    .withExposedPorts(REDIS_PORT);
-
-    // 스프링 부트 설정에 실행된 컨테이너의 호스트와 포트 동적 매핑
-    @DynamicPropertySource
-    static void redisProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS_CONTAINER::getHost);
-        registry.add("spring.data.redis.port", REDIS_CONTAINER::getFirstMappedPort);
-    }
+class RedisStockServiceTest extends AbstractSpringBootTest {
 
     @Autowired
     private RedisStockService redisStockService;
@@ -43,50 +19,37 @@ class RedisStockServiceTest {
 
     @BeforeEach
     void setUp() {
-        // 테스트 전 Redis 데이터 초기화
         redisTemplate.getConnectionFactory().getConnection().serverCommands().flushAll();
     }
 
     @Test
     @DisplayName("Lua 스크립트를 통해 정확히 요청한 수량만큼 재고가 차감되고 남은 재고를 반환한다.")
     void reserveStock_Success() {
-        // Given
         Long goodsId = 1L;
         redisStockService.initStock(goodsId, 10);
 
-        // When
         Long result = redisStockService.reserveStock(goodsId, 3);
 
-        // Then
-        assertThat(result).isEqualTo(7L); // 10 - 3 = 7
-        String currentStock = redisTemplate.opsForValue().get("goods:stock:" + goodsId);
-        assertThat(currentStock).isEqualTo("7");
+        assertThat(result).isEqualTo(7L);
+        assertThat(redisTemplate.opsForValue().get("goods:stock:" + goodsId)).isEqualTo("7");
     }
 
     @Test
     @DisplayName("남은 재고보다 많은 수량을 차감 시도하면 -1을 반환한다.")
     void reserveStock_Fail_NotEnoughStock() {
-        // Given
         Long goodsId = 1L;
-        redisStockService.initStock(goodsId, 2); // 재고 2개
+        redisStockService.initStock(goodsId, 2);
 
-        // When
-        Long result = redisStockService.reserveStock(goodsId, 3); // 3개 차감 시도
+        Long result = redisStockService.reserveStock(goodsId, 3);
 
-        // Then
         assertThat(result).isEqualTo(-1L);
     }
 
     @Test
     @DisplayName("Redis에 재고 키가 없으면 -2를 반환한다.")
     void reserveStock_Fail_KeyNotFound() {
-        // Given: initStock 없이 바로 차감 시도
-        Long goodsId = 99L;
+        Long result = redisStockService.reserveStock(99L, 1);
 
-        // When
-        Long result = redisStockService.reserveStock(goodsId, 1);
-
-        // Then
         assertThat(result).isEqualTo(-2L);
     }
 }
