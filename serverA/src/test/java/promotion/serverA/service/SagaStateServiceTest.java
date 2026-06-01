@@ -9,10 +9,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import promotion.serverA.dto.SagaStateData;
 
-import java.time.Duration;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,12 +33,8 @@ class SagaStateServiceTest {
     @Mock
     private HashOperations<String, Object, Object> hashOperations;
 
-    @Mock
-    private ValueOperations<String, String> valueOperations;
-
     private final String orderId = "trace-123";
     private final String stateKey = "saga:state:" + orderId;
-    private final String holdKey = "saga:hold:" + orderId;
 
     @BeforeEach
     void setUp() {
@@ -48,18 +42,16 @@ class SagaStateServiceTest {
     }
 
     @Test
-    @DisplayName("초기화 시 Redis Hash와 소프트 홀드 키를 정상 저장한다")
+    @DisplayName("초기화 시 Redis Hash에 SagaState를 정상 저장한다")
     void initSagaState_success() {
         // given
         given(redisTemplate.opsForHash()).willReturn(hashOperations);
-        given(redisTemplate.opsForValue()).willReturn(valueOperations);
 
         // when
         sagaStateService.initSagaState(orderId, 1L, 10L, 100L, 2);
 
         // then
         verify(hashOperations).putAll(eq(stateKey), any(Map.class));
-        verify(valueOperations).set(eq(holdKey), eq("HOLDING"), any(Duration.class));
     }
 
     @Test

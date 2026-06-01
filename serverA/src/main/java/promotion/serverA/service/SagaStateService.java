@@ -6,7 +6,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import promotion.serverA.dto.SagaStateData;
 
-import java.time.Duration;
 import java.util.Map;
 
 @Service
@@ -17,7 +16,6 @@ public class SagaStateService {
     private final StringRedisTemplate redisTemplate;
 
     private static final String STATE_PREFIX = "saga:state:";
-    private static final String HOLD_PREFIX  = "saga:hold:";
 
     public void initSagaState(String orderId, Long orderEntityId, Long userId, Long goodsId, int quantity) {
         String stateKey = STATE_PREFIX + orderId;
@@ -31,9 +29,6 @@ public class SagaStateService {
                 "failed",                 "false",
                 "createdAt",              String.valueOf(System.currentTimeMillis())
         ));
-
-        // 소프트 홀드: 30초 TTL (스케줄러가 만료 여부 기준으로 활용)
-        redisTemplate.opsForValue().set(HOLD_PREFIX + orderId, "HOLDING", Duration.ofSeconds(30));
 
         log.info("[SagaState] 초기화 완료: orderId={}", orderId);
     }
@@ -89,7 +84,6 @@ public class SagaStateService {
 
     public void deleteSagaState(String orderId) {
         redisTemplate.delete(STATE_PREFIX + orderId);
-        redisTemplate.delete(HOLD_PREFIX + orderId);
     }
 
     private boolean isBothCompleted(String orderId) {
