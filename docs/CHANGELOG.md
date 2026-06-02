@@ -4,6 +4,26 @@
 
 ---
 
+## v1.1.0 — 2026-06-02
+
+> Saga EXPIRED 상태 모니터링 강화 및 구매 API 반환 타입 개선
+
+### ✨ New Features
+- Saga EXPIRED 상태 처리 카운터 메트릭 및 P1 알람 추가 (58d863d)
+
+### ♻️ Refactor
+- 구매 API 반환 타입을 orderId 포함 DTO로 변경 (4458e0d)
+- 사용하지 않는 Redis hold TTL 키 제거 (a0635bd)
+
+### 🔧 Chore / Docs
+- 주문 상태 폴링 방식 변경에 따른 README.md 및 arch-snapshot.md 수정 (9892cae)
+- 불필요한 port.md 제거 및 README.md 오류 수정 (378cafa)
+
+---
+Full diff: `git log v1.0.1..HEAD --oneline`
+
+---
+
 ## v1.0.1 — 2026-05-31
 
 > v1.0.0 이후 안정성 보강 및 인프라 개선 패치. Redis 롤백 처리 강화, Flyway 마이그레이션 도입, 테스트 환경 고도화.
