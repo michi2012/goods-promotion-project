@@ -51,7 +51,7 @@ sequenceDiagram
 
     K->>A: PurchaseKafkaConsumer 소비
     A->>A: Order 저장(PENDING), DB 재고 차감
-    A->>A: SagaState 초기화(Redis Hash, hold TTL 10m)
+    A->>A: SagaState 초기화(Redis Hash, hold TTL 3m)
     A->>K: Outbox→CDC→ payment-request
     A->>K: Outbox→CDC→ order-status-update(PENDING)
 

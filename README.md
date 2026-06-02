@@ -132,7 +132,7 @@ sequenceDiagram
     A->>A: 재고선점(Redis Lua DECRBY)
     A->>K: purchase_events 발행 (직접, 비동기 — 실패 시 whenComplete 콜백에서 Redis 롤백)
     A-->>C: 202 Accepted
-    Note right of C: serverB 주문 상태 api 폴링 <br/>1-2s 후 시작 · NOT_FOUND → 처리 중 유지<br/>FAILED / EXPIRED 수신 시 실패 표시 (최대 ~3분)
+    Note right of C: serverB GET /api/v1/orders/{orderId}/status 폴링<br/>· 초기 대기 2s — Kafka 소비 전 NOT_FOUND 낭비 방지<br/>· Exponential Backoff + Jitter: 2→4→8→16→32s (최대 6회)<br/>· NOT_FOUND / PENDING → 처리 중 유지<br/>· PAID → 성공 종료 / FAILED·EXPIRED → 실패 종료<br/>· 60s 내 미확정 시 폴링 중단 → "주문 내역에서 확인" 안내<br/>· Saga 타임아웃(3분) 내 미완료 건은 EXPIRED로 자동 처리됨
 
     K->>A: PurchaseKafkaConsumer 소비
     A->>A: Order 저장(PENDING), DB 재고 차감
