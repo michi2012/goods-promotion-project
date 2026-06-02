@@ -4,6 +4,7 @@ import com.fasterxml.uuid.Generators;
 import lombok.extern.slf4j.Slf4j;
 import promotion.serverA.dto.PurchaseMessage;
 import promotion.serverA.dto.request.PurchaseRequest;
+import promotion.serverA.dto.response.PurchaseResponse;
 import promotion.serverA.service.PromotionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,7 @@ public class PromotionController {
     private final PromotionService promotionService;
 
     @PostMapping("/purchase")
-    public ResponseEntity<String> purchase(@Valid @RequestBody PurchaseRequest request) {
+    public ResponseEntity<PurchaseResponse> purchase(@Valid @RequestBody PurchaseRequest request) {
         String orderId = Generators.timeBasedEpochGenerator().generate().toString();
 
         log.info("[주문 수신] TraceId: {} | UserId: {} | GoodsId: {} | 결제수단: {}",
@@ -33,7 +34,7 @@ public class PromotionController {
         promotionService.acceptPurchase(message);
 
         return ResponseEntity.accepted()
-                             .body("처리 대기중입니다. 잠시 뒤 확인해주세요.");
+                             .body(new PurchaseResponse(orderId, "처리 대기중입니다. 잠시 뒤 확인해주세요."));
     }
 
 }
