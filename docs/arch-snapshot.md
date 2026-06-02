@@ -51,7 +51,7 @@ sequenceDiagram
 
     K->>A: PurchaseKafkaConsumer 소비
     A->>A: Order 저장(PENDING), DB 재고 차감
-    A->>A: SagaState 초기화(Redis Hash, hold TTL 3m)
+    A->>A: SagaState 초기화(Redis Hash)
     A->>K: Outbox→CDC→ payment-request
     A->>K: Outbox→CDC→ order-status-update(PENDING)
 
@@ -130,8 +130,7 @@ sequenceDiagram
 |------|---------|------------|-----|------|
 | serverA | `goods:stock:{goodsId}` | 재고 수량(Long) | 없음 | 재고 선점 원본 (주 저장소) |
 | serverA | `user:purchase:{userId}:{goodsId}` | "1" (플래그) | 1시간 | 중복 구매 방어 |
-| serverA | `saga:state:{orderId}` | Hash(userId, goodsId, quantity, 완료플래그 등) | 없음 (명시적 삭제) | Saga 진행 상태 추적 |
-| serverA | `saga:hold:{orderId}` | "HOLDING" | 10분 | Saga 소프트 홀드 (타임아웃 감지용) |
+| serverA | `saga:state:{orderId}` | Hash(userId, goodsId, quantity, 완료플래그, createdAt 등) | 없음 (명시적 삭제) | Saga 진행 상태 추적. 30초마다 SCAN하여 createdAt 기준 3분 초과 시 EXPIRED 처리 |
 | serverB | `order:view:{orderId}:status` | 상태 문자열 | 없음 | 주문 상태 읽기 뷰 |
 | serverB | `goods:view:stock:{goodsId}` | 재고 수량 문자열 | 없음 | 재고 읽기 뷰 |
 

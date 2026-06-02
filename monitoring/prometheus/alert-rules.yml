@@ -11,7 +11,17 @@
           summary: "🚨 [P0] 치명적 수기정산 발생 (에러 발생: {{ printf \"%.0f\" $value }}건)"
           description: "PG사 결제는 성공했으나 환불 보상 트랜잭션까지 연달아 실패하여 수기 정산이 필요한 상태."
 
-      # 2. [P1] 인스턴스 다운 또는 가용성 붕괴
+      # 2. [P1] Saga EXPIRED — 인프라 타임아웃으로 인한 구매 실패
+      - alert: SagaExpired
+        expr: increase(saga_expired_total[1m]) > 0
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] Saga 타임아웃 EXPIRED 발생 ({{ printf \"%.0f\" $value }}건)"
+          description: "3분 내 결제 Saga가 완료되지 않아 EXPIRED 처리됨. PG사 지연·Kafka 렉·서버 다운 등 인프라 장애가 원인일 수 있음."
+
+      # 3. [P1] 인스턴스 다운 또는 가용성 붕괴
       - alert: InstanceDownOrAvailabilityDrop
         expr: |
           (
@@ -31,7 +41,7 @@
           summary: "🔥 [P1] 가용성 붕괴 (현재 가용성: {{ printf \"%.2f\" $value }}%)"
           description: "인스턴스 다운 또는 HTTP 5xx 급증으로 서비스 가용성이 99.9% SLO 이하로 떨어진 상태."
 
-      # 3. [P1] 에러 예산 소진 속도 급증
+      # 4. [P1] 에러 예산 소진 속도 급증
       - alert: HighErrorBurnRate
         expr: ((sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))) / 0.001) > 14.4
         for: 10s
@@ -42,7 +52,7 @@
           summary: "🔥 [P1] 에러 예산 소진 속도 급증 (소진 속도: {{ printf \"%.1f\" $value }}x)"
           description: "현재 에러 소진 속도가 허용치의 14.4배를 초과하여 SLO 위반이 임박한 상태."
 
-      # 4. [P2] 자동 환불 방어율 하락
+      # 5. [P2] 자동 환불 방어율 하락
       - alert: FallbackSuccessRateDrop
         expr: (sum(increase(business_payment_pg_refund_request_total[5m])) / (sum(increase(business_payment_pg_refund_request_total[5m])) + sum(increase(business_payment_pg_refund_fatal_total[5m]))) * 100) < 100
         for: 10s
@@ -55,7 +65,7 @@
 
   - name: Tier2-Application-Performance
     rules:
-      # 5. [P2] 결제 API 지연 시간 폭증
+      # 6. [P2] 결제 API 지연 시간 폭증
       - alert: PaymentHighLatency
         expr: |
           (histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le)) > 0.5)
@@ -69,7 +79,7 @@
           summary: "⚠️ [P2] 결제 p95 지연 (현재: {{ printf \"%.2f\" $value }}s)"
           description: "결제 API의 p95 응답 시간이 500ms 임계치를 초과하여 외부 PG사 지연 또는 내부 DB 병목이 의심되는 상태."
 
-      # 6. [P2] 비정상적인 트래픽 스파이크
+      # 7. [P2] 비정상적인 트래픽 스파이크
       - alert: TrafficSpikeDetected
         expr: |
           (
@@ -87,7 +97,7 @@
           summary: "⚠️ [P2] 결제 트래픽 스파이크 평균 대비 3배 이상 폭증 (현재: {{ printf \"%.0f\" $value }} RPS)"
           description: "현재 RPS가 1시간 평균 대비 3배 이상 폭증하여 봇 공격 또는 마케팅 이벤트로 인한 트래픽 급증이 의심되는 상태."
 
-      # 7. [P1] HTTP 5xx 에러율 급증 - 시스템 레벨 Critical (min 10 req/min 미만 시 비발화)
+      # 8. [P1] HTTP 5xx 에러율 급증 - 시스템 레벨 Critical (min 10 req/min 미만 시 비발화)
       - alert: SystemErrorRateCritical
         expr: |
           (
@@ -106,7 +116,7 @@
           summary: "🔥 [P1] HTTP 5xx 에러율 급증 (현재: {{ printf \"%.1f\" $value }}%)"
           description: "HTTP 5xx 에러율이 5%를 1분간 초과. DB 락·톰캣 스레드 포화·NPE 등 시스템 레벨 장애가 의심되는 상태."
 
-      # 8. [P2] HTTP 5xx 에러율 상승 추세 - 시스템 레벨 Warning (min 10 req/min 미만 시 비발화)
+      # 9. [P2] HTTP 5xx 에러율 상승 추세 - 시스템 레벨 Warning (min 10 req/min 미만 시 비발화)
       - alert: SystemErrorRateWarning
         expr: |
           (
@@ -127,7 +137,7 @@
 
   - name: Tier3-System-Saturation
     rules:
-      # 9. [P1] JVM Heap 메모리 포화
+      # 10. [P1] JVM Heap 메모리 포화
       - alert: JvmHeapMemoryHigh
         expr: (sum(jvm_memory_used_bytes{area="heap"}) / sum(jvm_memory_max_bytes{area="heap"} > 0 or jvm_memory_committed_bytes{area="heap"}) * 100) > 90
         for: 10s
@@ -138,7 +148,7 @@
           summary: "🔥 [P1] JVM Heap 포화 (현재 사용률: {{ printf \"%.1f\" $value }}%)"
           description: "JVM Heap 사용률이 90%를 초과하여 GC 과부하 및 OOM으로 인한 서비스 중단이 임박한 상태."
 
-      # 10. [P2] 시스템 CPU 포화
+      # 11. [P2] 시스템 CPU 포화
       - alert: SystemCpuHigh
         expr: (system_cpu_usage * 100) > 80
         for: 10s
@@ -151,7 +161,7 @@
 
   - name: Tier4-Infrastructure
     rules:
-      # 11. [P2] 카프카 컨슈머 렉 임계치 초과
+      # 12. [P2] 카프카 컨슈머 렉 임계치 초과
       - alert: KafkaConsumerLagHigh
         expr: sum(kafka_consumergroup_lag) by (consumergroup, topic) > 500
         for: 1m
@@ -162,7 +172,7 @@
           summary: "⚠️ [P2] 카프카 컨슈머 렉 임계치 초과 (그룹: {{ $labels.consumergroup }}, 토픽: {{ $labels.topic }}, 렉: {{ printf \"%.0f\" $value }}건)"
           description: "{{ $labels.consumergroup }} 그룹의 {{ $labels.topic }} 토픽 컨슈머 렉이 500건을 초과하여 소비자 처리 지연 또는 프로듀서 급증이 발생한 상태."
 
-      # 12. [P1] 결제 PG 시스템 장애 에러율 급증 Critical (min 1 req/min 미만 시 비발화)
+      # 13. [P1] 결제 PG 시스템 장애 에러율 급증 Critical (min 1 req/min 미만 시 비발화)
       - alert: PaymentBusinessErrorRateCritical
         expr: |
           (
@@ -181,7 +191,7 @@
           summary: "🔥 [P1] 결제 PG 시스템 장애 에러율 급증 (현재: {{ printf \"%.1f\" $value }}%)"
           description: "PG 시스템 장애(서킷브레이커 개방·타임아웃) 에러율이 5%를 1분간 초과. 비즈니스 거절(잔액부족 등)은 제외된 순수 인프라 장애 지표."
 
-      # 13. [P2] 결제 PG 시스템 장애 에러율 상승 추세 Warning (min 1 req/min 미만 시 비발화)
+      # 14. [P2] 결제 PG 시스템 장애 에러율 상승 추세 Warning (min 1 req/min 미만 시 비발화)
       - alert: PaymentBusinessErrorRateWarning
         expr: |
           (
@@ -200,7 +210,7 @@
           summary: "⚠️ [P2] 결제 PG 시스템 장애 에러율 상승 추세 (현재: {{ printf \"%.1f\" $value }}%)"
           description: "PG 시스템 장애 에러율이 2%를 3분간 지속. 비즈니스 거절(잔액부족 등)은 제외된 순수 인프라 장애 지표."
 
-      # 14. [P0] 환불 치명 오류
+      # 15. [P0] 환불 치명 오류
       - alert: RefundFatalError
         expr: increase(business_payment_pg_refund_fatal_total[1m]) > 0
         labels:
@@ -210,7 +220,7 @@
           summary: "🚨 [P0] PG 환불 치명 오류 발생 ({{ printf \"%.0f\" $value }}건)"
           description: "PG사에 환불 요청이 전달됐으나 취소 처리까지 실패하여 수기 정산이 필요한 상태."
 
-      # 15. [P1] MySQL 인스턴스 다운
+      # 16. [P1] MySQL 인스턴스 다운
       - alert: MySQLDown
         expr: mysql_up == 0
         for: 10s
@@ -221,7 +231,7 @@
           summary: "🔥 [P1] MySQL 인스턴스 다운 ({{ $labels.instance }})"
           description: "{{ $labels.instance }} MySQL 인스턴스가 다운되어 해당 서비스의 DB 접근이 불가한 상태."
 
-      # 16. [P2] MySQL 슬로우 쿼리 급증
+      # 17. [P2] MySQL 슬로우 쿼리 급증
       - alert: MySQLSlowQueryHigh
         expr: rate(mysql_global_status_slow_queries[1m]) > 1
         for: 2m
@@ -232,7 +242,7 @@
           summary: "⚠️ [P2] MySQL 슬로우 쿼리 급증 ({{ $labels.instance }}, {{ printf \"%.1f\" $value }}/s)"
           description: "{{ $labels.instance }}에서 슬로우 쿼리가 2분간 1건/s를 초과하여 인덱스 누락 또는 풀 테이블 스캔이 의심되는 상태."
 
-      # 17. [P2] MySQL 컨테이너 CPU 포화
+      # 18. [P2] MySQL 컨테이너 CPU 포화
       - alert: MySQLCpuHigh
         expr: sum by (name) (rate(container_cpu_usage_seconds_total{name=~"promotion-mysql.*"}[1m])) * 100 > 80
         for: 2m
@@ -243,7 +253,7 @@
           summary: "⚠️ [P2] MySQL 컨테이너 CPU 포화 ({{ $labels.name }}, {{ printf \"%.1f\" $value }}%)"
           description: "{{ $labels.name }} MySQL 컨테이너 CPU 사용률이 80%를 2분간 초과하여 쿼리 폭증 또는 풀 테이블 스캔이 의심되는 상태."
 
-      # 18. [P2] MySQL 컨테이너 메모리 포화
+      # 19. [P2] MySQL 컨테이너 메모리 포화
       - alert: MySQLMemoryHigh
         expr: >
           container_memory_working_set_bytes{name=~"promotion-mysql.*"}
@@ -259,7 +269,7 @@
 
   - name: Tier5-Resilience
     rules:
-      # 19. [P1] 서킷브레이커 OPEN 상태
+      # 20. [P1] 서킷브레이커 OPEN 상태
       - alert: CircuitBreakerOpen
         expr: resilience4j_circuitbreaker_state{state="open"} == 1
         for: 10s
@@ -270,7 +280,7 @@
           summary: "🔥 [P1] 서킷브레이커 OPEN ({{ $labels.name }})"
           description: "{{ $labels.name }} 서킷브레이커가 OPEN 상태로 전환되어 해당 외부 연동(PG사 등)이 차단된 상태."
 
-      # 20. [P2] 서킷브레이커 HALF_OPEN 상태 지속
+      # 21. [P2] 서킷브레이커 HALF_OPEN 상태 지속
       - alert: CircuitBreakerHalfOpen
         expr: resilience4j_circuitbreaker_state{state="half_open"} == 1
         for: 30s
@@ -281,7 +291,7 @@
           summary: "⚠️ [P2] 서킷브레이커 HALF_OPEN 지속 ({{ $labels.name }})"
           description: "{{ $labels.name }} 서킷브레이커가 HALF_OPEN 상태에서 30초 이상 지속되어 외부 서비스 완전 복구 여부가 불확실한 상태."
 
-      # 21. [P1] DB 커넥션 풀 포화
+      # 22. [P1] DB 커넥션 풀 포화
       - alert: DatabaseConnectionPoolExhaustion
         expr: hikaricp_connections_pending > 0
         for: 30s
@@ -292,7 +302,7 @@
           summary: "🔥 [P1] DB 커넥션 풀 대기 발생 (풀: {{ $labels.pool }}, 대기: {{ printf \"%.0f\" $value }})"
           description: "HikariCP 커넥션 풀이 포화 상태로 대기 요청이 발생하여 슬로우 쿼리 또는 커넥션 누수가 의심되는 상태."
 
-      # 22. [P1] Redis 다운
+      # 23. [P1] Redis 다운
       - alert: RedisDown
         expr: redis_up == 0
         for: 10s

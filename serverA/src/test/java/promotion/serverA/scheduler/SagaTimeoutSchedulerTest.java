@@ -1,5 +1,7 @@
 package promotion.serverA.scheduler;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +15,7 @@ import promotion.serverA.service.SagaOrchestratorService;
 import promotion.serverA.service.SagaStateService;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
 
@@ -32,6 +35,12 @@ class SagaTimeoutSchedulerTest {
     private SagaOrchestratorService sagaOrchestratorService;
 
     @Mock
+    private MeterRegistry meterRegistry;
+
+    @Mock
+    private Counter sagaExpiredCounter;
+
+    @Mock
     private Cursor<String> cursor;
 
     @Test
@@ -49,12 +58,14 @@ class SagaTimeoutSchedulerTest {
 
         given(sagaStateService.isFailed(orderId)).willReturn(false);
         given(sagaStateService.getCreatedAt(orderId)).willReturn(expiredTime);
+        given(meterRegistry.counter(anyString())).willReturn(sagaExpiredCounter);
 
         // when
         sagaTimeoutScheduler.checkTimeouts();
 
         // then
         verify(sagaOrchestratorService, times(1)).handleSagaFailure(orderId, "TIMEOUT");
+        verify(sagaExpiredCounter, times(1)).increment();
     }
 
     @Test

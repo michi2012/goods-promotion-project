@@ -1,5 +1,6 @@
 package promotion.serverA.scheduler;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.Cursor;
@@ -18,6 +19,7 @@ public class SagaTimeoutScheduler {
     private final StringRedisTemplate redisTemplate;
     private final SagaStateService sagaStateService;
     private final SagaOrchestratorService sagaOrchestratorService;
+    private final MeterRegistry meterRegistry;
 
     private static final long TIMEOUT_MS = 3 * 60 * 1000L;
     private static final String STATE_PATTERN = "saga:state:*";
@@ -41,6 +43,7 @@ public class SagaTimeoutScheduler {
                 if ((now - createdAt) >= TIMEOUT_MS) {
                     log.warn("[SagaTimeout] 3분 초과 미완료 Saga 탐지: orderId={}", orderId);
                     sagaOrchestratorService.handleSagaFailure(orderId, "TIMEOUT");
+                    meterRegistry.counter("saga.expired.total").increment();
                     expiredCount++;
                 }
             }
