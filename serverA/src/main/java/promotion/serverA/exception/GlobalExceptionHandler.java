@@ -24,6 +24,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getStatus()).body(response);
     }
 
+    @ExceptionHandler(SoldOutException.class)
+    public ResponseEntity<ErrorResponse> handleSoldOut(SoldOutException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                             .body(new ErrorResponse(400, e.getErrorCode(), e.getMessage()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException e) {
         log.warn("⚠️ 비즈니스 에러: [{}] {}", e.getErrorCode(), e.getMessage());

@@ -90,7 +90,7 @@ management:
         "http.server.requests": true # 히스토그램 버킷 생성 (p95, p99용)
   tracing:
     sampling:
-      probability: 1.0 # 테스트용으로 모든 트레이스 수집
+      probability: 0.01
   otlp:
     tracing:
       endpoint: http://otel-collector:4318/v1/traces

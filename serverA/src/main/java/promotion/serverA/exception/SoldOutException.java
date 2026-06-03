@@ -5,4 +5,9 @@ public class SoldOutException extends BusinessException {
     public SoldOutException() {
         super("상품이 품절되었습니다.", "SOLD_OUT");
     }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+        return this;
+    }
 }

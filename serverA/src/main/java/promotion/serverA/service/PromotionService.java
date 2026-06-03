@@ -44,7 +44,7 @@ public class PromotionService {
         }
         if (stockResult == -1L) {
             redisStockService.releaseUserPurchase(message.userId(), message.goodsId());
-            log.info("[품절] 재고 부족 | GoodsId: {}", message.goodsId());
+            log.debug("[품절] 재고 부족 | GoodsId: {}", message.goodsId());
             throw new SoldOutException();
         }
         publishStockSnapshot(message.goodsId());
@@ -63,7 +63,7 @@ public class PromotionService {
                                              message.orderId(), message.goodsId(), message.userId(), message.quantity(), redisEx.getMessage());
                                  }
                              } else {
-                                 log.info("[구매 요청 접수 완료] TraceId: {}", message.orderId());
+                                 log.debug("[구매 요청 접수 완료] TraceId: {}", message.orderId());
                              }
                          });
         } catch (JsonProcessingException e) {

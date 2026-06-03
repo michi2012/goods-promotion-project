@@ -26,7 +26,7 @@ public class PromotionController {
     public ResponseEntity<PurchaseResponse> purchase(@Valid @RequestBody PurchaseRequest request) {
         String orderId = Generators.timeBasedEpochGenerator().generate().toString();
 
-        log.info("[주문 수신] TraceId: {} | UserId: {} | GoodsId: {} | 결제수단: {}",
+        log.debug("[주문 수신] TraceId: {} | UserId: {} | GoodsId: {} | 결제수단: {}",
                 orderId, request.userId(), request.goodsId(), request.paymentMethod());
 
         PurchaseMessage message = PurchaseMessage.from(request, orderId);

@@ -20,6 +20,6 @@ public class StockSnapshotConsumer {
     public void consume(String payload) throws Exception {
         StockSnapshotMessage msg = objectMapper.readValue(payload, StockSnapshotMessage.class);
         orderQueryService.updateStockView(msg.goodsId(), msg.remainingStock());
-        log.info("[StockView] 재고 뷰 업데이트: goodsId={}, remaining={}", msg.goodsId(), msg.remainingStock());
+        log.debug("[StockView] 재고 뷰 업데이트: goodsId={}, remaining={}", msg.goodsId(), msg.remainingStock());
     }
 }

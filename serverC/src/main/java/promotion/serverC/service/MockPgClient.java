@@ -36,14 +36,14 @@ public class MockPgClient implements PgClient {
     @Override
     @CircuitBreaker(name = "pgClientCb", fallbackMethod = "fallbackProcessPayment")
     public boolean processPayment(PurchaseMessage message) {
-        log.info("[MockPgClient] PG 결제 요청 처리 시작: orderId={}", message.orderId());
+        log.debug("[MockPgClient] PG 결제 요청 처리 시작: orderId={}", message.orderId());
         try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
         if (Math.random() < 0.01) {
             log.warn("🚨 [MockPgClient] 결제 실패: orderId={}", message.orderId());
             return false;
         }
-        log.info("✅ [MockPgClient] 결제 승인 성공: orderId={}", message.orderId());
+        log.debug("✅ [MockPgClient] 결제 승인 성공: orderId={}", message.orderId());
         return true;
     }
 

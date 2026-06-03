@@ -34,6 +34,8 @@
         <neverBlock>true</neverBlock>
     </appender>
 
+    <logger name="org.apache.kafka" level="WARN"/>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
         <appender-ref ref="ASYNC_FILE" />

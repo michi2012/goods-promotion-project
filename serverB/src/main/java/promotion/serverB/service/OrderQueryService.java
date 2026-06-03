@@ -52,7 +52,7 @@ public class OrderQueryService {
 
     public void updateOrderStatus(String orderId, String status) {
         redisTemplate.opsForValue().set(ORDER_VIEW_PREFIX + orderId + ":status", status);
-        log.info("[OrderView] 주문 상태 업데이트: orderId={}, status={}", orderId, status);
+        log.debug("[OrderView] 주문 상태 업데이트: orderId={}, status={}", orderId, status);
     }
 
     public String getOrderStatus(String orderId) {
