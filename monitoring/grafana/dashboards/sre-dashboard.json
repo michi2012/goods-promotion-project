@@ -49,7 +49,7 @@
       "type": "row"
     },
     {
-      "title": "1. [SLI] 결제 API 성공률 (Availability)",
+      "title": "1. [SLI] 결제 Saga 완료율 (SLI)",
       "type": "gauge",
       "gridPos": {
         "h": 7,
@@ -59,7 +59,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(rate(http_server_requests_seconds_count{status!~\"5..\",application=~\"$application\"}[1m])) or sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[1m])) * 0) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[1m])) * 100"
+          "expr": "(sum(rate(business_payment_success_total{application=~\"$application\"}[1m])) / sum(rate(business_payment_attempts_total{application=~\"$application\"}[1m])) * 100) or vector(100)"
         }
       ],
       "fieldConfig": {
@@ -97,7 +97,7 @@
       },
       "targets": [
         {
-          "expr": "((sum(rate(http_server_requests_seconds_count{status=~\"5..\",application=~\"$application\"}[5m])) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[5m]))) / 0.001) or vector(0)"
+          "expr": "saga:payment_error_rate:ratio_rate5m / 0.001 or vector(0)"
         }
       ],
       "fieldConfig": {
@@ -135,7 +135,7 @@
       },
       "targets": [
         {
-          "expr": "100 - ((sum(rate(http_server_requests_seconds_count{status=~\"5..\",application=~\"$application\"}[30m])) / sum(rate(http_server_requests_seconds_count{application=~\"$application\"}[30m]))) / 0.001 * 100) or vector(100)"
+          "expr": "(100 - (saga:payment_error_rate:ratio_rate30d / 0.001 * 100)) or vector(100)"
         }
       ],
       "fieldConfig": {
@@ -627,7 +627,7 @@
     },
     {
       "type": "stat",
-      "title": "23. [MySQL] DB 상태 (Up/Down)",
+      "title": "17. [MySQL] DB 상태 (Up/Down)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -682,7 +682,7 @@
     },
     {
       "type": "timeseries",
-      "title": "24. [MySQL] 연결 스레드 수",
+      "title": "18. [MySQL] 연결 스레드 수",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -734,7 +734,7 @@
     },
     {
       "type": "timeseries",
-      "title": "25. [MySQL] 슬로우 쿼리 (rate/min)",
+      "title": "19. [MySQL] 슬로우 쿼리 (rate/min)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -786,7 +786,7 @@
     },
     {
       "type": "timeseries",
-      "title": "26. [MySQL] InnoDB 버퍼풀 히트율",
+      "title": "20. [MySQL] InnoDB 버퍼풀 히트율",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -837,7 +837,7 @@
       }
     },
     {
-      "title": "27. [MySQL] CPU 사용률",
+      "title": "21. [MySQL] CPU 사용률",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -880,7 +880,7 @@
       }
     },
     {
-      "title": "28. [MySQL] 메모리 사용률",
+      "title": "22. [MySQL] 메모리 사용률",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -936,7 +936,7 @@
       "type": "row"
     },
     {
-      "title": "17. [결제] 시도 / 성공 / 실패 (RPS)",
+      "title": "23. [결제] 시도 / 성공 / 실패 (RPS)",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -1002,7 +1002,7 @@
       }
     },
     {
-      "title": "18. [결제] 성공률",
+      "title": "24. [결제] 성공률",
       "type": "gauge",
       "gridPos": {
         "h": 7,
@@ -1040,7 +1040,7 @@
       }
     },
     {
-      "title": "19. [환불] 요청 건수 & 처리 지연",
+      "title": "25. [환불] 요청 건수 & 처리 지연",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
@@ -1083,7 +1083,7 @@
       "type": "row"
     },
     {
-      "title": "20. [방어 상태] 외부 API 연동 상태 (OPEN = 접속 차단 중)",
+      "title": "26. [방어 상태] 외부 API 연동 상태 (OPEN = 접속 차단 중)",
       "type": "stat",
       "gridPos": {
         "h": 7,
@@ -1131,7 +1131,7 @@
       }
     },
     {
-      "title": "21. [에러율] 외부 API 호출 실패율 (Failure Rate %)",
+      "title": "27. [에러율] 외부 API 호출 실패율 (Failure Rate %)",
       "description": "50%를 초과하면 서킷이 OPEN되어 트래픽이 차단됩니다. (-1%는 아직 초기 데이터가 부족한 상태를 의미합니다)",
       "type": "gauge",
       "gridPos": {
@@ -1171,7 +1171,7 @@
       }
     },
     {
-      "title": "22. [호출 통계] 서킷 브레이커 트래픽 제어 현황",
+      "title": "28. [호출 통계] 서킷 브레이커 트래픽 제어 현황",
       "description": "외부 API로 보낸 요청의 최종 결과입니다. '차단(Ignored)'이 급증하면 서킷 브레이커가 우리 서버를 방어하고 있다는 뜻입니다.",
       "type": "timeseries",
       "gridPos": {

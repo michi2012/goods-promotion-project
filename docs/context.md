@@ -1,20 +1,41 @@
-# 맥락 노트: arch-snapshot 문서 정확성 수정 + Saga EXPIRED 메트릭 추가
+# 맥락 노트: 모니터링 오류 수정
 
 ## 왜 이 방식을 선택했는가
-- `saga:hold` 키는 `a0635bd` 커밋에서 "사용하지 않는 Redis hold ttl 키"로 제거됨
-- 3분 타임아웃 판단은 `saga:state:{orderId}` 해시의 `createdAt` 필드 기반으로 동작 (SagaTimeoutScheduler)
-- `saga.expired.total` Counter는 태그 없이 단순 카운터로 구현 — 현재 단일 타임아웃 경로만 존재하므로 태그 불필요
+
+### SLI 타겟: HTTP → Saga 기반
+결제 흐름이 HTTP 202 반환 후 Kafka 비동기로 처리되므로 HTTP 2xx는 "요청 접수 여부"만 반영한다.
+PAID/FAILED/EXPIRED는 Saga orchestrator가 결정하므로 진짜 결제 성공률은
+`business_payment_success_total / business_payment_attempts_total`이다.
+InstanceDownOrAvailabilityDrop 알람은 인프라 가용성 체크 목적이므로 HTTP 기반 유지.
+
+### Recording Rules 별도 파일 분리
+recording-rules.yml을 alert-rules.yml과 분리한 이유: 역할이 다르다.
+recording rule은 "메트릭 사전 계산"이고 alert rule은 "조건 감시"다.
+같은 파일에 두면 추후 rule 수가 늘어날 때 관리가 어려워진다.
+
+### Burn Rate 이중 윈도우 (1h+5m / 6h+30m)
+단일 5m 윈도우는 일시적 스파이크에 과민반응하고 장기 누수를 놓친다.
+Google SRE 표준: 두 조건을 AND로 묶어 "긴 윈도우가 확인해주는 신호만 발화"하도록 설계.
+- Fast: 1h > 14.4x AND 5m > 14.4x → 에러 예산 1시간 내 소진 예상
+- Slow: 6h > 6x AND 30m > 6x → 에러 예산 5일 내 소진 예상
+
+### for 시간 조정
+- JvmHeapMemoryHigh 10s → 1m: GC 직후 Heap이 순간 90% 찍고 내려오는 패턴 존재. 10s면 정상 GC에도 발화.
+- InstanceDownOrAvailabilityDrop 10s → 1m: 재배포·재시작 시 일시적 5xx 스파이크 방어.
+- DatabaseConnectionPoolExhaustion 30s → 1m: 순간 대기는 정상 범위.
 
 ## 검토했으나 채택하지 않은 대안
-### saga:hold 행 TTL만 수정
-- 무엇: 10분 → 3분으로만 바꾸는 방법
-- 왜 안 썼나: saga:hold 키 자체가 코드에 존재하지 않아 문서가 더 부정확해짐
 
-### MeterRegistry 대신 SimpleMeterRegistry 사용 (테스트)
-- 무엇: 테스트에서 실제 SimpleMeterRegistry 인스턴스 주입
-- 왜 안 썼나: 기존 테스트가 @InjectMocks/@Mock 패턴 일관 사용 중 — 패턴 통일
+### 대안 A: recording rule을 alert-rules.yml 내부 그룹으로 추가
+- 무엇: 파일 추가 없이 같은 파일 상단에 recording rules 그룹 삽입
+- 왜 안 썼나: 역할 혼재. prometheus.yml 수정도 불필요해 간단하지만 장기 유지보수 비용이 높다
+
+### 대안 B: [7d] 슬라이딩으로 에러 예산 근사
+- 무엇: [30d] 대신 [7d] range를 사용해 데이터 부족 문제 회피
+- 왜 안 썼나: 사용자가 30d recording rule 방식을 명시적으로 요청
 
 ## 관련 파일/위치
-- `docs/arch-snapshot.md` — 전체 아키텍처 스냅샷 문서
-- `serverA/.../scheduler/SagaTimeoutScheduler.java` — saga:state:* SCAN, 3분 초과 EXPIRED 처리
-- `serverA/.../service/SagaStateService.java` — saga:state 해시 초기화(createdAt 포함) 및 조회
+- monitoring/prometheus/recording-rules.yml — Saga 에러율 5개 윈도우 사전 계산
+- monitoring/prometheus/alert-rules.yml — 알람 규칙 (recording rule 메트릭 참조)
+- monitoring/grafana/dashboards/sre-dashboard.json — Tier 1 SLI·Burn Rate·Error Budget 패널
+- monitoring/prometheus/prometheus.yml — rule_files 참조
