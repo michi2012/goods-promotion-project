@@ -59,7 +59,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(rate(business_payment_success_total{application=~\"$application\"}[1m])) / sum(rate(business_payment_attempts_total{application=~\"$application\"}[1m])) * 100) or vector(100)"
+          "expr": "clamp_max((sum(rate(business_payment_success_total{application=~\"$application\"}[1m])) / sum(rate(business_payment_attempts_total{application=~\"$application\"}[1m])) * 100) or vector(100), 100)"
         }
       ],
       "fieldConfig": {
