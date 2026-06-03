@@ -1,2 +1,2 @@
 rootProject.name = 'promotion-project'
-include 'serverA', 'serverB', 'serverC', 'mcp'
+include 'serverA', 'serverB', 'serverC', 'aiops'

@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: aiops
+  main:
+    banner-mode: off
+  threads:
+    virtual:
+      enabled: true
+  ai:
+    google:
+      genai:
+        api-key: ${AI_API_KEY}
+        chat:
+          options:
+            model: gemini-3.1-flash-lite
+
+server:
+  port: 8085
+
+observability:
+  loki:
+    url: http://loki:3100
+  tempo:
+    url: http://tempo:3200
+  prometheus:
+    url: http://prometheus:9090
+
+github:
+  owner: ${GITHUB_OWNER:michi2012}
+  repo: ${GITHUB_REPO:goods-promotion-project}
+
+slack:
+  webhook-url: ${SLACK_WEBHOOK_URL}
+
+management:
+  observations:
+    enable:
+      http:
+        server:
+          requests:
+            "[uri=/actuator/**]": false
+  endpoints:
+    web:
+      exposure:
+        include: prometheus, health, info
+  metrics:
+    distribution:
+      percentiles-histogram:
+        "http.server.requests": true
+  tracing:
+    sampling:
+      probability: 0.01
+  otlp:
+    tracing:
+      endpoint: http://otel-collector:4318/v1/traces
+
+logging:
+  level:
+    root: WARN
+    aiops.aiops: INFO

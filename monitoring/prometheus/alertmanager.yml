@@ -8,5 +8,5 @@ route:
 receivers:
 - name: 'aiops-agent'
   webhook_configs:
-  - url: 'http://mcp:8085/webhook/prometheus'
+  - url: 'http://aiops:8085/webhook/prometheus'
     send_resolved: true

@@ -1,59 +1,66 @@
-# 계획서: 모니터링 오류 수정 (SLI·Burn Rate·알람 정합성)
+# 계획서: aiops 모니터링 연동
 
 - 작성일: 2026-06-03
 
 ## 목표
-alert-rules.yml과 sre-dashboard.json에서 확인된 4개 오류(SLI 타겟 불일치, 중복 알람, 티어 배치 오류, 에러 예산 윈도우)와 2개 개선(Burn Rate 이중 윈도우, for 과민 반응)을 수정한다.
+aiops 서비스에 메트릭(Prometheus), 분산 트레이싱(OTLP/Tempo), 구조화 로그(Loki) 연동을 추가한다.
+기존 serverA/B/C와 동일한 스택·템플릿을 사용하되, aiops에 없는 DB/Resilience4j 관련 의존성은 제외한다.
 
 ## 성공 기준
-- [ ] Tier 1 SLI 패널이 HTTP 2xx 대신 Saga 완료율(business_payment_success_total / business_payment_attempts_total)을 표시한다
-- [ ] Burn Rate 알람이 1h+5m(14.4x) / 6h+30m(6x) 이중 윈도우로 동작하며 Saga 기반 recording rule을 사용한다
-- [ ] 에러 예산 패널이 30d recording rule 기반으로 계산된다
-- [ ] RefundFatalError 알람이 제거되어 중복 발화가 없다
-- [ ] RedisDown, DatabaseConnectionPoolExhaustion이 Tier4-Infrastructure 그룹에 있다
-- [ ] InstanceDownOrAvailabilityDrop, JvmHeapMemoryHigh, DatabaseConnectionPoolExhaustion의 for가 1m 이상이다
+- [ ] `./gradlew :aiops:build` 성공 (사용자 실행)
+- [ ] `aiops/build.gradle` 에 actuator, micrometer-prometheus, micrometer-tracing-bridge-otel, opentelemetry-exporter-otlp, logstash-logback-encoder 포함
+- [ ] `application.yaml` management 섹션에 prometheus 엔드포인트 노출, tracing sampling 0.01, OTLP endpoint 설정
+- [ ] `logback-spring.xml` 이 serverA 템플릿과 동일 구조 (CONSOLE + ASYNC_FILE, LogstashEncoder)
+- [ ] `prometheus.yml` 에 `aiops` scrape job 추가 (`aiops:8085`)
+- [ ] `docker-compose.yml` aiops 서비스에 `shared-logs:/logs` 볼륨, `TZ`, `MANAGEMENT_OTLP_TRACING_ENDPOINT`, `otel-collector` depends_on 추가
 
 ## 비범위 (Out of Scope)
-- prometheus.yml retention 설정 변경
-- InstanceDownOrAvailabilityDrop expr 변경 (HTTP 기반 인프라 가용성 알람으로 유지)
-- 대시보드 패널 레이아웃·색상·threshold 변경
-- Tier 6 명칭 통일
+- `datasource-micrometer-spring-boot` (DB 없음)
+- `resilience4j-micrometer` (Resilience4j 없음)
+- 커스텀 메트릭 추가 (기존 HTTP 자동 계측으로 충분)
+- Grafana 대시보드 패널 추가
 
 ## 단계별 작업 계획
 
-### 단계 1: recording-rules.yml 생성 + prometheus.yml 참조 추가
-- 변경 파일: monitoring/prometheus/recording-rules.yml (신규), monitoring/prometheus/prometheus.yml
-- 변경 내용: 5개 윈도우(5m·30m·1h·6h·30d) Saga 에러율 recording rule 작성. prometheus.yml rule_files에 경로 추가
-- 검증 방법: YAML 구조 육안 확인
-- 롤백 방법: 파일 삭제 + prometheus.yml rule_files 항목 제거
+### 단계 1: aiops/build.gradle 의존성 추가
+- 변경 파일: `aiops/build.gradle`
+- 변경 내용: actuator, micrometer-registry-prometheus, micrometer-tracing-bridge-otel, opentelemetry-exporter-otlp, logstash-logback-encoder:7.4 추가
+- 검증 방법: `./gradlew :aiops:dependencies --configuration runtimeClasspath` 로 의존성 트리 확인
+- 롤백 방법: 추가한 라인 제거
 - 예상 소요: 짧음
 
-### 단계 2: alert-rules.yml 수정
-- 변경 파일: monitoring/prometheus/alert-rules.yml
-- 변경 내용:
-  1. RefundFatalError 제거
-  2. HighErrorBurnRate → HighErrorBurnRateFast(1h+5m, 14.4x) + HighErrorBurnRateSlow(6h+30m, 6x)로 교체, recording rule 기반 expr
-  3. RedisDown, DatabaseConnectionPoolExhaustion → Tier4-Infrastructure 그룹으로 이동
-  4. for 조정: InstanceDownOrAvailabilityDrop·JvmHeapMemoryHigh·DatabaseConnectionPoolExhaustion → 1m
-- 검증 방법: YAML 구조 육안 확인
-- 롤백 방법: git checkout
-- 예상 소요: 보통
+### 단계 2: application.yaml management 섹션 추가
+- 변경 파일: `aiops/src/main/resources/application.yaml`
+- 변경 내용: management.endpoints(prometheus, health, info 노출), observations(/actuator/** 제외), metrics percentiles-histogram, tracing sampling 0.01, otlp endpoint 추가
+- 검증 방법: 파일 내용 육안 확인 (serverA 대비 체크)
+- 롤백 방법: 추가한 섹션 제거
+- 예상 소요: 짧음
 
-### 단계 3: sre-dashboard.json 수정
-- 변경 파일: monitoring/grafana/dashboards/sre-dashboard.json
-- 변경 내용:
-  1. 패널 1 expr: HTTP 2xx → Saga 완료율
-  2. 패널 2 expr: saga:payment_error_rate:ratio_rate5m recording rule 기반
-  3. 패널 3 expr: saga:payment_error_rate:ratio_rate30d recording rule 기반
-  4. 패널 1 제목: "결제 API 성공률 (Availability)" → "결제 Saga 완료율 (SLI)"
-- 검증 방법: JSON 구조 육안 확인
-- 롤백 방법: git checkout
+### 단계 3: logback-spring.xml 생성
+- 변경 파일: `aiops/src/main/resources/logback-spring.xml` (신규)
+- 변경 내용: serverA 템플릿 기반, `org.apache.kafka` logger 제거, APP_NAME defaultValue=aiops
+- 검증 방법: serverA 파일과 diff 비교
+- 롤백 방법: 파일 삭제
+- 예상 소요: 짧음
+
+### 단계 4: prometheus.yml scrape job 추가
+- 변경 파일: `monitoring/prometheus/prometheus.yml`
+- 변경 내용: `aiops` job 추가 (target: `aiops:8085`, path: `/actuator/prometheus`)
+- 검증 방법: YAML 구조 육안 확인
+- 롤백 방법: 추가한 job 블록 제거
+- 예상 소요: 짧음
+
+### 단계 5: docker-compose.yml aiops 서비스 보완
+- 변경 파일: `docker-compose.yml`
+- 변경 내용: aiops 서비스에 `volumes: [shared-logs:/logs]`, `TZ: Asia/Seoul`, `MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces`, `depends_on: otel-collector` 추가
+- 검증 방법: `docker compose config` 로 YAML 유효성 확인 (사용자 실행)
+- 롤백 방법: 추가한 항목 제거
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- recording rule 30d: Prometheus 데이터가 30일 미만이면 부정확 → 운영 환경에서 retention=30d 설정 필요 (이번 범위 외)
-- div/0: attempts가 0인 구간에서 NaN 반환 → 알람 미발화라 안전. 대시보드는 `or vector(100)` 방어
+- logstash-logback-encoder 버전 충돌 → 기존 serverA와 동일 버전(7.4) 사용으로 회피
+- otel-collector depends_on 추가 시 컨테이너 기동 순서 지연 → restart: on-failure 이미 설정되어 있어 허용 범위
 
 ## 의존성
-- recording rule 메트릭 이름이 alert-rules.yml expr과 정확히 일치해야 함
-- 단계 1 → 단계 2 순서 필수
+- 단계 1(의존성) → 단계 2(설정) 순서 권장 (컴파일 오류 없이 설정값 검증 가능)
+- 단계 4, 5는 인프라 설정이므로 순서 무관

@@ -547,25 +547,30 @@ services:
           cpus: '0.25'
           memory: 256M
 
-  mcp:
+  aiops:
     build:
-      context: ./mcp
+      context: ./aiops
       dockerfile: Dockerfile
-    container_name: mcp
+    container_name: aiops
+    volumes:
+      - shared-logs:/logs
     ports:
       - "8085:8085"
     networks:
       - promotion-network
     environment:
-      - GITHUB_OWNER=${GITHUB_OWNER}
-      - GITHUB_REPO=${GITHUB_REPO}
-      - SPRING_AI_GOOGLE_GENAI_API_KEY=${SPRING_AI_GOOGLE_GENAI_API_KEY}
-      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      TZ: Asia/Seoul
+      GITHUB_OWNER: ${GITHUB_OWNER}
+      GITHUB_REPO: ${GITHUB_REPO}
+      SPRING_AI_GOOGLE_GENAI_API_KEY: ${SPRING_AI_GOOGLE_GENAI_API_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       - alertmanager
       - prometheus
       - loki
       - tempo
+      - otel-collector
     deploy:
       resources:
         limits:
