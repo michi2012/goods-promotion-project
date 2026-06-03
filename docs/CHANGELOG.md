@@ -4,6 +4,25 @@
 
 ---
 
+## v1.1.1 — 2026-06-03
+
+> SRE 모니터링 정확도 개선 및 aiops 모듈 리네이밍
+
+### 🐛 Bug Fixes
+- SLI 결제 완료율 게이지 100% 초과 표시 방지 (clamp_max 적용) (`6e721d8`)
+- SRE 모니터링 알람 정합성 및 SLI 지표 정확도 개선 (`a362e49`)
+
+### ♻️ Refactor
+- mcp 모듈을 aiops로 리네이밍 및 모니터링 연동 추가 (`11854fa`)
+
+### 🔧 Chore / Docs
+- 중간 단계 정보 로그 레벨 DEBUG 하향 조정 및 트레이싱 샘플링 1%로 하향 (`e5b2c63`)
+
+---
+Full diff: `git log v1.1.0..HEAD --oneline`
+
+---
+
 ## v1.1.0 — 2026-06-02
 
 > Saga EXPIRED 상태 모니터링 강화 및 구매 API 반환 타입 개선
