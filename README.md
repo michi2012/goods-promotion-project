@@ -317,7 +317,7 @@ Alertmanager webhook → mcp
 
 | Tier | 범주 | 주요 지표 |
 |------|------|----------|
-| Tier 1 | Business Impact & SLO | 결제 API 가용성(SLI), 에러 예산 소진 속도(Burn Rate), 남은 에러 예산 |
+| Tier 1 | Business Impact & SLO | Saga 결제 완료율(SLI), 에러 예산 소진 속도(Burn Rate), 남은 에러 예산 |
 | Tier 2 | Application RED | p95 응답 지연, 5xx 에러율, 결제 처리량(RPS) |
 | Tier 3 | System Saturation | JVM Heap, 가상 스레드 수, CPU 사용률 |
 | Tier 4 | Infrastructure | Redis 메모리·CPU·연결 수, Kafka 컨슈머 렉, MySQL 커넥션·슬로우 쿼리·버퍼풀 히트율 |
