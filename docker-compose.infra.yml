@@ -1,0 +1,201 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: promotion-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: promotion
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --server-id=1
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infra-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  mysql-c:
+    image: mysql:8.0
+    container_name: promotion-mysql-c
+    ports:
+      - "3308:3306"
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: payment
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --server-id=2
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infra-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  redis:
+    image: redis:7.0-alpine
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    container_name: promotion-redis
+    ports:
+      - "6379:6379"
+    environment:
+      TZ: Asia/Seoul
+    networks:
+      - infra-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  redis-b:
+    image: redis:7.0-alpine
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    container_name: promotion-redis-b
+    ports:
+      - "6380:6379"
+    environment:
+      TZ: Asia/Seoul
+    networks:
+      - infra-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: promotion-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      TZ: Asia/Seoul
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks:
+      - infra-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+
+  kafka-connect:
+    image: quay.io/debezium/connect:2.7
+    container_name: promotion-kafka-connect
+    ports:
+      - "8083:8083"
+    environment:
+      TZ: Asia/Seoul
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: debezium-group
+      CONFIG_STORAGE_TOPIC: debezium_configs
+      OFFSET_STORAGE_TOPIC: debezium_offsets
+      STATUS_STORAGE_TOPIC: debezium_status
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mysql-c:
+        condition: service_healthy
+    networks:
+      - infra-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  debezium-init:
+    image: curlimages/curl:latest
+    container_name: promotion-debezium-init
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "curl -f -X POST http://kafka-connect:8083/connectors -H 'Content-Type: application/json' -d @/debezium/outbox-connector.json && curl -f -X POST http://kafka-connect:8083/connectors -H 'Content-Type: application/json' -d @/debezium/payment-outbox-connector.json"
+    volumes:
+      - ./debezium:/debezium
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+      mysql-c:
+        condition: service_healthy
+    networks:
+      - infra-network
+    restart: on-failure
+
+  redpanda-console:
+    image: redpandadata/console:latest
+    container_name: redpanda-console
+    ports:
+      - "9080:8080"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+    networks:
+      - infra-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
+networks:
+  infra-network:
+    name: infra-network
+    driver: bridge
+
+volumes:
+  kafka-data:

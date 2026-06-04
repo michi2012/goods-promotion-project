@@ -1,3 +1,16 @@
+plugins {
+	id 'java'
+	id 'jacoco'
+	id 'org.springframework.boot' version '3.5.14'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
 dependencyManagement {
 	imports {
 		mavenBom "org.springframework.ai:spring-ai-bom:1.1.7"
@@ -5,6 +18,12 @@ dependencyManagement {
 }
 
 dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
 	implementation 'org.springframework.ai:spring-ai-starter-model-google-genai'
 
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -12,8 +31,50 @@ dependencies {
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
 	implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testImplementation 'org.testcontainers:junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+jacocoTestReport {
+	dependsOn test
+	reports {
+		html.required = true
+		xml.required = true
+		csv.required = false
+	}
+	classDirectories.setFrom(files(classDirectories.files.collect {
+		fileTree(dir: it, exclude: [
+			'**/*Config.*',
+			'**/*Config$*',
+			'**/*Configuration.*',
+			'**/*Application.*',
+			'**/*Exception.*',
+			'**/*Exception$*',
+			'**/*NotFoundException.*',
+			'**/*DTO.*',
+			'**/*DTO$*',
+			'**/*Request.*',
+			'**/*Request$*',
+			'**/*Response.*',
+			'**/*Response$*',
+			'**/*Message.*',
+			'**/*Message$*',
+			'**/*Builder.*',
+			'**/*Builder$*',
+			'**/ErrorResponse.*',
+			'**/entity/**',
+			'**/outbox/OutboxEvent.*',
+			'**/outbox/OutboxEvent$*',
+			'**/*Mock*.*',
+			'**/ErrorTestController.*',
+			'**/GlobalExceptionHandler.*',
+		])
+	}))
 }
