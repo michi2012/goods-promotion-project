@@ -1,5 +1,5 @@
 # Infrastructure Diagram
-_생성일: 2026-05-29_
+_생성일: 2026-05-29 / 업데이트: 2026-06-04 (gateway-service·discovery-service 추가)_
 
 ## 1. 서비스 토폴로지
 
@@ -7,41 +7,65 @@ _생성일: 2026-05-29_
 flowchart TD
     Client(["Client"])
 
-    subgraph App["Application"]
-        svcA["server-a\n:8080"]
-        svcB["server-b\n:8081"]
-        svcC["server-c\n:8082"]
+    subgraph MSA["MSA Layer (docker-compose.msa.yml)"]
+        GW["gateway-service\n:8088"]
+        DS["discovery-service\n:8761"]
     end
 
-    subgraph Infra["Core Infrastructure"]
-        mysql[("MySQL-A\n:3307\npromotion DB")]
-        mysqlC[("MySQL-C\n:3308\npayment DB")]
-        redis[("Redis-A\n:6379")]
-        redisB[("Redis-B\n:6380")]
-        kafka[["Kafka\n:9092"]]
-        kafkaConnect["Kafka Connect\n:8083\n(Debezium)"]
-        rpConsole["Redpanda Console\n:9080"]
-        mysqlExp["mysql-a-exporter\n:9104"]
-        mysqlCExp["mysql-c-exporter\n:9105"]
+    subgraph App["Application (docker run)"]
+        A["server-a\n:8080"]
+        B["server-b\n:8081"]
+        C["server-c\n:8082"]
+        AIO["aiops\n:8085"]
     end
 
-    Client -->|HTTP| svcA
-    Client -->|HTTP| svcB
+    subgraph Infra["Core Infrastructure (docker-compose.infra.yml)"]
+        MySQL["mysql\n:3307"]
+        MySQLC["mysql-c\n:3308"]
+        Redis["redis\n:6379"]
+        RedisB["redis-b\n:6380"]
+        Kafka["kafka\n:9092"]
+        KC["kafka-connect\n:8083"]
+        RP["redpanda-console\n:9080"]
+    end
 
-    svcA -->|MySQL| mysql
-    svcC -->|MySQL| mysqlC
-    svcA -->|Redis| redis
-    svcB -->|Redis| redisB
-    svcA -->|Kafka| kafka
-    svcB -->|Kafka| kafka
-    svcC -->|Kafka| kafka
+    PG(["PG사 외부 API"])
 
-    kafkaConnect -->|CDC watch| mysql
-    kafkaConnect -->|CDC watch| mysqlC
-    kafkaConnect -->|CDC events| kafka
-    rpConsole -->|Kafka API| kafka
-    mysqlExp -->|scrape| mysql
-    mysqlCExp -->|scrape| mysqlC
+    %% 외부 트래픽
+    Client -->|"HTTP :8088"| GW
+
+    %% 게이트웨이 → 서비스 (Eureka lb://)
+    GW -->|"lb:// /api/v1/promotions·goods·admin"| A
+    GW -->|"lb:// /api/v1/orders·goods·stock"| B
+    GW -->|"lb:// /api/v1/payments"| C
+    GW -->|"lb:// /webhook·/action"| AIO
+
+    %% Eureka 등록
+    GW -->|"register + fetch"| DS
+    A -->|"register"| DS
+    B -->|"register"| DS
+    C -->|"register"| DS
+    AIO -->|"register"| DS
+
+    %% 앱 → 인프라
+    A -->|"JPA"| MySQL
+    A -->|"Lettuce"| Redis
+    A -->|"produce/consume"| Kafka
+    B -->|"Lettuce"| RedisB
+    B -->|"produce/consume"| Kafka
+    C -->|"JPA"| MySQLC
+    C -->|"produce/consume"| Kafka
+
+    %% Debezium CDC
+    MySQL -->|"binlog"| KC
+    MySQLC -->|"binlog"| KC
+    KC -->|"CDC 이벤트"| Kafka
+
+    %% 외부 결제
+    C -->|"Circuit Breaker"| PG
+
+    %% Kafka UI
+    Kafka -.->|"모니터링"| RP
 ```
 
 ---
@@ -51,52 +75,53 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Src["Signal Sources"]
-        apps["server-a / b / c"]
-        infraSrc["Redis-A·B / Kafka /\nMySQL-A·C"]
+        SA["server-a :8080"]
+        SB["server-b :8081"]
+        SC["server-c :8082"]
+        GW["gateway-service :8088"]
+        DS["discovery-service :8761"]
+        AIO["aiops :8085"]
+        Logs["/logs/*.log\n(shared-logs vol)"]
+        Infra["redis/kafka/mysql\nexporters"]
     end
 
     subgraph Collect["Collection"]
-        otel["OTel Collector"]
-        vector["Vector"]
-        subgraph Exp["Exporters"]
-            redisExp["redis-exporter\n:9121"]
-            redisBExp["redis-b-exporter\n:9122"]
-            kafkaExp["kafka-exporter\n:9308"]
-            mysqlAExp["mysql-a-exporter\n:9104"]
-            mysqlCExp["mysql-c-exporter\n:9105"]
-            cadvisor["cAdvisor\n:8090"]
-        end
+        OTEL["otel-collector\n:4318(http) :4317(grpc)"]
+        VEC["vector"]
+        PROM["prometheus\n:9090"]
     end
 
     subgraph Store["Storage"]
-        tempo["Tempo\n:3200"]
-        loki["Loki\n:3100"]
-        prometheus["Prometheus\n:9090"]
+        Tempo["tempo\n:3200"]
+        Loki["loki\n:3100"]
     end
 
     subgraph Vis["Visualization & Alerting"]
-        grafana["Grafana\n:3000"]
-        alertmanager["Alertmanager\n:9093"]
-        mcp["MCP AIOps\n:8085"]
-        Slack(["Slack"])
+        Grafana["grafana\n:3000"]
+        AM["alertmanager\n:9093"]
     end
 
-    apps -->|OTLP traces| otel
-    apps -.->|shared-logs vol| vector
-    infraSrc --> redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp
-    apps & infraSrc -.->|host cgroups| cadvisor
+    %% Traces: 앱 → otel-collector → tempo
+    SA & SB & SC & GW & DS & AIO -->|"OTLP/HTTP traces"| OTEL
+    OTEL -->|"OTLP/gRPC (tail-sampling)"| Tempo
 
-    otel -->|OTLP gRPC| tempo
-    vector -->|push| loki
-    redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp & cadvisor -->|metrics| prometheus
-    prometheus -.->|scrape| apps
+    %% Logs: shared-logs → vector → loki
+    Logs -.->|"file read"| VEC
+    VEC -->|"JSON → Loki"| Loki
 
-    tempo & loki & prometheus -->|query| grafana
-    prometheus -->|alert| alertmanager
-    alertmanager -->|webhook| mcp
-    mcp -->|query| prometheus & loki & tempo
-    mcp -->|notify| Slack
+    %% Metrics: prometheus scrape
+    SA & SB & SC & GW & DS & AIO -->|"/actuator/prometheus"| PROM
+    Infra -->|"exporter metrics"| PROM
+
+    %% Grafana datasources
+    PROM --> Grafana
+    Tempo --> Grafana
+    Loki --> Grafana
+    AM --> Grafana
+
+    %% Alerting
+    PROM -->|"alert rules"| AM
+    AM -->|"webhook POST"| AIO
 ```
 
-> 점선(`-.->`)은 간접 연결(공유 볼륨 / Prometheus pull / host cgroups)을 나타냄.
-> `debezium-init`은 일회성 init 컨테이너로 생략.
+> 점선(`-.->`)은 간접 연결(shared-logs 볼륨 경유)을 나타냄.

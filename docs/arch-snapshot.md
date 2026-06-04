@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28_
+_생성일: 2026-05-28 / 업데이트: 2026-06-04 (gateway-service·discovery-service 추가)_
 
 ---
 
@@ -7,10 +7,12 @@ _생성일: 2026-05-28_
 
 | 모듈 | 포트 | 역할 | DB | Redis |
 |------|------|------|----|-------|
+| discovery-service | 8761 | Eureka 서버. 모든 서비스 레지스트리 | 없음 | 없음 |
+| gateway-service | 8088 | Spring Cloud Gateway. 외부 트래픽 진입점·lb:// 라우팅 | 없음 | 없음 |
 | serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (port 6380) |
 | serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음 | payment DB (3308, 전용 MySQL) | 없음 |
-| mcp | - | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·Slack 알림 | - | - |
+| aiops | 8085 | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·Slack 알림 | - | - |
 
 ---
 
@@ -102,6 +104,16 @@ sequenceDiagram
 ## API 엔드포인트 및 보안 경계
 
 인증 설정 없음 (SecurityConfig 파일 없음 — 전체 퍼블릭으로 추정)
+
+### gateway-service (8088) — 라우팅 테이블
+| 경로 패턴 | 대상 서비스 | 비고 |
+|-----------|------------|------|
+| GET /api/v1/orders/**, GET /api/v1/goods/*/stock | lb://serverB | CQRS 읽기, serverA보다 우선 매칭 |
+| /api/v1/promotions/**, /api/v1/goods/**, /api/v1/admin/** | lb://serverA | Saga 오케스트레이터 |
+| /api/v1/payments/** | lb://serverC | 결제 조회 |
+| /webhook/**, /action/** | lb://aiops | AIOps 웹훅 |
+
+인증 필터 없음 (JWT 미구현)
 
 ### serverA (8080)
 | 메서드 | URL | 설명 | 인증 |

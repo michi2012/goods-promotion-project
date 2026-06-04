@@ -8,6 +8,7 @@
 | 분류 | 기술 |
 |------|------|
 | 언어 / 프레임워크 | Java 21, Spring Boot 3 |
+| MSA 인프라 | Spring Cloud Gateway, Netflix Eureka |
 | 메시지 브로커 | Apache Kafka, Debezium CDC |
 | 캐시 | Redis, Caffeine |
 | 장애 내성 | Resilience4j (Circuit Breaker) |
@@ -26,10 +27,12 @@
 docker-compose up -d
 ```
 
-전체 스택(serverA · serverB · serverC · Kafka · MySQL · Redis · Debezium · 모니터링)이 단일 명령으로 기동된다.
+전체 스택(gateway · discovery · serverA · serverB · serverC · Kafka · MySQL · Redis · Debezium · 모니터링)이 단일 명령으로 기동된다.
 
 | 서비스 | URL |
 |--------|-----|
+| Gateway (API 진입점) | http://localhost:8088 |
+| Discovery (Eureka) | http://localhost:8761 |
 | serverA (구매 API) | http://localhost:8080 |
 | serverB (조회 API) | http://localhost:8081 |
 | serverC (결제 API) | http://localhost:8082 |
@@ -57,10 +60,12 @@ docker-compose up -d
 
 | 모듈 | 포트   | 역할 | DB | Redis    |
 |------|------|------|----|----------|
+| discovery-service | 8761 | Eureka 서버. 전 서비스 레지스트리 | 없음 | 없음 |
+| gateway-service | 8088 | API Gateway. 외부 트래픽 진입점 · lb:// 라우팅 | 없음 | 없음 |
 | serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ (6379) |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (6380) |
-| serverC | 8082 | 결제 처리  | payment DB (3308) | 없음       |
-| mcp | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling으로 메트릭·로그·트레이스 자동 조회·분석 → Slack 보고서 발송 | - | - |
+| serverC | 8082 | 결제 처리 | payment DB (3308) | 없음 |
+| aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling으로 메트릭·로그·트레이스 자동 조회·분석 → Slack 보고서 발송 | 없음 | 없음 |
 
 ### Before Kafka — Phase 1 최종 아키텍처
 
@@ -211,7 +216,7 @@ flowchart LR
   subgraph Vis["Visualization & Alerting"]
     grafana["Grafana\n:3000"]
     alertmanager["Alertmanager\n:9093"]
-    mcp["MCP AIOps\n:8085"]
+    AIOps["AIOps\n:8085"]
     Slack(["Slack"])
   end
 
@@ -227,9 +232,9 @@ flowchart LR
 
   tempo & loki & prometheus -->|query| grafana
   prometheus -->|alert| alertmanager
-  alertmanager -->|webhook| mcp
-  mcp -->|query| prometheus & loki & tempo
-  mcp -->|notify| Slack
+  alertmanager -->|webhook| AIOps
+  AIOps -->|query| prometheus & loki & tempo
+  AIOps -->|notify| Slack
 ```
 
 > 점선(`-.->`)은 간접 연결(공유 볼륨 / Prometheus pull / host cgroups)을 나타냄.
@@ -289,7 +294,7 @@ serverB ← order-status-update → status-update-result → SagaResultConsumer
 
 ### 5. AIOps — Spring AI 기반 장애 자동 분석
 
-Prometheus Alertmanager가 웹훅을 mcp 서버로 발송하면 Spring AI `ChatClient`가 아래 순서로 도구를 호출해 원인을 분석하고 Slack에 보고서를 발송한다.
+Prometheus Alertmanager가 웹훅을 AIOps 서버로 발송하면 Spring AI `ChatClient`가 아래 순서로 도구를 호출해 원인을 분석하고 Slack에 보고서를 발송한다.
 
 ```
 Alertmanager webhook → mcp
@@ -332,7 +337,7 @@ Alertmanager webhook → mcp
 | 🔥 P1 | 서비스 중단·SLO 위반 임박 | 인스턴스 다운, 가용성 < 99.9%, Heap > 90%, 서킷브레이커 OPEN, DB 커넥션 풀 포화, MySQL 인스턴스 다운 |
 | ⚠️ P2 | 전조 증상·성능 저하 | p95 > 500ms, 5xx 에러율 > 1% 3분 지속, 카프카 컨슈머 렉 > 500건, CPU > 80%, MySQL 슬로우 쿼리 > 1/s |
 
-P1 이상 알람은 Alertmanager → MCP 서버 웹훅을 통해 [AIOps 자동 분석](#5-aiops--spring-ai-기반-장애-자동-분석) 후 Slack으로 보고서가 발송된다.
+P1 이상 알람은 Alertmanager → AIOps 서버 웹훅을 통해 [AIOps 자동 분석](#5-aiops--spring-ai-기반-장애-자동-분석) 후 Slack으로 보고서가 발송된다.
 
 ---
 

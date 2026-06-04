@@ -1,0 +1,62 @@
+services:
+  # 1. Discovery Service (Eureka Server)
+  discovery-service:
+    build:
+      context: ./discovery-service
+      dockerfile: Dockerfile
+    container_name: promotion-discovery
+    volumes:
+      - shared-logs:/logs
+    ports:
+      - "8761:8761"
+    environment:
+      TZ: Asia/Seoul
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: "${OTLP_ENDPOINT:?OTLP_ENDPOINT required}"
+    networks:
+      - msa-network
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8761/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # 2. Gateway Service
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: promotion-gateway
+    volumes:
+      - shared-logs:/logs
+    ports:
+      - "8088:8088"
+    environment:
+      TZ: Asia/Seoul
+      EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: "${OTLP_ENDPOINT:?OTLP_ENDPOINT required}"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+    networks:
+      - msa-network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  msa-network:
+    name: msa-network
+    driver: bridge
+
+volumes:
+  shared-logs:

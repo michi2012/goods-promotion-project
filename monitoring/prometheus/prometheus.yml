@@ -24,6 +24,11 @@ scrape_configs:
     static_configs:
       - targets: ['aiops:8085']
 
+  - job_name: 'infrastructure'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['discovery-service:8761', 'gateway-service:8088']
+
   - job_name: 'redis'
     static_configs:
       - targets: ['redis-exporter:9121']
