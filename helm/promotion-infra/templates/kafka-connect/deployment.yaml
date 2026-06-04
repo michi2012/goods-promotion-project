@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.kafkaConnect.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.kafkaConnect.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-infra.chart" . }}
+spec:
+  replicas: {{ .Values.kafkaConnect.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.kafkaConnect.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.kafkaConnect.name }}
+        app.kubernetes.io/name: {{ .Values.kafkaConnect.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: {{ .Values.kafkaConnect.name }}
+          image: {{ .Values.kafkaConnect.image }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.kafkaConnect.port }}
+          env:
+            - name: BOOTSTRAP_SERVERS
+              value: {{ .Values.kafkaConnect.bootstrapServers | quote }}
+            - name: GROUP_ID
+              value: {{ .Values.kafkaConnect.groupId | quote }}
+            - name: CONFIG_STORAGE_TOPIC
+              value: "debezium_configs"
+            - name: OFFSET_STORAGE_TOPIC
+              value: "debezium_offsets"
+            - name: STATUS_STORAGE_TOPIC
+              value: "debezium_status"
+          resources:
+            requests:
+              cpu: {{ .Values.kafkaConnect.resources.requests.cpu | quote }}
+              memory: {{ .Values.kafkaConnect.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.kafkaConnect.resources.limits.cpu | quote }}
+              memory: {{ .Values.kafkaConnect.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.kafkaConnect.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.kafkaConnect.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3

@@ -1,0 +1,60 @@
+# promotion-infra values.yaml
+# MySQL, Redis는 AWS RDS/ElastiCache 사용 — 이 차트에서 배포하지 않음
+
+namespace: promotion
+
+kafka:
+  name: kafka
+  replicas: 1
+  port: 9092
+  controllerPort: 9093
+  nodeId: 1
+  storage: 10Gi
+  storageClass: gp2
+  image: bitnami/kafka:latest
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+kafkaConnect:
+  name: kafka-connect
+  replicas: 1
+  port: 8083
+  image: quay.io/debezium/connect:2.7
+  bootstrapServers: "kafka-service:9092"
+  groupId: debezium-group
+  # MySQL binlog 접근 대상 (AWS RDS endpoint)
+  mysqlHost: ""      # --set kafkaConnect.mysqlHost=<RDS_PROMOTION_ENDPOINT>
+  mysqlCHost: ""     # --set kafkaConnect.mysqlCHost=<RDS_PAYMENT_ENDPOINT>
+  mysqlUsername: ""  # --set kafkaConnect.mysqlUsername=root
+  mysqlPassword: ""  # --set kafkaConnect.mysqlPassword=<password>
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+debeziumInit:
+  enabled: true
+  image: curlimages/curl:latest
+  kafkaConnectUrl: "http://kafka-connect-service:8083"
+
+redpanda:
+  name: redpanda-console
+  replicas: 1
+  port: 8080
+  image: redpandadata/console:latest
+  kafkaBrokers: "kafka-service:9092"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "250m"
+      memory: "256Mi"

@@ -1,0 +1,133 @@
+{{- if .Values.debeziumInit.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: debezium-connector-configs
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: debezium-init
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  outbox-connector.json: |
+    {
+      "name": "promotion-outbox-connector",
+      "config": {
+        "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+        "tasks.max": "1",
+        "database.hostname": {{ .Values.kafkaConnect.mysqlHost | quote }},
+        "database.port": "3306",
+        "database.user": {{ .Values.kafkaConnect.mysqlUsername | quote }},
+        "database.password": {{ .Values.kafkaConnect.mysqlPassword | quote }},
+        "database.server.id": "184054",
+        "topic.prefix": "promotion",
+        "database.include.list": "promotion",
+        "table.include.list": "promotion.outbox_event",
+        "schema.history.internal.kafka.bootstrap.servers": {{ .Values.kafkaConnect.bootstrapServers | quote }},
+        "schema.history.internal.kafka.topic": "schema-changes.promotion",
+        "database.connectionTimeZone": "Asia/Seoul",
+        "snapshot.mode": "schema_only",
+        "transforms": "outbox",
+        "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+        "transforms.outbox.table.field.event.key": "aggregate_id",
+        "transforms.outbox.table.field.event.payload": "payload",
+        "transforms.outbox.route.by.field": "topic",
+        "transforms.outbox.route.topic.replacement": "${routedByValue}",
+        "transforms.outbox.table.op.invalid.behavior": "warn",
+        "transforms.outbox.table.fields.additional.placement": "traceparent:header",
+        "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+        "key.converter": "org.apache.kafka.connect.storage.StringConverter"
+      }
+    }
+  payment-outbox-connector.json: |
+    {
+      "name": "payment-outbox-connector",
+      "config": {
+        "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+        "tasks.max": "1",
+        "database.hostname": {{ .Values.kafkaConnect.mysqlCHost | quote }},
+        "database.port": "3306",
+        "database.user": {{ .Values.kafkaConnect.mysqlUsername | quote }},
+        "database.password": {{ .Values.kafkaConnect.mysqlPassword | quote }},
+        "database.server.id": "184055",
+        "topic.prefix": "payment",
+        "database.include.list": "payment",
+        "table.include.list": "payment.outbox_event",
+        "schema.history.internal.kafka.bootstrap.servers": {{ .Values.kafkaConnect.bootstrapServers | quote }},
+        "schema.history.internal.kafka.topic": "schema-changes.payment",
+        "database.connectionTimeZone": "Asia/Seoul",
+        "snapshot.mode": "schema_only",
+        "transforms": "outbox",
+        "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+        "transforms.outbox.table.field.event.key": "aggregate_id",
+        "transforms.outbox.table.field.event.payload": "payload",
+        "transforms.outbox.route.by.field": "topic",
+        "transforms.outbox.route.topic.replacement": "${routedByValue}",
+        "transforms.outbox.table.op.invalid.behavior": "warn",
+        "transforms.outbox.table.fields.additional.placement": "traceparent:header",
+        "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+        "key.converter": "org.apache.kafka.connect.storage.StringConverter"
+      }
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: debezium-init
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: debezium-init
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    # helm upgrade 시 매번 재실행되도록 Job 이름에 타임스탬프 없이 유지
+    # 재등록이 필요하면 `kubectl delete job debezium-init` 후 helm upgrade
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: debezium-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: debezium-init
+          image: {{ .Values.debeziumInit.image }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # /connectors 엔드포인트로 체크 — 워커 초기화까지 완료된 시점
+              until curl -sf {{ .Values.debeziumInit.kafkaConnectUrl }}/connectors > /dev/null; do
+                echo "Waiting for Kafka Connect..."; sleep 5;
+              done
+
+              register() {
+                CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                  -X POST {{ .Values.debeziumInit.kafkaConnectUrl }}/connectors \
+                  -H 'Content-Type: application/json' \
+                  -d @$1)
+                # 201 Created: 신규 등록 성공
+                # 409 Conflict: 이미 존재 (helm upgrade 재실행 시) → 정상으로 처리
+                if [ "$CODE" = "201" ] || [ "$CODE" = "409" ]; then
+                  echo "Connector $1 registered (HTTP $CODE)"
+                else
+                  echo "Failed to register $1 (HTTP $CODE)"
+                  exit 1
+                fi
+              }
+
+              register /debezium/outbox-connector.json
+              register /debezium/payment-outbox-connector.json
+          volumeMounts:
+            - name: connector-configs
+              mountPath: /debezium
+      volumes:
+        - name: connector-configs
+          configMap:
+            name: debezium-connector-configs
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: promotion-infra
+description: Helm chart for promotion project infrastructure (Kafka, Kafka Connect)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

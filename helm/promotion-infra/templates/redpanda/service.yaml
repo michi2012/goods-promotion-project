@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-console-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.redpanda.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.redpanda.name }}
+  ports:
+    - port: {{ .Values.redpanda.port }}
+      targetPort: {{ .Values.redpanda.port }}

@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.exporters.redisB.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.redisB.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.exporters.redisB.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.exporters.redisB.name }}
+        app.kubernetes.io/name: {{ .Values.exporters.redisB.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.exporters.redisB.name }}
+          image: {{ .Values.exporters.redisB.image }}
+          imagePullPolicy: Always
+          env:
+            - name: REDIS_ADDR
+              value: {{ .Values.exporters.redisB.addr | quote }}
+          ports:
+            - containerPort: {{ .Values.exporters.redisB.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.exporters.redisB.resources.requests.cpu | quote }}
+              memory: {{ .Values.exporters.redisB.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.exporters.redisB.resources.limits.cpu | quote }}
+              memory: {{ .Values.exporters.redisB.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-b-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.redisB.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.exporters.redisB.name }}
+  ports:
+    - port: {{ .Values.exporters.redisB.port }}
+      targetPort: {{ .Values.exporters.redisB.port }}

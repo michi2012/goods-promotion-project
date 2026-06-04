@@ -1,0 +1,31 @@
+groups:
+  - name: saga-slo-recording-rules
+    interval: 30s
+    rules:
+      # Saga 에러율 = (시도 - 성공) / 시도
+      # NaN 반환 시(트래픽 없음) 알람 미발화 — 의도된 동작
+      - record: saga:payment_error_rate:ratio_rate5m
+        expr: |
+          (sum(rate(business_payment_attempts_total[5m])) - sum(rate(business_payment_success_total[5m])))
+          / sum(rate(business_payment_attempts_total[5m]))
+
+      - record: saga:payment_error_rate:ratio_rate30m
+        expr: |
+          (sum(rate(business_payment_attempts_total[30m])) - sum(rate(business_payment_success_total[30m])))
+          / sum(rate(business_payment_attempts_total[30m]))
+
+      - record: saga:payment_error_rate:ratio_rate1h
+        expr: |
+          (sum(rate(business_payment_attempts_total[1h])) - sum(rate(business_payment_success_total[1h])))
+          / sum(rate(business_payment_attempts_total[1h]))
+
+      - record: saga:payment_error_rate:ratio_rate6h
+        expr: |
+          (sum(rate(business_payment_attempts_total[6h])) - sum(rate(business_payment_success_total[6h])))
+          / sum(rate(business_payment_attempts_total[6h]))
+
+      # 30d 윈도우: Prometheus retention >= 30d 환경에서 정확한 월간 에러 예산 계산
+      - record: saga:payment_error_rate:ratio_rate30d
+        expr: |
+          (sum(rate(business_payment_attempts_total[30d])) - sum(rate(business_payment_success_total[30d])))
+          / sum(rate(business_payment_attempts_total[30d]))

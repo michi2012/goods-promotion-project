@@ -1,0 +1,80 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.aiops.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.aiops.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  replicas: {{ .Values.aiops.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.aiops.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.aiops.name }}
+        app.kubernetes.io/name: {{ .Values.aiops.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.aiops.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.aiops.name }}
+          image: {{ .Values.aiops.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.aiops.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.aiops.springProfilesActive | quote }}
+            - name: GITHUB_OWNER
+              value: {{ .Values.aiops.githubOwner | quote }}
+            - name: GITHUB_REPO
+              value: {{ .Values.aiops.githubRepo | quote }}
+            - name: SPRING_AI_GOOGLE_GENAI_API_KEY
+              value: {{ .Values.aiops.googleGenaiApiKey | quote }}
+            - name: SLACK_WEBHOOK_URL
+              value: {{ .Values.aiops.slackWebhookUrl | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.aiops.eurekaDefaultZone | quote }}
+            {{- if .Values.aiops.otlpEndpoint }}
+            - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.aiops.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.aiops.resources.requests.cpu | quote }}
+              memory: {{ .Values.aiops.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.aiops.resources.limits.cpu | quote }}
+              memory: {{ .Values.aiops.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.aiops.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.aiops.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+
+

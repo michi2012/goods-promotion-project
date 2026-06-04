@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.exporters.redis.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.redis.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.exporters.redis.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.exporters.redis.name }}
+        app.kubernetes.io/name: {{ .Values.exporters.redis.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.exporters.redis.name }}
+          image: {{ .Values.exporters.redis.image }}
+          imagePullPolicy: Always
+          env:
+            - name: REDIS_ADDR
+              value: {{ .Values.exporters.redis.addr | quote }}
+          ports:
+            - containerPort: {{ .Values.exporters.redis.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.exporters.redis.resources.requests.cpu | quote }}
+              memory: {{ .Values.exporters.redis.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.exporters.redis.resources.limits.cpu | quote }}
+              memory: {{ .Values.exporters.redis.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.redis.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.exporters.redis.name }}
+  ports:
+    - port: {{ .Values.exporters.redis.port }}
+      targetPort: {{ .Values.exporters.redis.port }}

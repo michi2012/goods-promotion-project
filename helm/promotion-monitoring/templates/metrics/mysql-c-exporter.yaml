@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.exporters.mysqlC.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.mysqlC.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.exporters.mysqlC.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.exporters.mysqlC.name }}
+        app.kubernetes.io/name: {{ .Values.exporters.mysqlC.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.exporters.mysqlC.name }}
+          image: {{ .Values.exporters.mysqlC.image }}
+          imagePullPolicy: Always
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "{{ .Values.exporters.mysqlC.username }}:{{ .Values.exporters.mysqlC.password }}@tcp({{ .Values.exporters.mysqlC.host }}:3306)/"
+          ports:
+            - containerPort: {{ .Values.exporters.mysqlC.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.exporters.mysqlC.resources.requests.cpu | quote }}
+              memory: {{ .Values.exporters.mysqlC.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.exporters.mysqlC.resources.limits.cpu | quote }}
+              memory: {{ .Values.exporters.mysqlC.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-c-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.mysqlC.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.exporters.mysqlC.name }}
+  ports:
+    - port: {{ .Values.exporters.mysqlC.port }}
+      targetPort: {{ .Values.exporters.mysqlC.port }}

@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.exporters.mysqlA.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.mysqlA.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.exporters.mysqlA.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.exporters.mysqlA.name }}
+        app.kubernetes.io/name: {{ .Values.exporters.mysqlA.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.exporters.mysqlA.name }}
+          image: {{ .Values.exporters.mysqlA.image }}
+          imagePullPolicy: Always
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "{{ .Values.exporters.mysqlA.username }}:{{ .Values.exporters.mysqlA.password }}@tcp({{ .Values.exporters.mysqlA.host }}:3306)/"
+          ports:
+            - containerPort: {{ .Values.exporters.mysqlA.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.exporters.mysqlA.resources.requests.cpu | quote }}
+              memory: {{ .Values.exporters.mysqlA.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.exporters.mysqlA.resources.limits.cpu | quote }}
+              memory: {{ .Values.exporters.mysqlA.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-a-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.mysqlA.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.exporters.mysqlA.name }}
+  ports:
+    - port: {{ .Values.exporters.mysqlA.port }}
+      targetPort: {{ .Values.exporters.mysqlA.port }}

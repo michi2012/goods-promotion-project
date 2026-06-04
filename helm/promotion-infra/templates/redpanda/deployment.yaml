@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.redpanda.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.redpanda.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-infra.chart" . }}
+spec:
+  replicas: {{ .Values.redpanda.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.redpanda.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.redpanda.name }}
+        app.kubernetes.io/name: {{ .Values.redpanda.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.redpanda.name }}
+          image: {{ .Values.redpanda.image }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.redpanda.port }}
+          env:
+            - name: KAFKA_BROKERS
+              value: {{ .Values.redpanda.kafkaBrokers | quote }}
+          resources:
+            requests:
+              cpu: {{ .Values.redpanda.resources.requests.cpu | quote }}
+              memory: {{ .Values.redpanda.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.redpanda.resources.limits.cpu | quote }}
+              memory: {{ .Values.redpanda.resources.limits.memory | quote }}

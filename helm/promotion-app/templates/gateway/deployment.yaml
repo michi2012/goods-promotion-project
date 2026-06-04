@@ -1,0 +1,78 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.gateway.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.gateway.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.gateway.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.gateway.name }}
+        app.kubernetes.io/name: {{ .Values.gateway.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.gateway.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.gateway.name }}
+          image: {{ .Values.gateway.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.gateway.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.gateway.springProfilesActive | quote }}
+            - name: SPRING_DATA_REDIS_HOST
+              value: {{ .Values.gateway.redis.host | quote }}
+            - name: SPRING_DATA_REDIS_PORT
+              value: {{ .Values.gateway.redis.port | quote }}
+            - name: CORS_ALLOWED_ORIGIN
+              value: {{ .Values.gateway.corsAllowedOrigin | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.gateway.eurekaDefaultZone | quote }}
+            {{- if .Values.gateway.otlpEndpoint }}
+            - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.gateway.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.gateway.resources.requests.cpu | quote }}
+              memory: {{ .Values.gateway.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.gateway.resources.limits.cpu | quote }}
+              memory: {{ .Values.gateway.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.gateway.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.gateway.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+
+

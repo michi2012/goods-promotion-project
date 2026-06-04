@@ -1,0 +1,82 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  otel-collector-config.yaml: |
+{{ .Files.Get "files/otel-collector-config.yaml" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.otelCollector.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: {{ .Values.otelCollector.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.otelCollector.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.otelCollector.name }}
+        app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.otelCollector.name }}
+          image: {{ .Values.otelCollector.image }}
+          imagePullPolicy: Always
+          args: ["--config=/etc/otel-collector-config.yaml"]
+          ports:
+            - containerPort: {{ .Values.otelCollector.httpPort }}
+              name: http
+            - containerPort: {{ .Values.otelCollector.grpcPort }}
+              name: grpc
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel-collector-config.yaml
+              subPath: otel-collector-config.yaml
+          resources:
+            requests:
+              cpu: {{ .Values.otelCollector.resources.requests.cpu | quote }}
+              memory: {{ .Values.otelCollector.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.otelCollector.resources.limits.cpu | quote }}
+              memory: {{ .Values.otelCollector.resources.limits.memory | quote }}
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.otelCollector.name }}
+  ports:
+    - name: http
+      port: {{ .Values.otelCollector.httpPort }}
+      targetPort: {{ .Values.otelCollector.httpPort }}
+    - name: grpc
+      port: {{ .Values.otelCollector.grpcPort }}
+      targetPort: {{ .Values.otelCollector.grpcPort }}

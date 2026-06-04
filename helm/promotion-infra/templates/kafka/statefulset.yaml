@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.kafka.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.kafka.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-infra.chart" . }}
+spec:
+  serviceName: kafka-headless
+  replicas: {{ .Values.kafka.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.kafka.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.kafka.name }}
+        app.kubernetes.io/name: {{ .Values.kafka.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: {{ .Values.kafka.name }}
+          image: {{ .Values.kafka.image }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.kafka.port }}
+              name: plaintext
+            - containerPort: {{ .Values.kafka.controllerPort }}
+              name: controller
+          env:
+            - name: KAFKA_CFG_NODE_ID
+              value: {{ .Values.kafka.nodeId | quote }}
+            - name: KAFKA_CFG_PROCESS_ROLES
+              value: "controller,broker"
+            - name: KAFKA_CFG_LISTENERS
+              value: "PLAINTEXT://:{{ .Values.kafka.port }},CONTROLLER://:{{ .Values.kafka.controllerPort }}"
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka-service:{{ .Values.kafka.port }}"
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+              value: "{{ .Values.kafka.nodeId }}@kafka-headless:{{ .Values.kafka.controllerPort }}"
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: ALLOW_PLAINTEXT_LISTENER
+              value: "yes"
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /bitnami/kafka
+          resources:
+            requests:
+              cpu: {{ .Values.kafka.resources.requests.cpu | quote }}
+              memory: {{ .Values.kafka.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.kafka.resources.limits.cpu | quote }}
+              memory: {{ .Values.kafka.resources.limits.memory | quote }}
+          livenessProbe:
+            exec:
+              command:
+                - kafka-broker-api-versions.sh
+                - --bootstrap-server
+                - localhost:{{ .Values.kafka.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - kafka-broker-api-versions.sh
+                - --bootstrap-server
+                - localhost:{{ .Values.kafka.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: kafka-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.kafka.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.kafka.storage }}

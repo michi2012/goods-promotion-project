@@ -1,0 +1,54 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.loki.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.loki.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: {{ .Values.loki.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.loki.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.loki.name }}
+        app.kubernetes.io/name: {{ .Values.loki.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.loki.name }}
+          image: {{ .Values.loki.image }}
+          imagePullPolicy: Always
+          args: ["-config.file=/etc/loki/local-config.yaml"]
+          ports:
+            - containerPort: {{ .Values.loki.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.loki.resources.requests.cpu | quote }}
+              memory: {{ .Values.loki.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.loki.resources.limits.cpu | quote }}
+              memory: {{ .Values.loki.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.loki.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.loki.name }}
+  ports:
+    - port: {{ .Values.loki.port }}
+      targetPort: {{ .Values.loki.port }}

@@ -1,0 +1,69 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+rule_files:
+  - "/etc/prometheus/recording-rules.yml"
+  - "/etc/prometheus/alert-rules.yml"
+
+scrape_configs:
+  - job_name: 'promotion-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['server-a:8080', 'server-b:8081', 'server-c:8082']
+
+  - job_name: 'aiops'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['aiops:8085']
+
+  - job_name: 'infrastructure'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['discovery-service:8761', 'gateway-service:8088']
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          instance: 'redis-a'
+      - targets: ['redis-b-exporter:9121']
+        labels:
+          instance: 'redis-b'
+
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql-a-exporter:9104']
+        labels:
+          instance: 'mysql-a'
+      - targets: ['mysql-c-exporter:9104']
+        labels:
+          instance: 'mysql-c'
+
+  - job_name: 'cadvisor'
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: true
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor

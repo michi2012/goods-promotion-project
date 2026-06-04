@@ -1,0 +1,81 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serverB.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.serverB.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  {{- if not .Values.serverB.autoscaling.enabled }}
+  replicas: {{ .Values.serverB.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Values.serverB.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serverB.name }}
+        app.kubernetes.io/name: {{ .Values.serverB.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.serverB.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+        rollme: {{ randAlphaNum 5 | quote }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.serverB.name }}
+          image: {{ .Values.serverB.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.serverB.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.serverB.springProfilesActive | quote }}
+            - name: SPRING_DATA_REDIS_HOST
+              value: {{ .Values.serverB.redis.host | quote }}
+            - name: SPRING_DATA_REDIS_PORT
+              value: {{ .Values.serverB.redis.port | quote }}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.serverB.kafka.bootstrapServers | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.serverB.eurekaDefaultZone | quote }}
+            {{- if .Values.serverB.otlpEndpoint }}
+            - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.serverB.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.serverB.resources.requests.cpu | quote }}
+              memory: {{ .Values.serverB.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.serverB.resources.limits.cpu | quote }}
+              memory: {{ .Values.serverB.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.serverB.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.serverB.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+
+

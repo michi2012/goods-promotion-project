@@ -1,0 +1,170 @@
+# promotion-monitoring values.yaml
+# 민감값(password 등)은 helm upgrade --set 으로 주입
+
+namespace: promotion
+
+otelCollector:
+  name: otel-collector
+  replicas: 1
+  httpPort: 4318
+  grpcPort: 4317
+  image: otel/opentelemetry-collector-contrib:latest
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+prometheus:
+  name: prometheus
+  replicas: 1
+  port: 9090
+  image: prom/prometheus:v2.45.0
+  retention: 30d
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+grafana:
+  name: grafana
+  replicas: 1
+  port: 3000
+  image: grafana/grafana:10.0.3
+  adminPassword: ""  # --set grafana.adminPassword=<password>
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+alertmanager:
+  name: alertmanager
+  replicas: 1
+  port: 9093
+  image: prom/alertmanager:v0.25.0
+  # Slack webhook — aiops가 대신 처리하므로 기본값 비워둠
+  slackWebhookUrl: ""  # --set alertmanager.slackWebhookUrl=<url>
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+tempo:
+  name: tempo
+  replicas: 1
+  port: 3200
+  image: grafana/tempo:latest
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+loki:
+  name: loki
+  replicas: 1
+  port: 3100
+  image: grafana/loki:latest
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+vector:
+  name: vector
+  image: timberio/vector:latest-alpine
+  # DaemonSet: 각 노드의 /var/log/pods/ 에서 Loki로 로그 전송
+  lokiUrl: "http://loki-service:3100"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+exporters:
+  redis:
+    name: redis-exporter
+    image: oliver006/redis_exporter:latest
+    port: 9121
+    addr: ""  # --set exporters.redis.addr=redis://<ELASTICACHE_ENDPOINT>:6379
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "250m"
+        memory: "128Mi"
+
+  redisB:
+    name: redis-b-exporter
+    image: oliver006/redis_exporter:latest
+    port: 9121
+    addr: ""  # --set exporters.redisB.addr=redis://<ELASTICACHE_B_ENDPOINT>:6379
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "250m"
+        memory: "128Mi"
+
+  kafka:
+    name: kafka-exporter
+    image: danielqsj/kafka-exporter:latest
+    port: 9308
+    server: "kafka-service.promotion.svc.cluster.local:9092"
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "250m"
+        memory: "128Mi"
+
+  mysqlA:
+    name: mysql-a-exporter
+    image: prom/mysqld-exporter:latest
+    port: 9104
+    host: ""      # --set exporters.mysqlA.host=<RDS_PROMOTION_ENDPOINT>
+    username: ""  # --set exporters.mysqlA.username=root
+    password: ""  # --set exporters.mysqlA.password=<password>
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "250m"
+        memory: "128Mi"
+
+  mysqlC:
+    name: mysql-c-exporter
+    image: prom/mysqld-exporter:latest
+    port: 9104
+    host: ""      # --set exporters.mysqlC.host=<RDS_PAYMENT_ENDPOINT>
+    username: ""  # --set exporters.mysqlC.username=root
+    password: ""  # --set exporters.mysqlC.password=<password>
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "250m"
+        memory: "128Mi"

@@ -1,0 +1,83 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serverC.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.serverC.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  {{- if not .Values.serverC.autoscaling.enabled }}
+  replicas: {{ .Values.serverC.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Values.serverC.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serverC.name }}
+        app.kubernetes.io/name: {{ .Values.serverC.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.serverC.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+        rollme: {{ randAlphaNum 5 | quote }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.serverC.name }}
+          image: {{ .Values.serverC.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.serverC.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.serverC.springProfilesActive | quote }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.serverC.datasource.url | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.serverC.datasource.username | quote }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: {{ .Values.serverC.datasource.password | quote }}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.serverC.kafka.bootstrapServers | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.serverC.eurekaDefaultZone | quote }}
+            {{- if .Values.serverC.otlpEndpoint }}
+            - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.serverC.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.serverC.resources.requests.cpu | quote }}
+              memory: {{ .Values.serverC.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.serverC.resources.limits.cpu | quote }}
+              memory: {{ .Values.serverC.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.serverC.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.serverC.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+
+

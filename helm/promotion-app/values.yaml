@@ -1,0 +1,204 @@
+# promotion-app values.yaml
+# 민감값(password, apiKey 등)은 helm upgrade --set 으로 주입
+# 예) helm upgrade promotion-app ./helm/promotion-app --set serverA.datasource.password=secret
+
+namespace: promotion
+
+imagePullPolicy: Always  # EKS: Always | 로컬 테스트: IfNotPresent
+
+ingress:
+  host: ""             # --set ingress.host=yourdomain.com
+  certificateArn: ""   # --set ingress.certificateArn=arn:aws:acm:ap-northeast-2:...
+  wafAcl: ""           # --set ingress.wafAcl=arn:aws:wafv2:...  (선택, 비어있으면 어노테이션 미생성)
+
+nodeSelector:
+  role: app
+
+discovery:
+  name: discovery-service
+  replicas: 1
+  port: 8761
+  image: ""
+  springProfilesActive: "k8s"  # --set discovery.image=<ECR_URL>/discovery-service:tag
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+gateway:
+  name: gateway-service
+  replicas: 1
+  port: 8088
+  image: ""  # --set gateway.image=<ECR_URL>/gateway-service:tag
+  springProfilesActive: "k8s"
+  redis:
+    host: ""   # --set gateway.redis.host=<ELASTICACHE_ENDPOINT>
+    port: 6379
+  corsAllowedOrigin: ""  # --set gateway.corsAllowedOrigin=https://yourdomain.com
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+serverA:
+  name: server-a
+  replicas: 2
+  port: 8080
+  image: ""  # --set serverA.image=<ECR_URL>/server-a:tag
+  springProfilesActive: "k8s"
+  datasource:
+    url: ""       # --set serverA.datasource.url=jdbc:mysql://<RDS_ENDPOINT>:3306/promotion?...
+    username: ""  # --set serverA.datasource.username=root
+    password: ""  # --set serverA.datasource.password=<password>
+  redis:
+    host: ""      # --set serverA.redis.host=<ELASTICACHE_ENDPOINT>
+    port: 6379
+  kafka:
+    bootstrapServers: "kafka-service:9092"
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "400Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1536Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 75
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+
+serverB:
+  name: server-b
+  replicas: 2
+  port: 8081
+  image: ""  # --set serverB.image=<ECR_URL>/server-b:tag
+  springProfilesActive: "k8s"
+  redis:
+    host: ""      # --set serverB.redis.host=<ELASTICACHE_B_ENDPOINT>
+    port: 6379
+  kafka:
+    bootstrapServers: "kafka-service:9092"
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "400Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1536Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 75
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+
+serverC:
+  name: server-c
+  replicas: 2
+  port: 8082
+  image: ""  # --set serverC.image=<ECR_URL>/server-c:tag
+  springProfilesActive: "k8s"
+  datasource:
+    url: ""       # --set serverC.datasource.url=jdbc:mysql://<RDS_C_ENDPOINT>:3306/payment?...
+    username: ""  # --set serverC.datasource.username=root
+    password: ""  # --set serverC.datasource.password=<password>
+  kafka:
+    bootstrapServers: "kafka-service:9092"
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "400Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1536Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 75
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+
+aiops:
+  name: aiops
+  replicas: 1
+  port: 8085
+  image: ""  # --set aiops.image=<ECR_URL>/aiops:tag
+  springProfilesActive: "k8s"
+  githubOwner: ""        # --set aiops.githubOwner=<owner>
+  githubRepo: ""         # --set aiops.githubRepo=<repo>
+  googleGenaiApiKey: ""  # --set aiops.googleGenaiApiKey=<key>
+  slackWebhookUrl: ""    # --set aiops.slackWebhookUrl=<url>
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

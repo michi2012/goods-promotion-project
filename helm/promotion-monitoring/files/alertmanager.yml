@@ -1,0 +1,12 @@
+route:
+  group_by: ['alertname', 'app']
+  group_wait: 5s
+  group_interval: 1m
+  repeat_interval: 1m
+  receiver: 'aiops-agent'
+
+receivers:
+- name: 'aiops-agent'
+  webhook_configs:
+  - url: 'http://aiops:8085/webhook/prometheus'
+    send_resolved: true

@@ -1,0 +1,52 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  filter/drop_actuator:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["url.path"] == "/actuator/prometheus"'
+        - 'attributes["url.path"] == "/actuator/health"'
+
+  tail_sampling:
+      decision_wait: 10s
+      policies:
+        - name: error-policy
+          type: status_code
+          status_code: {status_codes: [ERROR]}
+        - name: slow-policy
+          type: latency
+          latency: {threshold_ms: 1000}
+        - name: probabilistic-policy
+          type: probabilistic
+          probabilistic: {sampling_percentage: 100}
+
+  batch:
+    send_batch_size: 100
+    timeout: 1s
+
+exporters:
+  otlp:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/drop_actuator, tail_sampling, batch]
+      exporters: [otlp, debug]

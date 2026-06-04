@@ -1,0 +1,31 @@
+# K8s DaemonSet 방식: 각 노드의 /var/log/pods/ 에서 로그 수집
+# 앱이 stdout으로 로그를 출력해야 정상 동작
+# (현재 앱은 파일 로그 방식 — logback stdout 전환 작업 별도 필요)
+sources:
+  kubernetes_logs:
+    type: kubernetes_logs
+    extra_label_selector: "app in (server-a,server-b,server-c,aiops,gateway-service,discovery-service)"
+
+transforms:
+  parse_logs:
+    type: remap
+    inputs:
+      - kubernetes_logs
+    source: |
+      parsed, err = parse_json(.message)
+      if err == null {
+        . = merge!(., parsed)
+      }
+
+sinks:
+  to_loki:
+    type: loki
+    inputs:
+      - parse_logs
+    endpoint: http://loki:3100
+    encoding:
+      codec: json
+    labels:
+      namespace: "{{ kubernetes.pod_namespace }}"
+      pod: "{{ kubernetes.pod_name }}"
+      app: "{{ kubernetes.pod_labels.app }}"
