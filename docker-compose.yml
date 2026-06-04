@@ -193,6 +193,7 @@ services:
       - "8761:8761"
     environment:
       TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
       OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     networks:
       - promotion-network
@@ -221,6 +222,7 @@ services:
       - "8082:8082"
     environment:
       TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql-c:3306/payment?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
@@ -255,6 +257,7 @@ services:
       - "8081:8081"
     environment:
       TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
       SPRING_DATA_REDIS_HOST: redis-b
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -291,6 +294,7 @@ services:
       - "8080:8080"
     environment:
       TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/promotion?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
@@ -332,6 +336,9 @@ services:
       - "8088:8088"
     environment:
       TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
       OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
@@ -623,6 +630,7 @@ services:
       - promotion-network
     environment:
       TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
       GITHUB_OWNER: ${GITHUB_OWNER}
       GITHUB_REPO: ${GITHUB_REPO}
       SPRING_AI_GOOGLE_GENAI_API_KEY: ${SPRING_AI_GOOGLE_GENAI_API_KEY}

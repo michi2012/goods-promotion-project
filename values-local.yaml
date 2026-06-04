@@ -1,0 +1,45 @@
+imagePullPolicy: IfNotPresent
+
+serverA:
+  image: server-a:local
+  springProfilesActive: k8s
+  datasource:
+    url: "jdbc:mysql://host.docker.internal:3307/promotion?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: root
+    password: root
+  redis:
+    host: host.docker.internal
+  kafka:
+    bootstrapServers: kafka:9092
+
+serverB:
+  image: server-b:local
+  springProfilesActive: k8s
+  redis:
+    host: host.docker.internal
+  kafka:
+    bootstrapServers: kafka:9092
+
+serverC:
+  image: server-c:local
+  springProfilesActive: k8s
+  datasource:
+    url: "jdbc:mysql://host.docker.internal:3308/payment?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    username: root
+    password: root
+  kafka:
+    bootstrapServers: kafka:9092
+
+aiops:
+  image: aiops:local
+  springProfilesActive: k8s
+
+gateway:
+  image: gateway-service:local
+  springProfilesActive: k8s
+  redis:
+    host: host.docker.internal
+
+ingress:
+  host: localhost
+  certificateArn: ""

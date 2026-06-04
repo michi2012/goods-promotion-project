@@ -1,0 +1,80 @@
+spring:
+  cloud:
+    gateway:
+      routes:
+        # 구매 API — 선착순 어뷰징 방어: 초당 2건, 버스트 5
+        - id: serverA-purchase
+          uri: http://server-a:8080
+          predicates:
+            - Path=/api/v1/promotions/purchase
+            - Method=POST
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 2
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # 주문 조회 (CQRS 읽기)
+        - id: serverB-orders
+          uri: http://server-b:8081
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # 재고 조회 (CQRS 읽기)
+        - id: serverB-goods-stock
+          uri: http://server-b:8081
+          predicates:
+            - Path=/api/v1/goods/*/stock
+            - Method=GET
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # serverA 나머지
+        - id: serverA
+          uri: http://server-a:8080
+          predicates:
+            - Path=/api/v1/promotions/**, /api/v1/goods/**, /api/v1/admin/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # 결제 조회
+        - id: serverC
+          uri: http://server-c:8082
+          predicates:
+            - Path=/api/v1/payments/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # AIOps — Rate Limiting 미적용
+        - id: aiops
+          uri: http://aiops:8085
+          predicates:
+            - Path=/webhook/**, /action/**
+
+eureka:
+  client:
+    enabled: false
