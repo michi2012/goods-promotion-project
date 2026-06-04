@@ -14,6 +14,10 @@ spring:
     name: gateway-service
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  data:
+    redis:
+      host: "${SPRING_DATA_REDIS_HOST:localhost}"
+      port: "${SPRING_DATA_REDIS_PORT:6379}"
   cloud:
     gateway:
       globalcors:
@@ -31,27 +35,74 @@ spring:
             allowCredentials: true
 
       routes:
+        # 구매 API — 선착순 어뷰징 방어: 초당 2건, 버스트 5
+        - id: serverA-purchase
+          uri: lb://serverA
+          predicates:
+            - Path=/api/v1/promotions/purchase
+            - Method=POST
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 2
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # 주문 조회 (CQRS 읽기) — 초당 20건, 버스트 50
         - id: serverB-orders
           uri: lb://serverB
           predicates:
             - Path=/api/v1/orders/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
 
+        # 재고 조회 (CQRS 읽기) — 초당 20건, 버스트 50
         - id: serverB-goods-stock
           uri: lb://serverB
           predicates:
             - Path=/api/v1/goods/*/stock
             - Method=GET
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
 
+        # serverA 나머지 (상품 생성, admin 등) — 초당 20건, 버스트 50
         - id: serverA
           uri: lb://serverA
           predicates:
             - Path=/api/v1/promotions/**, /api/v1/goods/**, /api/v1/admin/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
 
+        # 결제 조회 — 초당 20건, 버스트 50
         - id: serverC
           uri: lb://serverC
           predicates:
             - Path=/api/v1/payments/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
 
+        # AIOps (Alertmanager 내부 호출) — Rate Limiting 미적용
         - id: aiops
           uri: lb://aiops
           predicates:
