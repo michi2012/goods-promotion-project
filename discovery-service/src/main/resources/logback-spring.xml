@@ -7,37 +7,54 @@
     <property name="LOG_PATH" value="/logs"/>
     <property name="LOG_FILE" value="${LOG_PATH}/${APP_NAME}.log"/>
 
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - [traceId=%X{traceId}, spanId=%X{spanId}] %msg%n</pattern>
-        </encoder>
-    </appender>
+    <!-- EKS: stdout JSON (vector DaemonSet이 /var/log/pods/ 에서 수집) -->
+    <springProfile name="k8s">
+        <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"job":"${APP_NAME}"}</customFields>
+                <includeMdc>true</includeMdc>
+            </encoder>
+        </appender>
 
-    <appender name="FILE_JSON" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_FILE}</file>
+        <logger name="org.apache.kafka" level="WARN"/>
 
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/${APP_NAME}-%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>30</maxHistory>
-        </rollingPolicy>
+        <root level="INFO">
+            <appender-ref ref="STDOUT_JSON"/>
+        </root>
+    </springProfile>
 
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <customFields>{"job":"${APP_NAME}"}</customFields>
-            <includeMdc>true</includeMdc>
-        </encoder>
-    </appender>
+    <!-- local (docker-compose): 콘솔 plain text + 파일 JSON (vector가 /logs/*.log 에서 수집) -->
+    <springProfile name="local">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - [traceId=%X{traceId}, spanId=%X{spanId}] %msg%n</pattern>
+            </encoder>
+        </appender>
 
-    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="FILE_JSON" />
-        <discardingThreshold>20</discardingThreshold>
-        <queueSize>512</queueSize>
-        <neverBlock>true</neverBlock>
-    </appender>
+        <appender name="FILE_JSON" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_FILE}</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_PATH}/${APP_NAME}-%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>30</maxHistory>
+            </rollingPolicy>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"job":"${APP_NAME}"}</customFields>
+                <includeMdc>true</includeMdc>
+            </encoder>
+        </appender>
 
-    <logger name="org.apache.kafka" level="WARN"/>
+        <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="FILE_JSON"/>
+            <discardingThreshold>20</discardingThreshold>
+            <queueSize>512</queueSize>
+            <neverBlock>true</neverBlock>
+        </appender>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE" />
-        <appender-ref ref="ASYNC_FILE" />
-    </root>
+        <logger name="org.apache.kafka" level="WARN"/>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ASYNC_FILE"/>
+        </root>
+    </springProfile>
 </configuration>

@@ -40,6 +40,11 @@ out/
 logs/
 !**/src/main/**/logs/
 !**/src/test/**/logs/
+!helm/**/logs/
+!helm/**/logs/**
+
+# Local K8s test scripts
+k8s-local-deploy.ps1
 
 # Claude Code - Local AI configurations & Logs
 .claude/edit-log.txt
