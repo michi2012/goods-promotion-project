@@ -193,7 +193,7 @@ services:
       - "8761:8761"
     environment:
       TZ: Asia/Seoul
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     networks:
       - promotion-network
     restart: on-failure
@@ -226,7 +226,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       mysql-c:
         condition: service_healthy
@@ -260,7 +260,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EXTERNAL_SERVER_A_URL: http://server-a:8080
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       redis-b:
         condition: service_started
@@ -298,7 +298,7 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       mysql:
         condition: service_healthy
@@ -333,7 +333,7 @@ services:
     environment:
       TZ: Asia/Seoul
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       discovery-service:
         condition: service_healthy
@@ -628,7 +628,7 @@ services:
       SPRING_AI_GOOGLE_GENAI_API_KEY: ${SPRING_AI_GOOGLE_GENAI_API_KEY}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       - alertmanager
       - prometheus
