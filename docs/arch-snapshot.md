@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-06-04 (gateway-service·discovery-service 추가)_
+_생성일: 2026-05-28 / 업데이트: 2026-06-05 (K8s/Helm 전환, Gateway Rate Limiting, 로그 프로필 분기)_
 
 ---
 
@@ -7,8 +7,8 @@ _생성일: 2026-05-28 / 업데이트: 2026-06-04 (gateway-service·discovery-se
 
 | 모듈 | 포트 | 역할 | DB | Redis |
 |------|------|------|----|-------|
-| discovery-service | 8761 | Eureka 서버. 모든 서비스 레지스트리 | 없음 | 없음 |
-| gateway-service | 8088 | Spring Cloud Gateway. 외부 트래픽 진입점·lb:// 라우팅 | 없음 | 없음 |
+| discovery-service | 8761 | Eureka 서버. **local 프로필 전용** — K8s 환경에서는 미배포 | 없음 | 없음 |
+| gateway-service | 8088 | Spring Cloud Gateway. 외부 트래픽 진입점, IP별 토큰버킷 Rate Limiting, ALB Ingress TLS termination | 없음 | ✅ (Rate Limiting) |
 | serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (port 6380) |
 | serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음 | payment DB (3308, 전용 MySQL) | 없음 |
@@ -106,12 +106,18 @@ sequenceDiagram
 인증 설정 없음 (SecurityConfig 파일 없음 — 전체 퍼블릭으로 추정)
 
 ### gateway-service (8088) — 라우팅 테이블
-| 경로 패턴 | 대상 서비스 | 비고 |
-|-----------|------------|------|
-| GET /api/v1/orders/**, GET /api/v1/goods/*/stock | lb://serverB | CQRS 읽기, serverA보다 우선 매칭 |
-| /api/v1/promotions/**, /api/v1/goods/**, /api/v1/admin/** | lb://serverA | Saga 오케스트레이터 |
-| /api/v1/payments/** | lb://serverC | 결제 조회 |
-| /webhook/**, /action/** | lb://aiops | AIOps 웹훅 |
+
+**Rate Limiting (Redis 토큰버킷, IP 기반)**
+- `POST /api/v1/promotions/purchase`: replenishRate=2/s, burstCapacity=5 (선착순 어뷰징 방어)
+- 나머지 API: replenishRate=20/s, burstCapacity=50
+
+| 경로 패턴 | 대상 서비스 | local (Eureka) | K8s (직접 DNS) |
+|-----------|------------|----------------|----------------|
+| GET /api/v1/orders/**, GET /api/v1/goods/*/stock | serverB | lb://serverB | http://server-b:8081 |
+| POST /api/v1/promotions/purchase | serverA | lb://serverA | http://server-a:8080 |
+| /api/v1/promotions/**, /api/v1/goods/**, /api/v1/admin/** | serverA | lb://serverA | http://server-a:8080 |
+| /api/v1/payments/** | serverC | lb://serverC | http://server-c:8082 |
+| /webhook/**, /action/** | aiops | lb://aiops | http://aiops:8085 |
 
 인증 필터 없음 (JWT 미구현)
 
@@ -205,5 +211,52 @@ sequenceDiagram
 
 - **라우팅**: `outbox_event.topic` 컬럼 값 → Kafka 토픽명으로 동적 라우팅 (`${routedByValue}`)
 - **traceparent 전파**: `outbox_event.traceparent` 컬럼 → Kafka 헤더 자동 주입 (분산 트레이싱 연속성)
+
+---
+
+## Kubernetes 배포 환경
+
+### 환경별 프로필 분기
+
+| 항목 | local (SPRING_PROFILES_ACTIVE=local) | k8s (SPRING_PROFILES_ACTIVE=k8s) |
+|------|--------------------------------------|----------------------------------|
+| 서비스 디스커버리 | Netflix Eureka (`lb://serverA`) | K8s Service DNS (`http://server-a:8080`) |
+| 로그 출력 | 파일(`/logs/*.log`) + 콘솔 plain text | stdout JSON (Vector DaemonSet 수집) |
+| discovery-service | 배포 O | 배포 X (K8s Service로 대체) |
+| 인프라 | Docker Compose | AWS RDS + ElastiCache + MSK (또는 Kafka StatefulSet) |
+
+### Helm 차트 구조
+
+```
+helm/
+  promotion-app/        # server-a/b/c, aiops, gateway, ALB Ingress, HPA
+  promotion-infra/      # Kafka StatefulSet+PVC, Kafka Connect, Debezium Job
+  promotion-monitoring/ # Prometheus, Grafana, Tempo, Loki, Vector, exporters
+```
+
+### 네트워크 레이어 (EKS)
+
+```
+Cloudflare (WAF + DDoS)
+    ↓
+AWS ALB (HTTPS termination, TLS 1.3, ELBSecurityPolicy-TLS13-1-2-2021-06)
+    ↓
+K8s Ingress (AWS Load Balancer Controller)
+    ↓
+gateway-service (Redis 토큰버킷 Rate Limiting)
+    ↓
+server-a / server-b / server-c / aiops
+```
+
+- AWS WAF 연결은 선택(`ingress.wafAcl` 값 유무로 어노테이션 조건부 생성)
+- Cloudflare 사용 시 WAF ARN 미설정 — DNS 위임으로 대체
+
+### K8s 전용 메트릭 수집
+
+| 항목 | 방식 |
+|------|------|
+| 컨테이너 메트릭 (cAdvisor) | kubelet `/metrics/cadvisor` 엔드포인트 (Prometheus RBAC + API Server 프록시) |
+| 로그 수집 | Vector DaemonSet → `/var/log/pods/` hostPath → Loki |
+| 트레이스 | apps → OTel Collector (4318) → Tempo (4317 gRPC) |
 
 > **codex-reviewer 주의**: `payment-request`, `order-status-update`, `order-completed`, `payment-cancel`, `stock-snapshot`(saga 결과)은 `kafkaTemplate.send()` 직접 호출이 없고 Outbox INSERT → Debezium CDC → Kafka 순서로 발행된다. `purchase_events`와 `stock-snapshot`(구매 접수 시점)만 직접 발행이다.

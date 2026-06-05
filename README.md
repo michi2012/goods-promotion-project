@@ -8,8 +8,8 @@
 | 분류 | 기술 |
 |------|------|
 | 언어 / 프레임워크 | Java 21, Spring Boot 3 |
-| MSA 인프라 | Spring Cloud Gateway, Netflix Eureka |
-| 메시지 브로커 | Apache Kafka, Debezium CDC |
+| MSA 인프라 | Spring Cloud Gateway (Redis 토큰버킷 Rate Limiting), Netflix Eureka (local 전용) |
+| 메시지 브로커 | Apache Kafka (KRaft), Debezium CDC |
 | 캐시 | Redis, Caffeine |
 | 장애 내성 | Resilience4j (Circuit Breaker) |
 | AI / AIOps | Spring AI (ChatClient, Tool Calling) |
@@ -17,17 +17,25 @@
 | 모니터링 | Prometheus, Grafana, Tempo, Loki, Alertmanager, OpenTelemetry Collector, Vector |
 | 부하 테스트 | k6 |
 | 빌드 | Gradle 멀티 모듈 |
-| 인프라 | Docker Compose |
+| 로컬 인프라 | Docker Compose (4개 파일 분리: infra / msa / monitoring / 전체) |
+| 운영 배포 | Kubernetes / Helm (promotion-app · promotion-infra · promotion-monitoring 3개 차트) |
+| 보안 | AWS ALB Ingress (TLS 1.3), Cloudflare WAF 또는 AWS WAF (선택) |
 
 ---
 
-## 로컬 실행
+## 실행 방법
+
+### 로컬 (Docker Compose)
 
 ```bash
-docker-compose up -d
+# 인프라 (MySQL, Redis, Kafka, Debezium)
+docker compose -f docker-compose.infra.yml up -d
+
+# 전체 스택 (위 인프라 + 앱 서비스 + 모니터링 포함)
+docker compose up -d
 ```
 
-전체 스택(gateway · discovery · serverA · serverB · serverC · Kafka · MySQL · Redis · Debezium · 모니터링)이 단일 명령으로 기동된다.
+`SPRING_PROFILES_ACTIVE=local` — Eureka 서비스 디스커버리, 파일 로그(Vector 수집)
 
 | 서비스 | URL |
 |--------|-----|
@@ -37,6 +45,31 @@ docker-compose up -d
 | serverB (조회 API) | http://localhost:8081 |
 | serverC (결제 API) | http://localhost:8082 |
 | Grafana | http://localhost:3000 |
+
+### Kubernetes (Helm)
+
+```bash
+# 1. 네임스페이스 + 노드 설정
+kubectl create namespace promotion
+kubectl label node <node-name> role=app
+
+# 2. 앱 배포 (민감값은 --set으로 주입)
+helm install promotion-app ./helm/promotion-app -n promotion \
+  -f values-local.yaml \
+  --set serverA.datasource.password=<RDS_PASSWORD> \
+  --set ingress.certificateArn=arn:aws:acm:...
+
+# 3. 인프라 배포 (Kafka StatefulSet)
+helm install promotion-infra ./helm/promotion-infra -n promotion \
+  --set kafkaConnect.mysqlHost=<RDS_ENDPOINT> \
+  --set kafkaConnect.mysqlPassword=<PASSWORD>
+
+# 4. 모니터링 배포
+helm install promotion-monitoring ./helm/promotion-monitoring -n promotion \
+  --set exporters.mysqlA.host=<RDS_ENDPOINT>
+```
+
+`SPRING_PROFILES_ACTIVE=k8s` — K8s Service DNS 직접 라우팅(Eureka 제거), stdout 로그(Vector DaemonSet 수집)
 
 ---
 
@@ -58,14 +91,14 @@ docker-compose up -d
 
 ### 모듈 구성
 
-| 모듈 | 포트   | 역할 | DB | Redis    |
-|------|------|------|----|----------|
-| discovery-service | 8761 | Eureka 서버. 전 서비스 레지스트리 | 없음 | 없음 |
-| gateway-service | 8088 | API Gateway. 외부 트래픽 진입점 · lb:// 라우팅 | 없음 | 없음 |
-| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ (6379) |
-| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (6380) |
-| serverC | 8082 | 결제 처리 | payment DB (3308) | 없음 |
-| aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling으로 메트릭·로그·트레이스 자동 조회·분석 → Slack 보고서 발송 | 없음 | 없음 |
+| 모듈 | 포트 | 역할 | DB | Redis |
+|------|------|------|----|-------|
+| discovery-service | 8761 | Eureka 서버. **local 전용** — K8s에서는 미배포(K8s Service DNS로 대체) | 없음 | 없음 |
+| gateway-service | 8088 | API Gateway. IP별 토큰버킷 Rate Limiting (구매 2 req/s · 일반 20 req/s), ALB Ingress TLS termination | 없음 | ✅ (Rate Limiting) |
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB | ✅ |
+| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ |
+| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용 | payment DB | 없음 |
+| aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 발송 | 없음 | 없음 |
 
 ### Before Kafka — Phase 1 최종 아키텍처
 
@@ -221,7 +254,7 @@ flowchart LR
   end
 
   apps -->|OTLP traces| otel
-  apps -.->|shared-logs vol| vector
+  apps -.->|"local: shared-logs vol\nk8s: stdout→/var/log/pods/"| vector
   infraSrc --> redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp
   apps & infraSrc -.->|host cgroups| cadvisor
 
