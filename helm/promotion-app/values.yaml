@@ -49,6 +49,11 @@ gateway:
     limits:
       cpu: "500m"
       memory: "512Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 60
 
 serverA:
   name: server-a

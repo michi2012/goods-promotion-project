@@ -359,6 +359,22 @@
           summary: "⚠️ [P2] HPA 최대 Replica 도달 ({{ $labels.horizontalpodautoscaler }})"
           description: "{{ $labels.horizontalpodautoscaler }}가 5분 이상 최대 replica에서 동작 중. 트래픽 증가 또는 자원 부족으로 더 이상 자동 확장이 불가한 상태."
 
+      # 29. [P3] HPA 과잉 프로비저닝 — maxReplicas 원복 필요
+      - alert: KubeHPAOverprovisioned
+        expr: |
+          (kube_horizontalpodautoscaler_status_current_replicas{namespace="promotion"}
+          == kube_horizontalpodautoscaler_spec_min_replicas{namespace="promotion"})
+          and
+          (kube_horizontalpodautoscaler_spec_max_replicas{namespace="promotion"}
+          > kube_horizontalpodautoscaler_spec_min_replicas{namespace="promotion"} + 3)
+        for: 30m
+        labels:
+          severity: info
+          tier: P3
+        annotations:
+          summary: "ℹ️ [P3] HPA 과잉 프로비저닝 원복 검토 ({{ $labels.horizontalpodautoscaler }})"
+          description: "{{ $labels.horizontalpodautoscaler }}가 30분 이상 최솟값(minReplicas)으로 유지 중이나 maxReplicas가 과잉 설정 상태. 부하 정상화 시 maxReplicas 원복을 검토하세요."
+
   - name: Tier6-Resilience
     rules:
       # 22. [P1] 서킷브레이커 OPEN 상태
