@@ -42,23 +42,11 @@ public class SlackInteractiveController {
             String approvalId = action.path("value").asText();
             String responseUrl = payload.path("response_url").asText();
 
-            if ("reject_scale".equals(actionId) || "reject_restart".equals(actionId)) {
+            if ("reject_restart".equals(actionId)) {
                 log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
                 approvalService.reject(approvalId);
-                String label = "reject_scale".equals(actionId) ? "스케일" : "롤링 재시작";
-                slackService.sendToResponseUrl(responseUrl, "❌ " + label + " 조치가 거절되었습니다.");
+                slackService.sendToResponseUrl(responseUrl, "❌ 롤링 재시작 조치가 거절되었습니다.");
                 return;
-            }
-
-            if ("approve_scale".equals(actionId)) {
-                Optional<PendingAction> action_ = approvalService.approve(approvalId);
-                if (action_.isEmpty()) {
-                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
-                    return;
-                }
-                PendingAction pending = action_.get();
-                log.info("[Slack Interactive] 스케일 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeScale(pending));
             }
 
             if ("approve_restart".equals(actionId)) {
@@ -70,6 +58,42 @@ public class SlackInteractiveController {
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] 롤링 재시작 승인: id={}, params={}", pending.id(), pending.params());
                 slackService.sendToResponseUrl(responseUrl, approvalService.executeRolloutRestart(pending));
+            }
+
+            if ("reject_hpa_patch".equals(actionId)) {
+                log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ HPA 패치 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_hpa_patch".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] HPA 패치 승인: id={}, params={}", pending.id(), pending.params());
+                slackService.sendToResponseUrl(responseUrl, approvalService.executeHpaPatch(pending));
+            }
+
+            if ("reject_helm_rollback".equals(actionId)) {
+                log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ Helm 롤백 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_helm_rollback".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] Helm 롤백 승인: id={}, params={}", pending.id(), pending.params());
+                slackService.sendToResponseUrl(responseUrl, approvalService.executeHelmRollback(pending));
             }
 
         } catch (Exception e) {

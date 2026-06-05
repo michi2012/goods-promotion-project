@@ -88,16 +88,16 @@ public class ActionApprovalService {
         }
     }
 
-    public String executeScale(PendingAction action) {
+    public String executeHpaPatch(PendingAction action) {
         try {
             JsonNode params = objectMapper.readTree(action.params());
-            String deployment = params.path("deployment").asText();
-            int replicas = params.path("replicas").asInt();
+            String hpaName = params.path("hpa").asText();
+            int maxReplicas = params.path("maxReplicas").asInt();
             String ns = params.path("namespace").asText("promotion");
 
+            String patch = String.format("{\"spec\":{\"maxReplicas\":%d}}", maxReplicas);
             List<String> command = new ArrayList<>(
-                    List.of("kubectl", "scale", "deployment", deployment,
-                            "-n", ns, "--replicas=" + replicas));
+                    List.of("kubectl", "patch", "hpa", hpaName, "-n", ns, "--patch", patch, "--type", "merge"));
 
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
@@ -110,16 +110,50 @@ public class ActionApprovalService {
 
             int exitCode = process.waitFor();
             if (exitCode != 0) {
-                log.error("[Approval] kubectl scale 실패: exitCode={}, output={}", exitCode, output);
-                return "❌ kubectl scale 실패 (exitCode=" + exitCode + "): " + output;
+                log.error("[Approval] kubectl patch hpa 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ HPA 패치 실패 (exitCode=" + exitCode + "): " + output;
             }
 
-            log.info("[Approval] kubectl scale 성공: deployment={}, replicas={}", deployment, replicas);
-            return "✅ 스케일 완료: `" + deployment + "` → " + replicas + " replicas\n`" + output + "`";
+            log.info("[Approval] HPA 패치 성공: hpa={}, maxReplicas={}", hpaName, maxReplicas);
+            return "✅ HPA 패치 완료: `" + hpaName + "` maxReplicas=" + maxReplicas + "\n`" + output + "`";
 
         } catch (Exception e) {
-            log.error("[Approval] executeScale 예외: {}", e.getMessage());
-            return "❌ 스케일 실행 중 오류: " + e.getMessage();
+            log.error("[Approval] executeHpaPatch 예외: {}", e.getMessage());
+            return "❌ HPA 패치 실행 중 오류: " + e.getMessage();
         }
     }
+
+    public String executeHelmRollback(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String release = params.path("release").asText();
+            String ns = params.path("namespace").asText("promotion");
+
+            List<String> command = new ArrayList<>(
+                    List.of("helm", "rollback", release, "-n", ns));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("[Approval] helm rollback 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ Helm 롤백 실패 (exitCode=" + exitCode + "): " + output;
+            }
+
+            log.info("[Approval] helm rollback 성공: release={}", release);
+            return "✅ Helm 롤백 완료: `" + release + "`\n`" + output + "`";
+
+        } catch (Exception e) {
+            log.error("[Approval] executeHelmRollback 예외: {}", e.getMessage());
+            return "❌ Helm 롤백 실행 중 오류: " + e.getMessage();
+        }
+    }
+
 }

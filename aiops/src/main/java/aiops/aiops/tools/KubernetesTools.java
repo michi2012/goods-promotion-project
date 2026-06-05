@@ -74,29 +74,52 @@ public class KubernetesTools {
     }
 
     @Tool(description = """
-            Deployment 스케일 조치를 Slack에 승인 요청합니다.
+            HPA의 maxReplicas를 조정하는 패치를 Slack에 승인 요청합니다.
             언제 호출: 다음 중 하나라도 해당하면 즉시 호출하라.
-              1) getClusterStatus에서 HPA REPLICAS < MAXPODS (HPA가 더 많은 Pod를 원하는데 실제 Pod가 부족한 상태)
-              2) getClusterStatus에서 HPA REPLICAS == MAXPODS이고 알람에 CPU 포화가 언급된 경우
-              3) Deployment ready replica < 요청 replica이고 트래픽 부하가 높은 경우
-            중요: 위 조건 해당 시 "수동으로 kubectl scale하라"는 권장 문구 대신 이 도구를 호출하라.
+              1) KubeHPAAtMaxReplicas 알람 — HPA가 이미 maxReplicas에 도달한 경우
+              2) KafkaConsumerLagHigh 알람 — 컨슈머 서비스의 처리 용량 확대가 필요한 경우
+              3) getClusterStatus에서 HPA REPLICAS == MAXPODS이고 부하가 지속되는 경우
+            중요: kubectl scale 대신 반드시 이 도구를 사용하라. HPA 환경에서 kubectl scale은 HPA가 오버라이드한다.
             반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
             """)
-    public String proposeScale(
-            @ToolParam(description = "스케일할 Deployment 이름 (예: server-a, server-b, server-c)") String deploymentName,
-            @ToolParam(description = "목표 replica 수 (현재보다 크거나 작게 가능, 1~10 범위)") int targetReplicas,
-            @ToolParam(description = "스케일이 필요한 이유. 메트릭 수치를 포함한 1문장.") String reason) {
+    public String proposeHpaPatch(
+            @ToolParam(description = "패치할 HPA 이름 (예: server-a, server-b, server-c, gateway)") String hpaName,
+            @ToolParam(description = "새로운 maxReplicas 값 (현재보다 크게, 1~10 범위)") int newMaxReplicas,
+            @ToolParam(description = "패치가 필요한 이유. 메트릭 수치나 알람 내용을 포함한 1문장.") String reason) {
         String params = String.format(
-                "{\"deployment\":\"%s\",\"replicas\":%d,\"namespace\":\"%s\"}",
-                deploymentName, targetReplicas, namespace);
-        String id = approvalService.propose("SCALE_DEPLOYMENT", params, reason);
+                "{\"hpa\":\"%s\",\"maxReplicas\":%d,\"namespace\":\"%s\"}",
+                hpaName, newMaxReplicas, namespace);
+        String id = approvalService.propose("HPA_PATCH", params, reason);
 
         slackService.sendBlockKit(
-                "K8s 스케일 조치 승인 요청: " + deploymentName,
-                buildScaleBlocks(id, deploymentName, targetReplicas, reason));
+                "HPA maxReplicas 패치 승인 요청: " + hpaName,
+                buildHpaPatchBlocks(id, hpaName, newMaxReplicas, reason));
 
-        log.info("[K8s] 스케일 제안 등록 및 Slack 발송: id={}, deployment={}, replicas={}", id, deploymentName, targetReplicas);
-        return "스케일 제안 등록됨 [" + id + "]: " + deploymentName + " → " + targetReplicas + " replicas\n사유: " + reason;
+        log.info("[K8s] HPA 패치 제안 등록 및 Slack 발송: id={}, hpa={}, maxReplicas={}", id, hpaName, newMaxReplicas);
+        return "HPA 패치 제안 등록됨 [" + id + "]: " + hpaName + " → maxReplicas=" + newMaxReplicas + "\n사유: " + reason;
+    }
+
+    @Tool(description = """
+            배포 후 에러율 급증 시 Helm 롤백을 Slack에 승인 요청합니다.
+            언제 호출: 다음 조건을 모두 만족하면 즉시 호출하라.
+              1) 최근 배포(helm upgrade)가 있었고
+              2) 배포 이후 HTTP 5xx 에러율 또는 JVM 에러가 급증한 경우
+            주의: promotion-app 전체 release를 이전 revision으로 롤백한다. 서비스 선택적 롤백 불가.
+            반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
+            """)
+    public String proposeHelmRollback(
+            @ToolParam(description = "롤백할 Helm release 이름 (기본값: promotion-app)") String releaseName,
+            @ToolParam(description = "롤백이 필요한 이유. 배포 시각과 에러율 수치를 포함한 1문장.") String reason) {
+        String params = String.format(
+                "{\"release\":\"%s\",\"namespace\":\"%s\"}", releaseName, namespace);
+        String id = approvalService.propose("HELM_ROLLBACK", params, reason);
+
+        slackService.sendBlockKit(
+                "Helm 롤백 승인 요청: " + releaseName,
+                buildHelmRollbackBlocks(id, releaseName, reason));
+
+        log.info("[K8s] Helm 롤백 제안 등록 및 Slack 발송: id={}, release={}", id, releaseName);
+        return "Helm 롤백 제안 등록됨 [" + id + "]: " + releaseName + "\n사유: " + reason;
     }
 
     private List<Map<String, Object>> buildRestartBlocks(String id, String deployment, String reason) {
@@ -135,32 +158,68 @@ public class KubernetesTools {
         return blocks;
     }
 
-    private List<Map<String, Object>> buildScaleBlocks(String id, String deployment, int replicas, String reason) {
+    private List<Map<String, Object>> buildHpaPatchBlocks(String id, String hpaName, int maxReplicas, String reason) {
         List<Map<String, Object>> blocks = new ArrayList<>();
 
         Map<String, Object> header = new LinkedHashMap<>();
         header.put("type", "header");
-        header.put("text", Map.of("type", "plain_text", "text", "⚠️ K8s 스케일 조치 승인 요청"));
+        header.put("text", Map.of("type", "plain_text", "text", "⚡ HPA maxReplicas 패치 승인 요청"));
         blocks.add(header);
 
         Map<String, Object> section = new LinkedHashMap<>();
         section.put("type", "section");
         section.put("text", Map.of("type", "mrkdwn", "text",
-                String.format("*대상 Deployment:* `%s`\n*목표 Replica:* %d\n*이유:* %s", deployment, replicas, reason)));
+                String.format("*대상 HPA:* `%s`\n*새 maxReplicas:* %d\n*이유:* %s", hpaName, maxReplicas, reason)));
         blocks.add(section);
 
         Map<String, Object> approveBtn = Map.of(
                 "type", "button",
                 "text", Map.of("type", "plain_text", "text", "✅ 승인"),
                 "style", "primary",
-                "action_id", "approve_scale",
+                "action_id", "approve_hpa_patch",
                 "value", id);
 
         Map<String, Object> rejectBtn = Map.of(
                 "type", "button",
                 "text", Map.of("type", "plain_text", "text", "❌ 거절"),
                 "style", "danger",
-                "action_id", "reject_scale",
+                "action_id", "reject_hpa_patch",
+                "value", id);
+
+        Map<String, Object> actions = new LinkedHashMap<>();
+        actions.put("type", "actions");
+        actions.put("elements", List.of(approveBtn, rejectBtn));
+        blocks.add(actions);
+
+        return blocks;
+    }
+
+    private List<Map<String, Object>> buildHelmRollbackBlocks(String id, String releaseName, String reason) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("type", "header");
+        header.put("text", Map.of("type", "plain_text", "text", "🔁 Helm 롤백 승인 요청 (전체 release)"));
+        blocks.add(header);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("type", "section");
+        section.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*대상 Release:* `%s`\n*주의:* 전체 release 롤백 — 서비스 선택 불가\n*이유:* %s", releaseName, reason)));
+        blocks.add(section);
+
+        Map<String, Object> approveBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "✅ 승인"),
+                "style", "primary",
+                "action_id", "approve_helm_rollback",
+                "value", id);
+
+        Map<String, Object> rejectBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "❌ 거절"),
+                "style", "danger",
+                "action_id", "reject_helm_rollback",
                 "value", id);
 
         Map<String, Object> actions = new LinkedHashMap<>();

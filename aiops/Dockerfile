@@ -3,6 +3,10 @@ FROM eclipse-temurin:21-jre-jammy
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     curl -LO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl" && \
     chmod +x kubectl && mv kubectl /usr/local/bin/kubectl && \
+    curl -LO "https://get.helm.sh/helm-v3.15.0-linux-amd64.tar.gz" && \
+    tar -zxf helm-v3.15.0-linux-amd64.tar.gz && \
+    mv linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf helm-v3.15.0-linux-amd64.tar.gz linux-amd64 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
