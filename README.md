@@ -13,13 +13,13 @@
 | 캐시 | Redis, Caffeine |
 | 장애 내성 | Resilience4j (Circuit Breaker) |
 | AI / AIOps | Spring AI (ChatClient, Tool Calling) |
-| DB | MySQL (DB-per-service: promotion DB / payment DB) |
+| DB | MySQL (DB-per-service) |
 | 모니터링 | Prometheus, Grafana, Tempo, Loki, Alertmanager, OpenTelemetry Collector, Vector |
 | 부하 테스트 | k6 |
 | 빌드 | Gradle 멀티 모듈 |
-| 로컬 인프라 | Docker Compose (4개 파일 분리: infra / msa / monitoring / 전체) |
-| 운영 배포 | Kubernetes / Helm (promotion-app · promotion-infra · promotion-monitoring 3개 차트) |
-| 보안 | AWS ALB Ingress (TLS 1.3), Cloudflare WAF 또는 AWS WAF (선택) |
+| 로컬 인프라 | Docker Compose |
+| 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress (TLS 1.3) |
+| 보안 | Cloudflare WAF (권장) 또는 AWS WAF |
 
 ---
 
@@ -28,9 +28,6 @@
 ### 로컬 (Docker Compose)
 
 ```bash
-# 인프라 (MySQL, Redis, Kafka, Debezium)
-docker compose -f docker-compose.infra.yml up -d
-
 # 전체 스택 (위 인프라 + 앱 서비스 + 모니터링 포함)
 docker compose up -d
 ```
@@ -48,26 +45,10 @@ docker compose up -d
 
 ### Kubernetes (Helm)
 
-```bash
-# 1. 네임스페이스 + 노드 설정
-kubectl create namespace promotion
-kubectl label node <node-name> role=app
+3개 독립 차트 구성: `promotion-app` / `promotion-infra` / `promotion-monitoring`
 
-# 2. 앱 배포 (민감값은 --set으로 주입)
-helm install promotion-app ./helm/promotion-app -n promotion \
-  -f values-local.yaml \
-  --set serverA.datasource.password=<RDS_PASSWORD> \
-  --set ingress.certificateArn=arn:aws:acm:...
-
-# 3. 인프라 배포 (Kafka StatefulSet)
-helm install promotion-infra ./helm/promotion-infra -n promotion \
-  --set kafkaConnect.mysqlHost=<RDS_ENDPOINT> \
-  --set kafkaConnect.mysqlPassword=<PASSWORD>
-
-# 4. 모니터링 배포
-helm install promotion-monitoring ./helm/promotion-monitoring -n promotion \
-  --set exporters.mysqlA.host=<RDS_ENDPOINT>
-```
+민감값(`datasource.password`, `ingress.certificateArn` 등)은 `helm install --set`으로 주입.  
+로컬 테스트용 오버라이드는 `values-local.yaml` 참고.
 
 `SPRING_PROFILES_ACTIVE=k8s` — K8s Service DNS 직접 라우팅(Eureka 제거), stdout 로그(Vector DaemonSet 수집)
 

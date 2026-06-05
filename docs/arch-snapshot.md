@@ -5,14 +5,14 @@ _생성일: 2026-05-28 / 업데이트: 2026-06-05 (K8s/Helm 전환, Gateway Rate
 
 ## 모듈 구성
 
-| 모듈 | 포트 | 역할 | DB | Redis |
-|------|------|------|----|-------|
-| discovery-service | 8761 | Eureka 서버. **local 프로필 전용** — K8s 환경에서는 미배포 | 없음 | 없음 |
-| gateway-service | 8088 | Spring Cloud Gateway. 외부 트래픽 진입점, IP별 토큰버킷 Rate Limiting, ALB Ingress TLS termination | 없음 | ✅ (Rate Limiting) |
-| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB (3307) | ✅ |
-| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ (port 6380) |
-| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음 | payment DB (3308, 전용 MySQL) | 없음 |
-| aiops | 8085 | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·Slack 알림 | - | - |
+| 모듈 | 포트 | 역할                                                    | DB | Redis             |
+|------|------|-------------------------------------------------------|----|-------------------|
+| discovery-service | 8761 | Eureka 서버. local 프로필 전용 — K8s 환경에서는 미배포               | 없음 | 없음                |
+| gateway-service | 8088 | Spring Cloud Gateway. 외부 트래픽 진입점, IP별 토큰버킷 Rate Limiting | 없음 | ✅ (Rate Limiting) |
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어            | promotion DB (3307) | ✅ (port 6379)     |
+| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회                             | 없음 | ✅ (port 6380)     |
+| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음              | payment DB (3308, 전용 MySQL) | 없음                |
+| aiops | 8085 | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·Slack 알림           | - | -                 |
 
 ---
 
@@ -111,13 +111,13 @@ sequenceDiagram
 - `POST /api/v1/promotions/purchase`: replenishRate=2/s, burstCapacity=5 (선착순 어뷰징 방어)
 - 나머지 API: replenishRate=20/s, burstCapacity=50
 
-| 경로 패턴 | 대상 서비스 | local (Eureka) | K8s (직접 DNS) |
-|-----------|------------|----------------|----------------|
-| GET /api/v1/orders/**, GET /api/v1/goods/*/stock | serverB | lb://serverB | http://server-b:8081 |
-| POST /api/v1/promotions/purchase | serverA | lb://serverA | http://server-a:8080 |
-| /api/v1/promotions/**, /api/v1/goods/**, /api/v1/admin/** | serverA | lb://serverA | http://server-a:8080 |
-| /api/v1/payments/** | serverC | lb://serverC | http://server-c:8082 |
-| /webhook/**, /action/** | aiops | lb://aiops | http://aiops:8085 |
+| 경로 패턴                                             | 대상 서비스 | local (Eureka) | K8s (직접 DNS) |
+|---------------------------------------------------|------------|----------------|----------------|
+| GET /api/v1/orders/, GET /api/v1/goods/*/stock    | serverB | lb://serverB | http://server-b:8081 |
+| POST /api/v1/promotions/purchase                  | serverA | lb://serverA | http://server-a:8080 |
+| /api/v1/promotions/, /api/v1/goods/, /api/v1/admin/ | serverA | lb://serverA | http://server-a:8080 |
+| /api/v1/payments/                                 | serverC | lb://serverC | http://server-c:8082 |
+| /webhook/**, /action/**                           | aiops | lb://aiops | http://aiops:8085 |
 
 인증 필터 없음 (JWT 미구현)
 
@@ -239,9 +239,7 @@ helm/
 ```
 Cloudflare (WAF + DDoS)
     ↓
-AWS ALB (HTTPS termination, TLS 1.3, ELBSecurityPolicy-TLS13-1-2-2021-06)
-    ↓
-K8s Ingress (AWS Load Balancer Controller)
+ALB Ingress (HTTPS termination, TLS 1.3 — AWS Load Balancer Controller)
     ↓
 gateway-service (Redis 토큰버킷 Rate Limiting)
     ↓
