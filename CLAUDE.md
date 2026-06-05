@@ -89,6 +89,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
 - Kafka 컨슈머/프로듀서/토픽/DLT/Debezium 작업 시 `.claude/skills/kafka` 매뉴얼을 활용할 것.
 
+## 장기 실행 명령 처리 원칙
+
+**블로킹 대기는 토큰 낭비다. `run_in_background: true`로 실행하고 완료 알림 후 이어서 처리하라.**
+
+- `docker compose build`, `docker compose up`, `helm upgrade`, `gradle build` 등 완료까지 시간이 걸리는 명령은 반드시 `run_in_background: true`로 실행할 것.
+- 완료 알림이 오면 그때 결과를 확인하고 다음 단계를 이어서 처리할 것.
+- 직접 실행하며 응답을 기다리는 방식(블로킹) 금지.
+
 ## 테스트 분업 원칙
 
 **작성(write)과 실행(run)은 다르다. 토큰을 쓰는 건 실행 로그이지, 코드 작성이 아니다.**
