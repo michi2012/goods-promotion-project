@@ -69,11 +69,11 @@ spring:
                 redis-rate-limiter.requestedTokens: 1
                 key-resolver: "#{@ipKeyResolver}"
 
-        # AIOps — Rate Limiting 미적용
+        # AIOps — Rate Limiting 미적용 (Alertmanager 내부 호출 + Slack Interactive 콜백)
         - id: aiops
           uri: http://aiops:8085
           predicates:
-            - Path=/webhook/**, /action/**
+            - Path=/webhook/**, /action/**, /slack/**
 
 eureka:
   client:
