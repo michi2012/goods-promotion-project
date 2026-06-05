@@ -88,6 +88,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 예외 처리/에러 응답 작업 시 `.claude/skills/exception` 매뉴얼을 활용할 것.
 - 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
 - Kafka 컨슈머/프로듀서/토픽/DLT/Debezium 작업 시 `.claude/skills/kafka` 매뉴얼을 활용할 것.
+- Kubernetes/Helm/kubectl/HPA/RBAC/values.yaml/Deployment 작업 시 `.claude/skills/k8s` 매뉴얼을 활용할 것.
 
 ## 장기 실행 명령 처리 원칙
 
