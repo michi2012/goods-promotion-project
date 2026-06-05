@@ -4,6 +4,43 @@
 
 ---
 
+## v1.2.0 — 2026-06-06
+
+> AIOps K8s 자동화(HPA 조정·Helm 롤백·롤링 재시작 Slack 승인 플로우) 및 K8s 인프라 전환 전면 도입
+
+### ✨ New Features
+
+**AIOps K8s 자동화**
+- K8s 클러스터 조회·스케일·재시작 도구 추가 — `getClusterStatus`, `proposeHpaPatch`, `proposeRolloutRestart`, `proposeHelmRollback` (0ad0e5c)
+- Slack Block Kit 승인/거절 버튼 플로우 구현 (35d3360)
+- AIOps 시스템 프롬프트 개선 — HPA/Kafka/Rollback 시나리오 판단 로직 (e5898d5)
+- Gateway HPA(min:1 max:3) 및 KubeHPAOverprovisioned P3 알람 추가 (bc6bc74)
+- Prometheus K8s 알람 규칙 및 kube-state-metrics 추가 (83a2cb5)
+- SRE 대시보드 K8s Tier5 패널 추가 (cc90262)
+
+**K8s 인프라**
+- Helm 차트 구성 — promotion-app / promotion-infra / promotion-monitoring (5c6584f)
+- AIOps RBAC(ServiceAccount + ClusterRole) 및 deployment 설정 추가 (b7f458b)
+- K8s/local 환경 분리 — `application-k8s.yml`, `SPRING_PROFILES_ACTIVE` (361c8b7)
+- logback local/k8s 프로필 분기 — 파일 로그 vs stdout JSON (d3308d6)
+
+**Gateway**
+- Spring Cloud Gateway 토큰버킷 Rate Limiting + ALB Ingress 설정 (9c7482a)
+- MSA 인프라 레이어 추가 — gateway-service, discovery-service (a096598)
+
+### 🐛 Bug Fixes
+- AIOps RBAC 누락 권한 추가 — autoscaling/HPA, deployments patch, secrets (e263b7a)
+
+### ♻️ Refactor
+- OTLP 엔드포인트 플레이스홀더+기본값 방식으로 통일 (fcf3b27)
+
+### 🔧 Chore / Docs
+- K8s/Helm 공통 스킬 추가 (410b4d6)
+- K8s 자동화 도구 및 tier 라벨 반영 문서 업데이트 (외 5건)
+- MSA 환경 구성을 위한 Gradle 독립 빌드 및 Docker Compose 분리 (ed3712b)
+
+---
+
 ## v1.1.1 — 2026-06-03
 
 > SRE 모니터링 정확도 개선 및 aiops 모듈 리네이밍

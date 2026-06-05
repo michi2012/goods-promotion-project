@@ -296,6 +296,85 @@
           summary: "🔥 [P1] Redis 인스턴스 다운 ({{ $labels.instance }})"
           description: "{{ $labels.instance }} Redis 인스턴스가 다운되어 캐시 미스로 인한 DB 부하 급증이 예상되는 상태."
 
+  - name: Tier5-Kubernetes
+    rules:
+      # 24. [P1] Pod CrashLoopBackOff
+      - alert: KubePodCrashLooping
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="promotion"}[15m]) > 3
+        for: 1m
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] Pod CrashLoopBackOff 감지 ({{ $labels.pod }}, 재시작: {{ printf \"%.0f\" $value }}회)"
+          description: "{{ $labels.namespace }}/{{ $labels.pod }} 컨테이너가 15분 내 3회 이상 재시작. OOM 또는 애플리케이션 크래시가 의심되는 상태."
+
+      # 25. [P1] Pod OOMKilled
+      - alert: KubePodOOMKilled
+        expr: |
+          kube_pod_container_status_last_terminated_reason{reason="OOMKilled", namespace="promotion"} == 1
+        for: 10s
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] Pod OOMKilled 발생 ({{ $labels.pod }})"
+          description: "{{ $labels.namespace }}/{{ $labels.pod }} 컨테이너가 메모리 초과로 강제 종료됨. JVM heap 설정 또는 메모리 리밋 재검토 필요."
+
+      # 26. [P2] Pod NotReady 지속
+      - alert: KubePodNotReady
+        expr: |
+          kube_pod_status_ready{condition="true", namespace="promotion"} == 0
+        for: 3m
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] Pod NotReady 지속 ({{ $labels.pod }})"
+          description: "{{ $labels.namespace }}/{{ $labels.pod }}이 3분 이상 Ready 상태가 아님. Readiness probe 실패 또는 의존 서비스 장애가 의심되는 상태."
+
+      # 27. [P1] Node NotReady
+      - alert: KubeNodeNotReady
+        expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] K8s 노드 NotReady ({{ $labels.node }})"
+          description: "{{ $labels.node }} 노드가 1분 이상 NotReady 상태. 해당 노드의 모든 Pod가 다른 노드로 이동 예정."
+
+      # 28. [P2] HPA 최대 Replica 도달
+      - alert: KubeHPAAtMaxReplicas
+        expr: |
+          kube_horizontalpodautoscaler_status_current_replicas{namespace="promotion"}
+          >=
+          kube_horizontalpodautoscaler_spec_max_replicas{namespace="promotion"}
+        for: 5m
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] HPA 최대 Replica 도달 ({{ $labels.horizontalpodautoscaler }})"
+          description: "{{ $labels.horizontalpodautoscaler }}가 5분 이상 최대 replica에서 동작 중. 트래픽 증가 또는 자원 부족으로 더 이상 자동 확장이 불가한 상태."
+
+      # 29. [P3] HPA 과잉 프로비저닝 — maxReplicas 원복 필요
+      - alert: KubeHPAOverprovisioned
+        expr: |
+          (kube_horizontalpodautoscaler_status_current_replicas{namespace="promotion"}
+          == kube_horizontalpodautoscaler_spec_min_replicas{namespace="promotion"})
+          and
+          (kube_horizontalpodautoscaler_spec_max_replicas{namespace="promotion"}
+          > kube_horizontalpodautoscaler_spec_min_replicas{namespace="promotion"} + 3)
+        for: 30m
+        labels:
+          severity: info
+          tier: P3
+        annotations:
+          summary: "ℹ️ [P3] HPA 과잉 프로비저닝 원복 검토 ({{ $labels.horizontalpodautoscaler }})"
+          description: "{{ $labels.horizontalpodautoscaler }}가 30분 이상 최솟값(minReplicas)으로 유지 중이나 maxReplicas가 과잉 설정 상태. 부하 정상화 시 maxReplicas 원복을 검토하세요."
+
   - name: Tier6-Resilience
     rules:
       # 22. [P1] 서킷브레이커 OPEN 상태

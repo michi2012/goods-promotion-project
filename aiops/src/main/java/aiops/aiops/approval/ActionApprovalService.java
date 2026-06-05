@@ -1,20 +1,30 @@
 package aiops.aiops.approval;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ActionApprovalService {
 
     private static final Duration TTL = Duration.ofHours(1);
     private final ConcurrentHashMap<String, PendingAction> pending = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper;
 
     public record PendingAction(String id, String actionType, String params, String reason, Instant proposedAt) {}
 
@@ -34,8 +44,116 @@ public class ActionApprovalService {
             log.warn("[Approval] 존재하지 않거나 만료된 승인 ID: {}", id);
             return Optional.empty();
         }
-        // TODO: actionType별 실제 executor 연결 예정 (kubectl, kafka-admin 등)
         log.info("[Approval] 승인 완료: id={}, type={}, reason={}", action.id(), action.actionType(), action.reason());
         return Optional.of(action);
     }
+
+    public void reject(String id) {
+        PendingAction removed = pending.remove(id);
+        if (removed != null) {
+            log.info("[Approval] 거절 처리: id={}, type={}", removed.id(), removed.actionType());
+        }
+    }
+
+    public String executeRolloutRestart(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String deployment = params.path("deployment").asText();
+            String ns = params.path("namespace").asText("promotion");
+
+            List<String> command = new ArrayList<>(
+                    List.of("kubectl", "rollout", "restart", "deployment/" + deployment, "-n", ns));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("[Approval] kubectl rollout restart 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ rollout restart 실패 (exitCode=" + exitCode + "): " + output;
+            }
+
+            log.info("[Approval] rollout restart 성공: deployment={}", deployment);
+            return "✅ 롤링 재시작 완료: `" + deployment + "`\n`" + output + "`";
+
+        } catch (Exception e) {
+            log.error("[Approval] executeRolloutRestart 예외: {}", e.getMessage());
+            return "❌ 롤링 재시작 실행 중 오류: " + e.getMessage();
+        }
+    }
+
+    public String executeHpaPatch(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String hpaName = params.path("hpa").asText();
+            int maxReplicas = params.path("maxReplicas").asInt();
+            String ns = params.path("namespace").asText("promotion");
+
+            String patch = String.format("{\"spec\":{\"maxReplicas\":%d}}", maxReplicas);
+            List<String> command = new ArrayList<>(
+                    List.of("kubectl", "patch", "hpa", hpaName, "-n", ns, "--patch", patch, "--type", "merge"));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("[Approval] kubectl patch hpa 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ HPA 패치 실패 (exitCode=" + exitCode + "): " + output;
+            }
+
+            log.info("[Approval] HPA 패치 성공: hpa={}, maxReplicas={}", hpaName, maxReplicas);
+            return "✅ HPA 패치 완료: `" + hpaName + "` maxReplicas=" + maxReplicas + "\n`" + output + "`";
+
+        } catch (Exception e) {
+            log.error("[Approval] executeHpaPatch 예외: {}", e.getMessage());
+            return "❌ HPA 패치 실행 중 오류: " + e.getMessage();
+        }
+    }
+
+    public String executeHelmRollback(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String release = params.path("release").asText();
+            String ns = params.path("namespace").asText("promotion");
+
+            List<String> command = new ArrayList<>(
+                    List.of("helm", "rollback", release, "-n", ns));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("[Approval] helm rollback 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ Helm 롤백 실패 (exitCode=" + exitCode + "): " + output;
+            }
+
+            log.info("[Approval] helm rollback 성공: release={}", release);
+            return "✅ Helm 롤백 완료: `" + release + "`\n`" + output + "`";
+
+        } catch (Exception e) {
+            log.error("[Approval] executeHelmRollback 예외: {}", e.getMessage());
+            return "❌ Helm 롤백 실행 중 오류: " + e.getMessage();
+        }
+    }
+
 }

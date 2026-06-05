@@ -45,6 +45,7 @@ logs/
 
 # Local K8s test scripts
 k8s-local-deploy.ps1
+docker-compose.override.yml
 
 # Claude Code - Local AI configurations & Logs
 .claude/edit-log.txt

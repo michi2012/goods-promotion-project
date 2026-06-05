@@ -83,8 +83,8 @@ flowchart TD
     end
 
     subgraph K8s["Kubernetes (promotion namespace)"]
-        ING["K8s Ingress\n(AWS LBC)"]
-        GW["gateway-service\n:8088\nRate Limiting (Redis)"]
+        ING["K8s Ingress\n(AWS ALB)"]
+        GW["gateway-service\n:8088\nRate Limiting (Redis)\nHPA min:1 max:3"]
 
         subgraph App["Application Pods"]
             A["server-a\n:8080 × 2"]
@@ -130,7 +130,7 @@ flowchart TD
     C -->|"Circuit Breaker"| PG
 ```
 
-> K8s 환경에서는 Eureka(discovery-service) 미배포. `SPRING_PROFILES_ACTIVE=k8s`로 K8s Service DNS 직접 사용.
+> K8s 환경에서는 Eureka(discovery-service) 미배포. AIOps는 K8s API Server에 RBAC로 접근해 HPA 조정·Helm 롤백·롤링 재시작을 Slack 승인 후 실행한다. `SPRING_PROFILES_ACTIVE=k8s`로 K8s Service DNS 직접 사용.
 
 ---
 
