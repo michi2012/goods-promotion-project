@@ -9,7 +9,8 @@ imagePullPolicy: Always  # EKS: Always | 로컬 테스트: IfNotPresent
 ingress:
   host: ""             # --set ingress.host=yourdomain.com
   certificateArn: ""   # --set ingress.certificateArn=arn:aws:acm:ap-northeast-2:...
-  wafAcl: ""           # --set ingress.wafAcl=arn:aws:wafv2:...  (선택, 비어있으면 어노테이션 미생성)
+  wafAcl: ""           # AWS WAF: arn:aws:wafv2:ap-northeast-2:...
+                       # Cloudflare 사용 시 비워둠
 
 nodeSelector:
   role: app
