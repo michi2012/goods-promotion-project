@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import aiops.aiops.slack.SlackNotificationService;
+import aiops.aiops.tools.KubernetesTools;
 import aiops.aiops.tools.ObservabilityTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ public class AiOpsAgentService {
 
     private final ChatClient.Builder chatClientBuilder;
     private final ObservabilityTools observabilityTools;
+    private final KubernetesTools kubernetesTools;
     private final SlackNotificationService slackService;
     private final AlertDeduplicationService deduplicationService;
 
@@ -47,7 +49,16 @@ public class AiOpsAgentService {
             7. queryRecentCommits(60)를 호출하여 최근 1시간 배포 이력을 조회하라.
                커밋 시각이 장애 발생 시각 10분 이내라면 해당 커밋을 원인 후보 1순위로 기록하고 롤백을 권장 조치에 포함하라.
 
-            8. 수집한 모든 정보를 바탕으로 아래 형식의 보고서를 작성하라.
+            8. severity가 critical이고 JVM Heap 포화, CPU 포화, HPA 최대 복제본 도달 알람이라면 getClusterStatus를 호출하라.
+               getClusterStatus 결과에서 아래 중 하나라도 해당하면 proposeScale을 호출하라:
+               - HPA REPLICAS < MAXPODS (HPA가 스케일 아웃을 원하는데 Pod가 부족한 상태)
+               - HPA REPLICAS == MAXPODS이고 CPU 포화가 알람 또는 메트릭으로 확인된 경우
+               - Deployment ready replica가 요청 replica보다 적은 경우
+               중요: "kubectl scale을 수동으로 실행하라"고 권장하는 상황이라면, 그 대신 반드시 proposeScale을 호출하라. 수동 kubectl 권장 문구를 보고서에 쓰지 마라.
+               - HTTP 요청이 큐잉되어 처리 안 되는데 liveness probe는 정상(up==1)이고 에러 로그에 deadlock/blocked thread가 확인되면 proposeRolloutRestart를 호출하라.
+               - 추측 기반 제안 절대 금지. getClusterStatus 또는 알람 수치로 근거가 없으면 호출하지 마라.
+
+            9. 수집한 모든 정보를 바탕으로 아래 형식의 보고서를 작성하라.
                데이터로 뒷받침되지 않는 추측은 쓰지 마라.
 
             ## 연쇄 장애 추론 원칙
@@ -90,7 +101,7 @@ public class AiOpsAgentService {
                                              .prompt()
                                              .system(SYSTEM_PROMPT)
                                              .user(alertPayload)
-                                             .tools(observabilityTools)
+                                             .tools(observabilityTools, kubernetesTools)
                                              .call()
                                              .content();
 

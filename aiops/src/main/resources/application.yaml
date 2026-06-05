@@ -39,6 +39,9 @@ github:
 slack:
   webhook-url: ${SLACK_WEBHOOK_URL}
 
+k8s:
+  namespace: ${K8S_NAMESPACE:promotion}
+
 management:
   observations:
     enable:
