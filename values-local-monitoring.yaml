@@ -1,0 +1,18 @@
+exporters:
+  redis:
+    addr: "redis://host.docker.internal:6379"
+  redisB:
+    addr: "redis://host.docker.internal:6380"
+  kafka:
+    server: "kafka:9092"
+  mysqlA:
+    host: "host.docker.internal"
+    username: "root"
+    password: "root"
+  mysqlC:
+    host: "host.docker.internal"
+    username: "root"
+    password: "root"
+
+grafana:
+  adminPassword: "admin"
