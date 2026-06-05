@@ -81,6 +81,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## 작업 시작 시
 - 기존에 진행 중이던 `/plan` 기반 대규모 작업을 이어서 할 때는, 코딩 시작 전 반드시 `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 세 파일을 모두 읽고 제약 조건과 다음 진행할 단계를 스스로 파악할 것. 단순 확인/수정에는 불필요.
 - 변경 파일이 2개 이상인 작업은 반드시 `/plan` 명령어부터 실행할 것. 곧바로 코딩 시작 금지.
+- `/plan` 승인 후 구현 시작 전, 반드시 아래 두 가지를 사용자에게 먼저 확인할 것:
+  1. **브랜치**: 새로운 기능/작업이면 브랜치 분리를 확인할 것. 브랜치가 없으면 브랜치명을 제안하고 생성 여부를 물어볼 것. 현재 브랜치 작업의 버그 수정·보완·후속 작업이면 같은 브랜치에서 계속할 것. 파일 수가 기준이 아니라 작업의 성격이 기준이다.
 - API/컨트롤러/DTO 작업 시 `.claude/skills/api` 매뉴얼을 활용할 것.
 - 엔티티/리포지토리/쿼리/트랜잭션 작업 시 `.claude/skills/jpa` 매뉴얼을 활용할 것.
 - 예외 처리/에러 응답 작업 시 `.claude/skills/exception` 매뉴얼을 활용할 것.
