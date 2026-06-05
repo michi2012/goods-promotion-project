@@ -18,12 +18,18 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update"]  # helm rollback: 릴리즈 이력 secrets 읽기/쓰기
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]  # patch: kubectl rollout restart
   - apiGroups: ["apps"]
     resources: ["deployments/scale"]
     verbs: ["patch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "patch"]  # get: getClusterStatus, patch: proposeHpaPatch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
