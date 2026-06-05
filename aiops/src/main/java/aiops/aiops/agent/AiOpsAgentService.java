@@ -74,7 +74,7 @@ public class AiOpsAgentService {
             - Kafka 컨슈머 랙, CDC 지연, HikariCP 대기, Redis 지연 중 둘 이상이 동시에 높다면 연쇄 장애를 의심하라.
 
             ## 보고서 형식 (슬랙 문법: 굵은 글씨는 * 한 개만)
-            ## 🚨 [*severity*] alertname
+            ## 🚨 [*tier*] [*severity*] alertname
             *요약*: summary 내용 그대로
             *원인*: 수집된 메트릭·로그·트레이스·배포 이력 기반의 구체적 원인 (연쇄 장애라면 계층별 순서 서술)
             *영향 범위*: 영향받는 서비스와 기능

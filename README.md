@@ -311,16 +311,22 @@ serverB ← order-status-update → status-update-result → SagaResultConsumer
 Prometheus Alertmanager가 웹훅을 AIOps 서버로 발송하면 Spring AI `ChatClient`가 아래 순서로 도구를 호출해 원인을 분석하고 Slack에 보고서를 발송한다.
 
 ```
-Alertmanager webhook → mcp
+Alertmanager webhook → AIOps(8085)
   ① 중복 억제 (AlertDeduplicationService, 30분 TTL)
-  ② ChatClient + ObservabilityTools Tool Calling
+  ② ChatClient + ObservabilityTools + KubernetesTools Tool Calling
+     [ObservabilityTools]
      - queryPrometheusMetrics  : 에러율·가용성 현황
      - queryDatabaseHealth     : HikariCP 대기·슬로우 쿼리·Redis 메모리
      - queryLokiLogs           : 대상 서비스 최근 5분 ERROR 로그
      - queryTempoTrace         : traceId 추출 시 분산 트레이스 조회
      - queryRecentCommits(60)  : 최근 1시간 배포 이력 (장애 시각 10분 이내 커밋 → 롤백 권장)
+     [KubernetesTools]
+     - getClusterStatus        : K8s 파드·디플로이먼트·HPA 상태 조회
+     - proposeHpaPatch         : HPA maxReplicas 조정 Slack 승인 요청
+     - proposeHelmRollback     : Helm 릴리즈 롤백 Slack 승인 요청
+     - proposeRolloutRestart   : 디플로이먼트 롤링 재시작 Slack 승인 요청
   ③ 연쇄 장애 추론 (DB 부하 → CDC 지연 → Kafka 블로킹 → HTTP 5xx 등 계층별 인과 서술)
-  ④ Slack 보고서 발송 (요약·원인·영향 범위·권장 조치·핵심 지표)
+  ④ Slack 보고서 + 필요 시 K8s 조치 승인 버튼 발송
 ```
 
 - **중복 억제:** 동일 `groupLabels` 지문(fingerprint)으로 30분 내 재발송 차단
@@ -350,6 +356,7 @@ Alertmanager webhook → mcp
 | 🚨 P0 | 즉각 수기 대응 필요 | PG 결제 성공 후 환불 보상 트랜잭션까지 연달아 실패 → 수기 정산 발생 |
 | 🔥 P1 | 서비스 중단·SLO 위반 임박 | 인스턴스 다운, 가용성 < 99.9%, Heap > 90%, 서킷브레이커 OPEN, DB 커넥션 풀 포화, MySQL 인스턴스 다운 |
 | ⚠️ P2 | 전조 증상·성능 저하 | p95 > 500ms, 5xx 에러율 > 1% 3분 지속, 카프카 컨슈머 렉 > 500건, CPU > 80%, MySQL 슬로우 쿼리 > 1/s |
+| ℹ️ P3 | 자동 최적화 제안 | HPA 과잉 프로비저닝 — 부하 정상화 후 maxReplicas 원복 제안 |
 
 P1 이상 알람은 Alertmanager → AIOps 서버 웹훅을 통해 [AIOps 자동 분석](#5-aiops--spring-ai-기반-장애-자동-분석) 후 Slack으로 보고서가 발송된다.
 
