@@ -50,6 +50,10 @@ scrape_configs:
         labels:
           instance: 'mysql-c'
 
+  - job_name: 'kube-state-metrics'
+    static_configs:
+      - targets: ['kube-state-metrics:8080']
+
   - job_name: 'cadvisor'
     scheme: https
     tls_config:
