@@ -239,7 +239,7 @@ helm/
 ```
 Cloudflare (WAF + DDoS)
     ↓
-ALB Ingress (HTTPS termination, TLS 1.3 — AWS Load Balancer Controller)
+ALB Ingress (HTTPS termination)
     ↓
 gateway-service (Redis 토큰버킷 Rate Limiting)
     ↓

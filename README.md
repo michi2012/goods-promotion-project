@@ -18,7 +18,7 @@
 | 부하 테스트 | k6 |
 | 빌드 | Gradle 멀티 모듈 |
 | 로컬 인프라 | Docker Compose |
-| 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress (TLS 1.3) |
+| 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress |
 | 보안 | Cloudflare WAF (권장) 또는 AWS WAF |
 
 ---

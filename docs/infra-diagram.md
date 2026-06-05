@@ -50,11 +50,11 @@ flowchart TD
     %% 앱 → 인프라
     A -->|"JPA"| MySQL
     A -->|"Lettuce"| Redis
-    A -->|"produce/consume"| Kafka
+    A -->|"consume"| Kafka
     B -->|"Lettuce"| RedisB
     B -->|"produce/consume"| Kafka
     C -->|"JPA"| MySQLC
-    C -->|"produce/consume"| Kafka
+    C -->|"consume"| Kafka
 
     %% Debezium CDC
     MySQL -->|"binlog"| KC
@@ -78,7 +78,7 @@ flowchart TD
     CF(["Cloudflare\nWAF + DDoS"])
 
     subgraph AWS["AWS"]
-        ALB["ALB\nHTTPS→HTTP\nTLS 1.3"]
+        ALB["ALB\nHTTPS→HTTP"]
         WAF["AWS WAF\n(선택)"]
     end
 
