@@ -1,94 +1,83 @@
-# 계획서: AIOps 추가 K8s 도구 및 Helm 롤백 구현
+# 계획서: Istio Ambient 도입 + AIOps 트래픽 제어 연동
 
-- 작성일: 2026-06-05
+- 작성일: 2026-06-06
 
 ## 목표
-proposeHpaPatch(HPA maxReplicas 조정), Kafka 컨슈머 랙 대응(proposeScale → proposeHpaPatch 재활용),
-proposeHelmRollback(배포 후 에러율 급증 시 helm rollback 제안) 세 가지를 추가하여 AIOps K8s 자동화 도구를 완성한다.
-gateway에도 HPA를 추가하여 모든 스케일 가능 서비스를 proposeHpaPatch로 통일한다.
-기존 proposeScale(kubectl scale)은 제거한다.
+Istio Ambient mode를 도입하여 네트워크 레벨 트래픽 제어를 구현하고, AIOps가 장애 감지 시 VirtualService 가중치 조정(트래픽 시프트) 및 DestinationRule outlier detection 임계값 변경을 Slack 승인 후 실행할 수 있도록 연동한다.
 
 ## 성공 기준
-- [ ] KubeHPAAtMaxReplicas 알람 → AI가 proposeHpaPatch 호출 → Slack 버튼 발송 → 승인 → kubectl patch hpa 실행 확인
-- [ ] KafkaConsumerLagHigh 알람 → AI가 해당 컨슈머 서비스에 proposeHpaPatch 호출 → Slack 버튼 발송 확인
-- [ ] 에러율 급증 + 최근 배포 감지 → AI가 proposeHelmRollback 호출 → Slack 버튼 → helm rollback promotion-app 실행 확인
-- [ ] helm binary가 aiops Dockerfile에 설치되어 있음
-- [ ] gateway HPA가 helm 차트에 추가되어 있음
-- [ ] 기존 proposeScale 코드가 제거되어 있음
+- [ ] `helm upgrade promotion-istio` 후 istiod, ztunnel Pod Ready 확인 (`kubectl get pods -n istio-system`)
+- [ ] `promotion` 네임스페이스 Ambient 활성화 확인 (`kubectl get ns promotion --show-labels | grep ambient`)
+- [ ] VirtualService로 server-a 트래픽 v1:80% v2:20% 분기 렌더링 확인 (`helm template` 출력)
+- [ ] AIOps `proposeTrafficShift` 호출 시 Slack 승인 버튼 발송 및 kubectl patch 실행
+- [ ] AIOps `proposeOutlierDetectionUpdate` 호출 시 DestinationRule patch 실행
+- [ ] AIOps RBAC 권한 확인 (`kubectl auth can-i patch virtualservices -n promotion --as=system:serviceaccount:promotion:aiops`)
 
 ## 비범위 (Out of Scope)
-- aiops HPA 추가 — 다중 인스턴스 시 중복 알람 처리 문제로 제외
-- proposeMemoryLimitPatch — deployment spec 변경은 PR로 처리하는 게 맞음
-- Node cordon/drain — 위험도 높아 자동화 제외
-- Helm release 서비스별 분리 — 차트 구조 전면 개편 필요, 별도 작업으로 분리
-- Slack App signing secret 검증 — 보안 강화는 추후
+- mTLS / PeerAuthentication — 이번 작업에서 제외
+- AuthorizationPolicy (서비스 간 인가 정책)
+- Kiali / Jaeger 대시보드 — 기존 Grafana/Tempo 유지
+- Fault injection 테스트 도구
+- v2 Deployment 실제 이미지 — 구조(레이블/VirtualService subset)만 준비
+- Cross-namespace traffic policy
 
 ## 단계별 작업 계획
 
-### 단계 1: Dockerfile에 helm 설치 + proposeScale 제거
-- 변경 파일:
-  - `aiops/Dockerfile` — helm v3.15.0 설치 레이어 추가
-  - `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java` — proposeScale 메서드 제거, buildScaleBlocks 제거
-  - `aiops/src/main/java/aiops/aiops/approval/ActionApprovalService.java` — executeScale 제거
-  - `aiops/src/main/java/aiops/aiops/slack/SlackInteractiveController.java` — approve_scale, reject_scale 핸들러 제거
-- 검증: `.\gradlew.bat :aiops:compileJava -x test`
-- 롤백: git revert
-- 예상 소요: 짧음
+### 단계 1: Istio Helm 차트 구성 (helm/promotion-istio/)
+- 변경 파일: `helm/promotion-istio/Chart.yaml`, `helm/promotion-istio/values.yaml`, `helm/promotion-istio/templates/namespace-label.yaml`, `helm/promotion-istio/templates/waypoint.yaml`
+- 변경 내용: istio/base + istiod + ztunnel Helm dependency 선언. promotion 네임스페이스 Ambient 레이블 적용 Job. L7 제어용 Waypoint Gateway 리소스 추가.
+- 검증: `helm template promotion-istio ./helm/promotion-istio | grep -E "ambient|waypoint"` 렌더링 확인
+- 롤백: `helm uninstall promotion-istio`
+- 예상 소요: 김
 
-### 단계 2: proposeHpaPatch 도구 구현
-- 변경 파일:
-  - `KubernetesTools.java` — `@Tool proposeHpaPatch(String hpaName, int newMaxReplicas, String reason)` 추가, buildHpaPatchBlocks 추가
-  - `ActionApprovalService.java` — `executeHpaPatch` 추가 (`kubectl patch hpa {name} -n {ns} -p '{"spec":{"maxReplicas":N}}'`)
-  - `SlackInteractiveController.java` — `approve_hpa_patch`, `reject_hpa_patch` 핸들러 추가
-- 검증: KubeHPAAtMaxReplicas 알람 전송 → Slack 버튼 확인 → 승인 → 로그에서 kubectl patch 실행 확인
-- 롤백: 메서드 제거
+### 단계 2: promotion-app — version 레이블 + VirtualService + DestinationRule
+- 변경 파일: 각 서비스 `deployment.yaml` (version 레이블), `templates/*/virtualservice.yaml` (신규), `templates/*/destinationrule.yaml` (신규), `values.yaml`
+- 변경 내용: Deployment `spec.template.labels`에 `version: v1` 추가. 서비스별 VirtualService(기본 v1:100%) + DestinationRule(subsets v1/v2 + outlier detection 기본값) 추가.
+- 검증: `helm template promotion-app ./helm/promotion-app | grep -E "VirtualService|DestinationRule"` 렌더링 확인
+- 롤백: 추가 파일 삭제, deployment.yaml version 레이블 제거
 - 예상 소요: 보통
 
-### 단계 3: proposeHelmRollback 도구 구현
-- 변경 파일:
-  - `KubernetesTools.java` — `@Tool proposeHelmRollback(String releaseName, String reason)` 추가, buildHelmRollbackBlocks 추가
-  - `ActionApprovalService.java` — `executeHelmRollback` 추가 (`helm rollback {release} -n {ns}`)
-  - `SlackInteractiveController.java` — `approve_helm_rollback`, `reject_helm_rollback` 핸들러 추가
-- 검증: 알람 전송(배포 이력 + 에러율 급증 시나리오) → Slack 버튼 → 승인 → helm rollback 로그 확인
-- 롤백: 메서드 제거
+### 단계 3: KubernetesTools.java — 신규 도구 2개 추가
+- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
+- 변경 내용: `proposeTrafficShift(serviceName, v1Weight, v2Weight, reason)`, `proposeOutlierDetectionUpdate(serviceName, consecutive5xxErrors, reason)` @Tool 메서드 추가
+- 검증: `./gradlew :aiops:compileJava`
+- 롤백: 추가 메서드 제거
 - 예상 소요: 보통
 
-### 단계 4: gateway HPA 추가
-- 변경 파일:
-  - `helm/promotion-app/templates/gateway/hpa.yaml` (NEW)
-  - `helm/promotion-app/values.yaml` — gateway.autoscaling 섹션 추가
-- 변경 내용: gateway HPA (minReplicas:1, maxReplicas:3, CPU 60%)
-- 검증: `helm template promotion-app ./helm/promotion-app | grep -A5 "HorizontalPodAutoscaler"`
-- 롤백: hpa.yaml 삭제, values.yaml 원복
-- 예상 소요: 짧음
-
-### 단계 5: alert-rules.yml KafkaConsumerLagHigh 추가
-- 변경 파일: `helm/promotion-monitoring/files/alert-rules.yml`
-- 변경 내용: `kafka_consumergroup_lag > 1000` (5분 지속) P2 알람 추가
-- 검증: YAML 문법 확인
-- 롤백: 알람 규칙 제거
-- 예상 소요: 짧음
-
-### 단계 6: 시스템 프롬프트 업데이트
-- 변경 파일: `AiOpsAgentService.java`
-- 변경 내용:
-  - HPA at max → proposeHpaPatch 호출 조건 (proposeScale 조건 대체)
-  - step 7 배포 이력 + 에러율 급증 → proposeHelmRollback 호출 조건 추가
-  - KafkaConsumerLagHigh → 해당 컨슈머 deployment의 HPA에 proposeHpaPatch 호출 조건 추가
-- 검증: 각 시나리오 알람 테스트
-- 롤백: 프롬프트 이전 버전 복원
-- 예상 소요: 짧음
-
-### 단계 7: 재빌드 및 통합 테스트
-- 검증: `gradlew :aiops:bootJar` → `docker compose build aiops` → 시나리오별 알람 전송
+### 단계 4: ActionApprovalService.java — execute 로직 추가
+- 변경 파일: `aiops/src/main/java/aiops/aiops/approval/ActionApprovalService.java`
+- 변경 내용: `executeTrafficShift` (kubectl patch virtualservice), `executeOutlierDetectionUpdate` (kubectl patch destinationrule) 메서드 추가
+- 검증: `./gradlew :aiops:compileJava`
+- 롤백: 추가 메서드 제거
 - 예상 소요: 보통
+
+### 단계 5: SlackInteractiveController — 새 action_id 처리
+- 변경 파일: `aiops/src/main/java/aiops/aiops/slack/SlackInteractiveController.java`
+- 변경 내용: `approve_traffic_shift`, `reject_traffic_shift`, `approve_outlier_update`, `reject_outlier_update` action_id 분기 추가
+- 검증: `./gradlew :aiops:compileJava`
+- 롤백: 추가 분기 제거
+- 예상 소요: 짧음
+
+### 단계 6: AIOps RBAC + 시스템 프롬프트 업데이트
+- 변경 파일: `helm/promotion-app/templates/aiops/rbac.yaml`, `aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java`
+- 변경 내용: `networking.istio.io` apiGroup에 `virtualservices`, `destinationrules` get/patch 권한 추가. 시스템 프롬프트에 트래픽 시프트 시나리오 판단 로직 추가.
+- 검증: `kubectl auth can-i patch virtualservices -n promotion --as=system:serviceaccount:promotion:aiops`
+- 롤백: rbac.yaml 이전 상태 복구
+- 예상 소요: 짧음
+
+### 단계 7: 문서 업데이트
+- 변경 파일: `README.md`, `docs/arch-snapshot.md`, `docs/infra-diagram.md`
+- 변경 내용: Istio Ambient + AIOps 신규 도구 반영
+- 검증: 육안 확인
+- 예상 소요: 짧음
 
 ## 리스크 및 대응
-- helm rollback은 promotion-app 전체 롤백 → 서비스별 선택 불가. Slack 버튼 메시지에 "전체 release 롤백" 명시
-- Kafka lag 메트릭명이 다를 수 있음 → kafka-exporter 메트릭 먼저 확인 후 alertname 조정
-- helm binary 버전 호환성 → v3.15.0 고정
+- **Ambient waypoint L7 의존성**: VirtualService는 waypoint proxy 없이 동작 안 함. 네임스페이스에 `istio.io/use-waypoint: waypoint` 레이블 필수 → Istio 공식 Ambient 문서 기반 설정
+- **로컬 검증 한계**: Docker Desktop에서 Istio Ambient 설치 복잡 → helm template 렌더링으로 구조 검증, 실제 동작은 EKS에서 확인
+- **kubectl patch VirtualService 전략**: weight 부분 패치 시 `--type merge`로 spec.http[0].route 전체를 교체하는 방식 사용
+- **Istio CRD 미설치 시 template 오류**: promotion-app 렌더링이 Istio CRD에 의존 → 로컬에서는 렌더링 검증만
 
 ## 의존성
-- helm binary: aiops 컨테이너에 설치
-- kafka-exporter: 이미 promotion-monitoring에 존재
-- Helm release 이름: promotion-app (Chart.yaml 기준)
+- Istio Helm repo: `helm repo add istio https://istio-release.storage.googleapis.com/charts`
+- Kubernetes Gateway API CRDs (waypoint용): 별도 apply 필요
+- 기존 promotion-app Deployment 구조 (server-a/b/c/gateway)

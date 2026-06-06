@@ -1,48 +1,55 @@
-# 맥락 노트: AIOps 추가 K8s 도구 및 Helm 롤백 구현
+# 맥락 노트: Istio Ambient 도입 + AIOps 트래픽 제어 연동
 
 ## 왜 이 방식을 선택했는가
 
-### proposeScale 제거 → proposeHpaPatch 통합
-server-a/b/c 모두 HPA가 활성화되어 있어 `kubectl scale --replicas=N`은 HPA가 15~30초 후 오버라이드함.
-따라서 `kubectl patch hpa --patch '{"spec":{"maxReplicas":N}}'`이 올바른 접근.
-gateway도 트래픽 진입점으로 HPA 추가가 맞고, 이로써 모든 스케일 가능 서비스가 proposeHpaPatch로 통일됨.
+### Ambient mode 선택
+Sidecar mode 대비 파드마다 Envoy를 주입하지 않아 메모리 오버헤드가 적다. 2024년 Istio 1.22에서 GA됐으며 신규 도입 시 표준으로 자리잡는 추세. 이 프로젝트는 1vCPU 환경에서 테스트하므로 사이드카 오버헤드(파드당 ~50-100MB)를 피하는 게 맞다.
 
-### aiops에 HPA 미적용
-aiops가 2개 이상 뜨면 같은 알람을 두 pod가 동시에 분석 → Slack 중복 메시지 발생.
-deduplication이 in-memory라 인스턴스 간 공유 불가. 단일 인스턴스 유지.
+L7 트래픽 관리(VirtualService)를 위해 waypoint proxy가 필요하다. ztunnel은 L4(TCP), waypoint는 L7(HTTP) 담당으로 역할이 분리된다.
 
-### helm rollback vs kubectl rollout undo
-Helm 관리 환경에서 `kubectl rollout undo`는 Deployment만 되돌리고 Helm release 상태(ConfigMap, Secret 등)는 그대로 남음.
-`helm rollback promotion-app`이 Helm이 관리하는 모든 리소스를 이전 revision으로 통째로 되돌려 일관성 보장.
-단점은 서비스 선택적 롤백 불가(전체 롤백)지만, 현재 promotion-app이 단일 release이므로 이게 최선.
+### version: v1/v2 레이블 방식 선택
+별도 Deployment 이름(`server-a-v2`) 방식 대신 동일 Deployment에 `version` 레이블만 추가. 이유:
+- 기존 Service, Ingress, Gateway 설정 변경 없음
+- VirtualService 하나로 두 subset 가중치 조절 가능
+- Helm 구조 변경 최소화
 
-### Helm release 단위 (현재: 단일 promotion-app)
-프로덕션 MSA 표준은 서비스별 분리 release이나, 현재 차트 구조 전환은 별도 대규모 작업.
-proposeHelmRollback은 promotion-app 전체 롤백으로 구현하고, Slack 메시지에 "전체 release 롤백" 명시.
-추후 차트 분리 시 releaseName을 파라미터로 받는 구조라 확장 가능.
+### mTLS 미포함
+이 프로젝트는 인증 없음(SecurityConfig 미존재). mTLS는 서비스 간 암호화 목적이며 컴플라이언스 요구사항이 없으므로 이번 범위에서 제외. 추후 PeerAuthentication으로 별도 추가 가능.
 
-### Kafka 컨슈머 대상
-server-a(Saga 오케스트레이터), server-b(CQRS 읽기), server-c(결제, Kafka 소비 전용) 모두 Kafka 컨슈머.
-AI가 알람의 consumergroup 라벨에서 서비스명을 추론하여 해당 HPA에 proposeHpaPatch 호출.
+### AIOps 트래픽 제어 레이어 분리 근거
+기존 AIOps 도구(HPA 패치, Helm 롤백, 롤링 재시작)는 K8s 리소스 레벨 제어. Istio 연동은 요청 단위 네트워크 레벨 제어로 레이어가 다르다.
+
+| 시나리오 | 기존 도구 | Istio 추가 후 |
+|----------|----------|--------------|
+| 배포 후 에러율 급증 | Helm 롤백 (전체 교체) | 트래픽 v2→0% 격리 후 원인 파악 → 서서히 복구 |
+| 특정 파드 연속 5xx | 없음 | Outlier Detection으로 해당 파드만 자동 제거 |
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: proposeScale 유지 (kubectl scale)
-- 무엇: 기존 proposeScale을 그대로 두고 HPA 없는 서비스에만 사용
-- 왜 안 썼나: gateway에 HPA를 추가함으로써 모든 스케일 가능 서비스가 HPA를 가지게 됨. proposeScale 유지 이유 없어짐.
+### 대안 A: Argo Rollouts
+- 무엇: 카나리/블루그린 전용 K8s 컨트롤러
+- 왜 안 썼나: AIOps와의 서킷 브레이킹 공통화, outlier detection 같은 네트워크 레벨 제어가 불가. 트래픽 관리만 원할 때 적합하나 이 프로젝트는 AIOps 연동이 핵심.
 
-### 대안 B: 서비스별 분리 Helm release
-- 무엇: promotion-app을 server-a, server-b, server-c 개별 Helm chart로 분리
-- 왜 안 썼나: 차트 구조 전면 개편 + CI/CD 파이프라인 분리 필요. 이번 작업 범위 초과.
+### 대안 B: Sidecar mode
+- 무엇: 기존 Istio 방식, 파드마다 Envoy 사이드카 주입
+- 왜 안 썼나: 파드당 50-100MB 추가 메모리. 1vCPU 테스트 환경에서 부담. Ambient mode가 동일 기능을 더 적은 리소스로 제공.
 
-### 대안 C: aiops HPA 적용
-- 무엇: aiops도 HPA 붙여서 스케일 아웃
-- 왜 안 썼나: in-memory deduplication으로 인한 중복 알람 처리 문제. 해결하려면 Redis 기반 분산 lock 필요 — 별도 작업.
+### 대안 C: Nginx Ingress canary 어노테이션
+- 무엇: Ingress 레벨에서 헤더/가중치 기반 분기
+- 왜 안 썼나: Ingress 진입점에서만 분기 가능, 서비스 간 내부 통신 제어 불가. Outlier detection도 없음.
 
 ## 관련 파일/위치
-- `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java` — K8s 도구 메서드 모음
-- `aiops/src/main/java/aiops/aiops/approval/ActionApprovalService.java` — 승인/실행 로직
-- `aiops/src/main/java/aiops/aiops/slack/SlackInteractiveController.java` — Slack 버튼 콜백
-- `aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java` — 시스템 프롬프트
-- `helm/promotion-app/templates/gateway/hpa.yaml` — gateway HPA (신규)
-- `helm/promotion-monitoring/files/alert-rules.yml` — KafkaConsumerLagHigh 알람
+- `helm/promotion-istio/` — Istio 설치 전용 Helm 차트 (신규)
+- `helm/promotion-app/templates/*/virtualservice.yaml` — 서비스별 VirtualService (신규)
+- `helm/promotion-app/templates/*/destinationrule.yaml` — 서비스별 DestinationRule (신규)
+- `helm/promotion-app/templates/aiops/rbac.yaml` — Istio CRD 권한 추가
+- `aiops/.../tools/KubernetesTools.java` — proposeTrafficShift, proposeOutlierDetectionUpdate 추가
+- `aiops/.../approval/ActionApprovalService.java` — execute 로직 추가
+- `aiops/.../slack/SlackInteractiveController.java` — 새 action_id 처리
+
+## 외부 참조
+- Istio Ambient 공식 문서: https://istio.io/latest/docs/ambient/
+- Istio Helm 설치: https://istio.io/latest/docs/setup/install/helm/
+- Waypoint proxy: https://istio.io/latest/docs/ambient/usage/waypoint/
+- VirtualService spec: https://istio.io/latest/docs/reference/config/networking/virtual-service/
+- DestinationRule outlier detection: https://istio.io/latest/docs/reference/config/networking/destination-rule/#OutlierDetection

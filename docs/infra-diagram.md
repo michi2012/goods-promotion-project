@@ -1,5 +1,5 @@
 # Infrastructure Diagram
-_생성일: 2026-05-29 / 업데이트: 2026-06-05 (K8s/Helm 토폴로지 추가, Rate Limiting, 로그 수집 방식 분기)_
+_생성일: 2026-05-29 / 업데이트: 2026-06-06 (Istio Ambient 레이어 추가)_
 
 ## 1. 서비스 토폴로지 (local — Docker Compose)
 
@@ -86,10 +86,10 @@ flowchart TD
         ING["K8s Ingress\n(AWS ALB)"]
         GW["gateway-service\n:8088\nRate Limiting (Redis)\nHPA min:1 max:3"]
 
-        subgraph App["Application Pods"]
-            A["server-a\n:8080 × 2"]
-            B["server-b\n:8081 × 2"]
-            C["server-c\n:8082 × 2"]
+        subgraph App["Application Pods (Istio Ambient — ztunnel L4 + waypoint L7)"]
+            A["server-a\n:8080 × 2\nversion: v1"]
+            B["server-b\n:8081 × 2\nversion: v1"]
+            C["server-c\n:8082 × 2\nversion: v1"]
             AIO["aiops\n:8085"]
         end
 
@@ -130,7 +130,8 @@ flowchart TD
     C -->|"Circuit Breaker"| PG
 ```
 
-> K8s 환경에서는 Eureka(discovery-service) 미배포. AIOps는 K8s API Server에 RBAC로 접근해 HPA 조정·Helm 롤백·롤링 재시작을 Slack 승인 후 실행한다. `SPRING_PROFILES_ACTIVE=k8s`로 K8s Service DNS 직접 사용.
+> K8s 환경에서는 Eureka(discovery-service) 미배포. AIOps는 K8s API Server에 RBAC로 접근해 HPA 조정·Helm 롤백·롤링 재시작·Istio VirtualService 트래픽 시프트·DestinationRule Outlier Detection 조정을 Slack 승인 후 실행한다. `SPRING_PROFILES_ACTIVE=k8s`로 K8s Service DNS 직접 사용.
+> Istio Ambient: 사이드카 없이 ztunnel(L4 DaemonSet) + waypoint proxy(L7)로 구성. waypoint가 VirtualService 가중치 라우팅과 DestinationRule Outlier Detection을 적용한다. ztunnel/waypoint는 애플리케이션에 투명한 레이어이므로 다이어그램 라우팅에는 표현하지 않음.
 
 ---
 

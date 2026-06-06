@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-06-05 (K8s/Helm 전환, Gateway Rate Limiting, 로그 프로필 분기)_
+_생성일: 2026-05-28 / 업데이트: 2026-06-06 (Istio Ambient 도입, AIOps 트래픽 제어 도구 추가)_
 
 ---
 
@@ -12,7 +12,7 @@ _생성일: 2026-05-28 / 업데이트: 2026-06-05 (K8s/Helm 전환, Gateway Rate
 | serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어            | promotion DB (3307) | ✅ (port 6379)     |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회                             | 없음 | ✅ (port 6380)     |
 | serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음              | payment DB (3308, 전용 MySQL) | 없음                |
-| aiops | 8085 | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·K8s 조치 제안(HPA 조정·Helm 롤백·롤링 재시작)·Slack 알림 | - | -                 |
+| aiops | 8085 | AIOps 모니터링. Prometheus 웹훅 수신·장애 분석·K8s 조치 제안(HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정)·Slack 알림 | - | -                 |
 
 ---
 
@@ -229,9 +229,10 @@ sequenceDiagram
 
 ```
 helm/
-  promotion-app/        # server-a/b/c, aiops, gateway, ALB Ingress, HPA
+  promotion-app/        # server-a/b/c, aiops, gateway, ALB Ingress, HPA, VirtualService, DestinationRule
   promotion-infra/      # Kafka StatefulSet+PVC, Kafka Connect, Debezium Job
   promotion-monitoring/ # Prometheus, Grafana, Tempo, Loki, Vector, exporters
+  promotion-istio/      # Istio Ambient (istiod, ztunnel, waypoint proxy, namespace 레이블)
 ```
 
 ### 네트워크 레이어 (EKS)
@@ -243,11 +244,14 @@ ALB Ingress (HTTPS termination)
     ↓
 gateway-service (Redis 토큰버킷 Rate Limiting)
     ↓
+Istio Ambient (ztunnel L4 + waypoint L7 VirtualService/DestinationRule)
+    ↓
 server-a / server-b / server-c / aiops
 ```
 
 - AWS WAF 연결은 선택(`ingress.wafAcl` 값 유무로 어노테이션 조건부 생성)
 - Cloudflare 사용 시 WAF ARN 미설정 — DNS 위임으로 대체
+- Istio Ambient: 사이드카 없음. ztunnel DaemonSet(L4) + waypoint Gateway(L7). VirtualService로 카나리 트래픽 가중치 제어, DestinationRule로 Outlier Detection 자동 장애 격리
 
 ### K8s 전용 메트릭 수집
 
@@ -265,8 +269,10 @@ server-a / server-b / server-c / aiops
 | `proposeHpaPatch` | KubeHPAAtMaxReplicas, KubeHPAOverprovisioned, KafkaConsumerLagHigh(랙 ≥ 500) | HPA maxReplicas 조정 Slack 승인 요청 (kubectl patch) |
 | `proposeHelmRollback` | SystemErrorRateCritical + 최근 배포 이력 동시 확인 | Helm 릴리즈 롤백 Slack 승인 요청 |
 | `proposeRolloutRestart` | deadlock/blocked thread 로그 확인 시 | 디플로이먼트 롤링 재시작 Slack 승인 요청 |
+| `proposeTrafficShift` | 카나리 배포 중(v1/v2 공존) + v2 에러율 급증 | Istio VirtualService 가중치 패치로 트래픽 격리 Slack 승인 요청 (v1:100%, v2:0%) |
+| `proposeOutlierDetectionUpdate` | 특정 파드에서만 간헐적 5xx, 전체 에러율은 낮음 | Istio DestinationRule outlier detection 임계값 강화 Slack 승인 요청 |
 
-AIOps는 K8s RBAC(ServiceAccount)를 통해 `promotion` 네임스페이스의 HPA·디플로이먼트·파드 조회 및 패치 권한을 보유한다. Dockerfile에 Helm v3가 포함되어 있어 롤백도 직접 실행한다. Gateway에는 HPA(minReplicas:1, maxReplicas:3, CPU 60%)가 설정되어 있다.
+AIOps는 K8s RBAC(ServiceAccount)를 통해 `promotion` 네임스페이스의 HPA·디플로이먼트·파드 조회 및 패치, Istio VirtualService·DestinationRule 패치 권한을 보유한다. Dockerfile에 Helm v3가 포함되어 있어 롤백도 직접 실행한다. Gateway에는 HPA(minReplicas:1, maxReplicas:3, CPU 60%)가 설정되어 있다.
 
 ---
 
