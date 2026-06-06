@@ -189,6 +189,50 @@ serverC:
             value: 1
             periodSeconds: 60
 
+userService:
+  name: user-service
+  replicas: 2
+  port: 8086
+  image: ""  # --set userService.image=<ECR_URL>/user-service:tag
+  springProfilesActive: "k8s"
+  datasource:
+    url: ""       # --set userService.datasource.url=jdbc:mysql://<RDS_USER_ENDPOINT>:3306/user?...
+    username: ""  # --set userService.datasource.username=root
+    password: ""  # --set userService.datasource.password=<password>
+  jwtSecret: ""        # --set userService.jwtSecret=<secret>
+  corsAllowedOrigins: ""  # --set userService.corsAllowedOrigins=https://yourdomain.com
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 75
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        policies:
+          - type: Percent
+            value: 10
+            periodSeconds: 60
+          - type: Pods
+            value: 1
+            periodSeconds: 60
+
 # Istio 트래픽 정책 기본값
 traffic:
   outlierDetection:

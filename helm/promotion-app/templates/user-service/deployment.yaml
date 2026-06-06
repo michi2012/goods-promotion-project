@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.userService.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.userService.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  {{- if not .Values.userService.autoscaling.enabled }}
+  replicas: {{ .Values.userService.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Values.userService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.userService.name }}
+        app.kubernetes.io/name: {{ .Values.userService.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.userService.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+        rollme: {{ randAlphaNum 5 | quote }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.userService.name }}
+          image: {{ .Values.userService.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.userService.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.userService.springProfilesActive | quote }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.userService.datasource.url | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.userService.datasource.username | quote }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: {{ .Values.userService.datasource.password | quote }}
+            - name: JWT_SECRET
+              value: {{ .Values.userService.jwtSecret | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.userService.corsAllowedOrigins | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.userService.eurekaDefaultZone | quote }}
+            {{- if .Values.userService.otlpEndpoint }}
+            - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.userService.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.userService.resources.requests.cpu | quote }}
+              memory: {{ .Values.userService.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.userService.resources.limits.cpu | quote }}
+              memory: {{ .Values.userService.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.userService.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.userService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
