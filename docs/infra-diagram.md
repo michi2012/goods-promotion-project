@@ -35,10 +35,10 @@ flowchart TD
     Client -->|"HTTP :8088"| GW
 
     %% 게이트웨이 → 서비스 (Eureka lb://, Rate Limiting 적용)
-    GW -->|"lb://serverA\n구매:2req/s·일반:20req/s"| A
-    GW -->|"lb://serverB\n20req/s"| B
-    GW -->|"lb://serverC\n20req/s"| C
-    GW -->|"lb://aiops\n제한없음"| AIO
+    GW -->|"lb://serverA"| A
+    GW -->|"lb://serverB"| B
+    GW -->|"lb://serverC"| C
+    GW -->|"lb://aiops"| AIO
 
     %% Eureka 등록
     GW -->|"register + fetch"| DS
@@ -84,12 +84,12 @@ flowchart TD
 
     subgraph K8s["Kubernetes (promotion namespace)"]
         ING["K8s Ingress\n(AWS ALB)"]
-        GW["gateway-service\n:8088\nRate Limiting (Redis)\nHPA min:1 max:3"]
+        GW["gateway-service\n:8088"]
 
-        subgraph App["Application Pods (Istio Ambient — ztunnel L4 + waypoint L7)"]
-            A["server-a\n:8080 × 2\nversion: v1"]
-            B["server-b\n:8081 × 2\nversion: v1"]
-            C["server-c\n:8082 × 2\nversion: v1"]
+        subgraph App["Application Pods"]
+            A["server-a\n:8080"]
+            B["server-b\n:8081"]
+            C["server-c\n:8082"]
             AIO["aiops\n:8085"]
         end
 
@@ -100,7 +100,7 @@ flowchart TD
     end
 
     subgraph AWSManaged["AWS Managed Services"]
-        RDS_A["RDS\npromotion DB"]
+        RDS_A["RDS\norder DB"]
         RDS_C["RDS\npayment DB"]
         EC_A["ElastiCache\nredis-a"]
         EC_B["ElastiCache\nredis-b"]
@@ -121,7 +121,7 @@ flowchart TD
     B -->|"produce/consume"| KF
     C -->|"JPA"| RDS_C
     C -->|"produce/consume"| KF
-    GW -->|"Rate Limiting"| EC_A
+    GW -->|"Lettuce"| EC_A
 
     RDS_A -->|"binlog"| KC
     RDS_C -->|"binlog"| KC
@@ -167,15 +167,15 @@ flowchart LR
     end
 
     %% Traces: 앱 → otel-collector → tempo
-    SA & SB & SC & GW & DS & AIO -->|"OTLP/HTTP traces"| OTEL
-    OTEL -->|"OTLP/gRPC (tail-sampling)"| Tempo
+    SA & SB & SC & GW & DS & AIO -->|"OTLP"| OTEL
+    OTEL -->|"OTLP/gRPC"| Tempo
 
     %% Logs: local=shared-logs 파일, k8s=stdout→/var/log/pods/ DaemonSet
-    Logs -.->|"local: file read\nk8s: /var/log/pods/ hostPath"| VEC
-    VEC -->|"JSON → Loki"| Loki
+    Logs -.->|"file tail"| VEC
+    VEC --> Loki
 
     %% Metrics: prometheus scrape
-    SA & SB & SC & GW & DS & AIO -->|"/actuator/prometheus"| PROM
+    SA & SB & SC & GW & DS & AIO -->|"scrape"| PROM
     Infra -->|"exporter metrics"| PROM
 
     %% Grafana datasources
@@ -186,7 +186,7 @@ flowchart LR
 
     %% Alerting
     PROM -->|"alert rules"| AM
-    AM -->|"webhook POST"| AIO
+    AM -->|"webhook"| AIO
 ```
 
 > 점선(`-.->`)은 간접 연결을 나타냄. local: shared-logs 볼륨 경유 / K8s: Vector DaemonSet이 노드 `/var/log/pods/` hostPath 마운트.
