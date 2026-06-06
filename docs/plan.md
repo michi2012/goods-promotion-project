@@ -1,57 +1,87 @@
-# 계획서: server-a DB 이름 promotion → order 변경
+# PR 계획서: user-service 통합 + Gateway JWT 검증
+
+- 브랜치: main (feature 브랜치 분리 필요 시 별도 확인)
+
+---
+
+## [완료] user-service 이식 통합
 
 - 작성일: 2026-06-06
 
-## 목표
-server-a(주문 서버)가 사용하는 MySQL 스키마 이름을 `promotion`에서 `order`로 변경한다.
-server-c의 `payment`와 일관된 역할 기반 명명 체계를 갖추는 것이 목적이다.
+### 목표
+다른 프로젝트에서 가져온 user-service를 이 프로젝트에 완전히 통합한다.
+원본 서비스(serverC) 설정 오염 제거, 코드 버그 수정, Gateway 라우팅, Docker Compose, Helm 차트까지 포함한다.
 
-## 성공 기준
-- [ ] 6개 파일 모두 수정 완료 (`git diff --stat` 확인)
-- [ ] datasource URL / MYSQL_DATABASE 맥락에서 `promotion` 잔존 없음
-- [ ] `docker compose up` 시 `order` 스키마로 MySQL 컨테이너 기동 가능 (육안)
+### 성공 기준
+- [x] `./gradlew :user-service:build` 통과
+- [x] `docker compose config` 오류 없음 (mysql-user + user-service 컨테이너 포함)
+- [x] `helm template ./helm/promotion-app` 오류 없음 (user-service 리소스 포함)
+- [x] Gateway 라우팅 `/api/users/**`, `/login`, `/reissue` → user-service 경로 추가 확인
+- [x] Flyway migration SQL이 users / payment_method / refresh_token 3개 테이블을 모두 생성
 
-## 비범위 (Out of Scope)
-- 프로젝트명 `promotion` (디렉토리명, Helm 차트명 `promotion-app`, 네임스페이스) 변경 없음
-- server-b / server-c / gateway / aiops 설정 변경 없음
-- Flyway 마이그레이션 SQL 변경 없음 (DB 이름 미참조 확인)
-- 기존 MySQL 볼륨 데이터 마이그레이션 없음 (dev 환경)
-- K8s `--set` 배포 시 실제 RDS 엔드포인트 URL 값 변경 없음 (사용자 직접 관리)
+### 비범위
+- Gateway JWT 검증 필터 구현 → 아래 섹션에서 처리
+- `/internal/api/**` 인증 미들웨어 (라우팅 미노출로 대체)
+- mysql-user Debezium CDC 연동
 
-## 단계별 작업 계획
+### 변경 파일
+- `settings.gradle`, `user-service/build.gradle`
+- `user-service/src/main/resources/application.yml`, `application-k8s.yml`
+- `user-service/src/main/resources/db/migration/V1__init_user_schema.sql` (신규)
+- `user-service/src/main/java/.../UserService.java`, `PaymentMethodService.java`, `UserServiceApplication.java`, `ReissueController.java`
+- `gateway-service/src/main/resources/application.yml`, `application-k8s.yml`
+- `docker-compose.yml`
+- `helm/promotion-app/values.yaml`, `templates/user-service/*` (5개 신규)
 
-### 단계 1: serverA/src/main/resources/application.yaml
-- 변경 내용: 기본값 datasource URL `jdbc:mysql://localhost:3306/promotion?` → `jdbc:mysql://localhost:3306/order?`
-- 검증: 파일 육안 확인
-- 예상 소요: 짧음
+---
 
-### 단계 2: docker-compose.yml
-- 변경 내용: mysql 서비스 `MYSQL_DATABASE: promotion` → `MYSQL_DATABASE: order` / server-a `SPRING_DATASOURCE_URL` 내 `/promotion?` → `/order?`
-- 검증: 파일 육안 확인
-- 예상 소요: 짧음
+## [진행 중] Gateway JWT 검증 필터
 
-### 단계 3: docker-compose.infra.yml
-- 변경 내용: `MYSQL_DATABASE: promotion` → `MYSQL_DATABASE: order`
-- 검증: 파일 육안 확인
-- 예상 소요: 짧음
+- 작성일: 2026-06-06
 
-### 단계 4: helm/promotion-app/values.yaml
-- 변경 내용: 주석 예시 URL `/promotion?` → `/order?`
-- 검증: 파일 육안 확인
-- 예상 소요: 짧음
+### 목표
+Gateway에 GlobalFilter로 JWT 검증을 추가하여 인증이 필요한 모든 라우트를 보호한다.
+검증 성공 시 X-User-Id / X-User-Role 헤더를 downstream에 전달하고,
+docker compose 기반 E2E로 로그인~보호 경로 접근까지 확인 후 커밋한다.
 
-### 단계 5: README.md
-- 변경 내용: 서비스 테이블 `promotion DB` → `order DB`
-- 검증: 파일 육안 확인
-- 예상 소요: 짧음
+### 성공 기준
+- [ ] `./gradlew :gateway-service:test` 통과 (JwtAuthFilter 단위 테스트 포함)
+- [ ] 토큰 없이 `/api/users/**` 호출 → 401 (docker compose + curl 확인)
+- [ ] 유효한 토큰으로 `/api/users/**` 호출 → 200 (docker compose + curl 확인)
+- [ ] `POST /login`, `POST /reissue` 는 토큰 없이 통과
+- [ ] `./gradlew :gateway-service:build` 통과
 
-### 단계 6: docs/infra-diagram.md
-- 변경 내용: `RDS_A["RDS\npromotion DB"]` → `RDS_A["RDS\norder DB"]`
-- 검증: 파일 육안 확인
-- 예상 소요: 짧음
+### 비범위
+- Role 기반 경로 접근 제어 (인증 여부만 검사)
+- Refresh 토큰 만료 검증 (reissue는 user-service가 처리)
+- Helm 차트 gateway deployment에 JWT_SECRET 추가 (별도 커밋)
 
-## 리스크 및 대응
-- 기존에 `docker compose up`으로 생성된 MySQL 볼륨이 있으면 스키마가 자동 생성되지 않음 → `docker compose down -v` 후 재기동 필요 (완료 후 안내)
+### 단계별 계획
 
-## 의존성
-없음. 단순 문자열 치환.
+#### 단계 1: gateway-service build.gradle에 jjwt 의존성 추가
+- 변경 파일: `gateway-service/build.gradle`
+- 검증: `./gradlew :gateway-service:compileJava`
+
+#### 단계 2: JwtAuthFilter 구현
+- 변경 파일: `gateway-service/src/main/java/.../filter/JwtAuthFilter.java` (신규)
+- GlobalFilter + Ordered (order=-1), 화이트리스트: POST /login, POST /reissue
+- 성공 시 X-User-Id, X-User-Role 헤더 추가, 실패 시 401
+- 검증: `./gradlew :gateway-service:compileJava`
+
+#### 단계 3: gateway application.yml JWT_SECRET 추가
+- 변경 파일: `application.yml`, `application-k8s.yml`
+- 검증: `./gradlew :gateway-service:build`
+
+#### 단계 4: JwtAuthFilter 단위 테스트 작성
+- 변경 파일: `gateway-service/src/test/.../filter/JwtAuthFilterTest.java` (신규)
+- 케이스: 화이트리스트 통과 / 토큰 없음 401 / 위변조 401 / 유효 토큰 통과 + 헤더 확인
+- 검증: `./gradlew :gateway-service:test`
+
+#### 단계 5: docker compose E2E 검증 (사용자 직접 실행)
+- POST /login → 200 + access token
+- 유효 토큰 → GET /api/users/{id} → 200
+- 토큰 없이 → 401, 위변조 토큰 → 401
+
+### 리스크
+- JWT claim 키 이름: user-service JWTUtil 실제 claim 키를 단계 2 진입 시 확인
+- Spring WebFlux: GlobalFilter는 Mono<Void> 반환, 블로킹 코드 금지
