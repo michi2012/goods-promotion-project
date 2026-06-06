@@ -239,6 +239,33 @@ livenessProbe:            # 재시작 필요 여부 판단
 
 ## 6. helm upgrade 규칙
 
+### 변경 전 렌더링 검증
+
+chart를 수정할 때마다 `helm template`으로 YAML 렌더링이 깨지지 않는지 확인한다:
+
+```bash
+helm template promotion-app ./helm/promotion-app -f ./helm/promotion-app/values.yaml
+```
+
+외부 차트 의존성(`Chart.yaml`의 `dependencies`)이 있는 경우, 로컬에서 처음 실행하기 전에 반드시:
+
+```bash
+helm dependency build ./helm/promotion-istio   # Chart.lock 기반 다운로드
+```
+
+> `helm dependency build` 없이 `helm template` 실행 시 `found in Chart.yaml, but missing in charts/` 오류로 실패한다.
+
+### 클러스터 리소스 직접 수정 금지
+
+```bash
+# ❌ 금지 — Helm 상태와 불일치 발생, 다음 helm upgrade 시 덮어씌워짐
+kubectl edit deployment server-a -n promotion
+
+# ✅ 항상 Helm chart → helm upgrade 경로로만 변경
+```
+
+### helm upgrade 명령
+
 ```bash
 helm upgrade promotion-app ./helm/promotion-app \
   -n promotion \
