@@ -1,5 +1,5 @@
 # Infrastructure Diagram
-_생성일: 2026-05-29 / 업데이트: 2026-06-06 (Istio Ambient 레이어 추가)_
+_생성일: 2026-05-29 / 업데이트: 2026-06-06 (user-service + mysql-user 추가)_
 
 ## 1. 서비스 토폴로지 (local — Docker Compose)
 
@@ -7,7 +7,7 @@ _생성일: 2026-05-29 / 업데이트: 2026-06-06 (Istio Ambient 레이어 추�
 flowchart TD
     Client(["Client"])
 
-    subgraph MSA["MSA Layer (docker-compose.msa.yml)"]
+    subgraph MSA["MSA Layer"]
         GW["gateway-service\n:8088"]
         DS["discovery-service\n:8761"]
     end
@@ -17,11 +17,13 @@ flowchart TD
         B["server-b\n:8081"]
         C["server-c\n:8082"]
         AIO["aiops\n:8085"]
+        US["user-service\n:8086"]
     end
 
     subgraph Infra["Core Infrastructure (docker-compose.infra.yml)"]
         MySQL["mysql\n:3307"]
         MySQLC["mysql-c\n:3308"]
+        MySQLU["mysql-user\n:3309"]
         Redis["redis\n:6379"]
         RedisB["redis-b\n:6380"]
         Kafka["kafka\n:9092"]
@@ -39,6 +41,7 @@ flowchart TD
     GW -->|"lb://serverB"| B
     GW -->|"lb://serverC"| C
     GW -->|"lb://aiops"| AIO
+    GW -->|"lb://user-service"| US
 
     %% Eureka 등록
     GW -->|"register + fetch"| DS
@@ -46,6 +49,7 @@ flowchart TD
     B -->|"register"| DS
     C -->|"register"| DS
     AIO -->|"register"| DS
+    US -->|"register"| DS
 
     %% 앱 → 인프라
     A -->|"JPA"| MySQL
@@ -55,6 +59,7 @@ flowchart TD
     B -->|"produce/consume"| Kafka
     C -->|"JPA"| MySQLC
     C -->|"consume"| Kafka
+    US -->|"JPA"| MySQLU
 
     %% Debezium CDC
     MySQL -->|"binlog"| KC
@@ -77,12 +82,8 @@ flowchart TD
     Internet(["Internet"])
     CF(["Cloudflare\nWAF + DDoS"])
 
-    subgraph AWS["AWS"]
-        ALB["ALB\nHTTPS→HTTP"]
-    end
-
     subgraph K8s["Kubernetes (promotion namespace)"]
-        ING["K8s Ingress\n(AWS ALB)"]
+        ALB["ALB Ingress\nHTTPS→HTTP"]
         GW["gateway-service\n:8088"]
 
         subgraph App["Application Pods"]
@@ -90,6 +91,7 @@ flowchart TD
             B["server-b\n:8081"]
             C["server-c\n:8082"]
             AIO["aiops\n:8085"]
+            US["user-service\n:8086"]
         end
 
         subgraph Infra["Infrastructure Pods"]
@@ -101,17 +103,19 @@ flowchart TD
     subgraph AWSManaged["AWS Managed Services"]
         RDS_A["RDS\norder DB"]
         RDS_C["RDS\npayment DB"]
+        RDS_U["RDS\nuser DB"]
         EC_A["ElastiCache\nredis-a"]
         EC_B["ElastiCache\nredis-b"]
     end
 
     PG(["PG사 외부 API"])
 
-    Internet --> CF --> ALB --> ING --> GW
+    Internet --> CF --> ALB --> GW
     GW -->|"http://server-a:8080"| A
     GW -->|"http://server-b:8081"| B
     GW -->|"http://server-c:8082"| C
     GW -->|"http://aiops:8085"| AIO
+    GW -->|"http://user-service:8086"| US
 
     A -->|"JPA"| RDS_A
     A -->|"Lettuce"| EC_A
@@ -121,6 +125,7 @@ flowchart TD
     C -->|"JPA"| RDS_C
     C -->|"produce/consume"| KF
     GW -->|"Lettuce"| EC_A
+    US -->|"JPA"| RDS_U
 
     RDS_A -->|"binlog"| KC
     RDS_C -->|"binlog"| KC
@@ -145,6 +150,7 @@ flowchart LR
         GW["gateway-service :8088"]
         DS["discovery-service :8761"]
         AIO["aiops :8085"]
+        US["user-service :8086"]
         Logs["/logs/*.log\n(shared-logs vol)"]
         Infra["redis/kafka/mysql\nexporters"]
     end
@@ -166,7 +172,7 @@ flowchart LR
     end
 
     %% Traces: 앱 → otel-collector → tempo
-    SA & SB & SC & GW & DS & AIO -->|"OTLP"| OTEL
+    SA & SB & SC & GW & DS & AIO & US -->|"OTLP"| OTEL
     OTEL -->|"OTLP/gRPC"| Tempo
 
     %% Logs: local=shared-logs 파일, k8s=stdout→/var/log/pods/ DaemonSet
@@ -174,7 +180,7 @@ flowchart LR
     VEC --> Loki
 
     %% Metrics: prometheus scrape
-    SA & SB & SC & GW & DS & AIO -->|"scrape"| PROM
+    SA & SB & SC & GW & DS & AIO & US -->|"scrape"| PROM
     Infra -->|"exporter metrics"| PROM
 
     %% Grafana datasources

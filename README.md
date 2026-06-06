@@ -8,7 +8,8 @@
 | 분류 | 기술 |
 |------|------|
 | 언어 / 프레임워크 | Java 21, Spring Boot 3 |
-| MSA 인프라 | Spring Cloud Gateway (Redis 토큰버킷 Rate Limiting), Netflix Eureka (local 전용) |
+| MSA 인프라 | Spring Cloud Gateway (Redis 토큰버킷 Rate Limiting, JWT 인증 필터), Netflix Eureka (local 전용) |
+| 인증 | Spring Security, JWT (Access/Refresh 토큰) |
 | 메시지 브로커 | Apache Kafka (KRaft), Debezium CDC |
 | 캐시 | Redis, Caffeine |
 | 장애 내성 | Resilience4j (Circuit Breaker) |
@@ -41,6 +42,7 @@ docker compose up -d
 | serverA (구매 API) | http://localhost:8080 |
 | serverB (조회 API) | http://localhost:8081 |
 | serverC (결제 API) | http://localhost:8082 |
+| user-service (회원 API) | http://localhost:8086 |
 | Grafana | http://localhost:3000 |
 
 ### Kubernetes (Helm)
@@ -72,14 +74,15 @@ docker compose up -d
 
 ### 모듈 구성
 
-| 모듈 | 포트 | 역할 | DB | Redis |
-|------|------|------|----|-------|
-| discovery-service | 8761 | Eureka 서버. **local 전용** — K8s에서는 미배포(K8s Service DNS로 대체) | 없음 | 없음 |
-| gateway-service | 8088 | API Gateway. IP별 토큰버킷 Rate Limiting (구매 2 req/s · 일반 20 req/s), ALB Ingress TLS termination | 없음 | ✅ (Rate Limiting) |
-| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | order DB | ✅ |
-| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ |
-| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용 | payment DB | 없음 |
+| 모듈 | 포트 | 역할                                                                                                                                                               | DB | Redis |
+|------|------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|----|-------|
+| discovery-service | 8761 | Eureka 서버. **local 전용** — K8s에서는 미배포(K8s Service DNS로 대체)                                                                                                        | 없음 | 없음 |
+| gateway-service | 8088 | API Gateway. JWT 인증 필터(GlobalFilter) + IP별 토큰버킷 Rate Limiting (구매 2 req/s · 일반 20 req/s), ALB Ingress TLS termination                                            | 없음 | ✅ (Rate Limiting) |
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어                                                                                                                       | order DB | ✅ |
+| serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회                                                                                                                                        | 없음 | ✅ |
+| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용                                                                                                                                        | payment DB | 없음 |
 | aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정) | 없음 | 없음 |
+| user-service | 8086 | 회원 관리. JWT 로그인·Refresh 토큰 발급·재발급                                                                                                                                 | user DB (3309) | 없음 |
 
 ### Before Kafka — Phase 1 최종 아키텍처
 
