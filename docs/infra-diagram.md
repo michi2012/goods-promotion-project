@@ -79,7 +79,6 @@ flowchart TD
 
     subgraph AWS["AWS"]
         ALB["ALB\nHTTPS→HTTP"]
-        WAF["AWS WAF\n(선택)"]
     end
 
     subgraph K8s["Kubernetes (promotion namespace)"]
@@ -108,7 +107,7 @@ flowchart TD
 
     PG(["PG사 외부 API"])
 
-    Internet --> CF --> WAF --> ALB --> ING --> GW
+    Internet --> CF --> ALB --> ING --> GW
     GW -->|"http://server-a:8080"| A
     GW -->|"http://server-b:8081"| B
     GW -->|"http://server-c:8082"| C
