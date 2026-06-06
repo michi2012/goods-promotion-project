@@ -122,6 +122,58 @@ public class KubernetesTools {
         return "Helm 롤백 제안 등록됨 [" + id + "]: " + releaseName + "\n사유: " + reason;
     }
 
+    @Tool(description = """
+            Istio VirtualService의 트래픽 가중치를 조정해 특정 버전(v2)으로 가는 트래픽을 격리합니다. Slack에 승인 요청합니다.
+            언제 호출: 다음 중 하나라도 해당하면 즉시 호출하라.
+              1) 카나리 배포 중 v2 버전에서 에러율 급증이 관측된 경우 → v2Weight=0으로 격리
+              2) 특정 버전의 응답 지연이 비정상적으로 높은 경우 → v2Weight=0으로 격리
+              3) 카나리 검증 완료 후 v2 전환 승인 요청 → v1Weight=0, v2Weight=100
+            주의: Helm 롤백과 달리 트래픽만 격리하며 파드는 유지됨. 원인 파악 후 복구 가능.
+            반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
+            """)
+    public String proposeTrafficShift(
+            @ToolParam(description = "VirtualService 대상 서비스명 (예: server-a, server-b, server-c, gateway-service, aiops)") String serviceName,
+            @ToolParam(description = "v1 버전 트래픽 가중치 (0~100)") int v1Weight,
+            @ToolParam(description = "v2 버전 트래픽 가중치 (0~100, v1Weight + v2Weight = 100)") int v2Weight,
+            @ToolParam(description = "트래픽 조정이 필요한 이유. 관측된 에러율 또는 지연 수치를 포함한 1문장.") String reason) {
+        String params = String.format(
+                "{\"service\":\"%s\",\"v1Weight\":%d,\"v2Weight\":%d,\"namespace\":\"%s\"}",
+                serviceName, v1Weight, v2Weight, namespace);
+        String id = approvalService.propose("TRAFFIC_SHIFT", params, reason);
+
+        slackService.sendBlockKit(
+                "Istio 트래픽 시프트 승인 요청: " + serviceName,
+                buildTrafficShiftBlocks(id, serviceName, v1Weight, v2Weight, reason));
+
+        log.info("[K8s] 트래픽 시프트 제안 등록 및 Slack 발송: id={}, service={}, v1={}%, v2={}%", id, serviceName, v1Weight, v2Weight);
+        return String.format("트래픽 시프트 제안 등록됨 [%s]: %s → v1=%d%% / v2=%d%%\n사유: %s", id, serviceName, v1Weight, v2Weight, reason);
+    }
+
+    @Tool(description = """
+            Istio DestinationRule의 outlier detection 임계값을 조정합니다. Slack에 승인 요청합니다.
+            언제 호출: 다음 조건을 만족하면 호출하라.
+              1) 특정 파드에서 간헐적 5xx가 발생하지만 전체 에러율은 낮아 트래픽 시프트까지는 불필요한 경우
+              2) 현재 outlier detection 임계값이 너무 높아 불량 파드가 제거되지 않는 경우
+            효과: consecutive5xxErrors 횟수 연속 발생 시 해당 파드를 로드밸런서 풀에서 자동 제거.
+            반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
+            """)
+    public String proposeOutlierDetectionUpdate(
+            @ToolParam(description = "DestinationRule 대상 서비스명 (예: server-a, server-b, server-c, gateway-service, aiops)") String serviceName,
+            @ToolParam(description = "5xx 연속 발생 허용 횟수 (기본값 5, 낮출수록 민감하게 동작, 권장 범위 3~10)") int consecutive5xxErrors,
+            @ToolParam(description = "조정이 필요한 이유. 관측된 파드별 에러 패턴을 포함한 1문장.") String reason) {
+        String params = String.format(
+                "{\"service\":\"%s\",\"consecutive5xxErrors\":%d,\"namespace\":\"%s\"}",
+                serviceName, consecutive5xxErrors, namespace);
+        String id = approvalService.propose("OUTLIER_DETECTION_UPDATE", params, reason);
+
+        slackService.sendBlockKit(
+                "Outlier Detection 임계값 조정 승인 요청: " + serviceName,
+                buildOutlierDetectionBlocks(id, serviceName, consecutive5xxErrors, reason));
+
+        log.info("[K8s] Outlier Detection 업데이트 제안 등록 및 Slack 발송: id={}, service={}, consecutive5xx={}", id, serviceName, consecutive5xxErrors);
+        return String.format("Outlier Detection 업데이트 제안 등록됨 [%s]: %s → consecutive5xxErrors=%d\n사유: %s", id, serviceName, consecutive5xxErrors, reason);
+    }
+
     private List<Map<String, Object>> buildRestartBlocks(String id, String deployment, String reason) {
         List<Map<String, Object>> blocks = new ArrayList<>();
 
@@ -220,6 +272,78 @@ public class KubernetesTools {
                 "text", Map.of("type", "plain_text", "text", "❌ 거절"),
                 "style", "danger",
                 "action_id", "reject_helm_rollback",
+                "value", id);
+
+        Map<String, Object> actions = new LinkedHashMap<>();
+        actions.put("type", "actions");
+        actions.put("elements", List.of(approveBtn, rejectBtn));
+        blocks.add(actions);
+
+        return blocks;
+    }
+
+    private List<Map<String, Object>> buildTrafficShiftBlocks(String id, String service, int v1Weight, int v2Weight, String reason) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("type", "header");
+        header.put("text", Map.of("type", "plain_text", "text", "🔀 Istio 트래픽 시프트 승인 요청"));
+        blocks.add(header);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("type", "section");
+        section.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*대상 서비스:* `%s`\n*변경 가중치:* v1=%d%% / v2=%d%%\n*이유:* %s", service, v1Weight, v2Weight, reason)));
+        blocks.add(section);
+
+        Map<String, Object> approveBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "✅ 승인"),
+                "style", "primary",
+                "action_id", "approve_traffic_shift",
+                "value", id);
+
+        Map<String, Object> rejectBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "❌ 거절"),
+                "style", "danger",
+                "action_id", "reject_traffic_shift",
+                "value", id);
+
+        Map<String, Object> actions = new LinkedHashMap<>();
+        actions.put("type", "actions");
+        actions.put("elements", List.of(approveBtn, rejectBtn));
+        blocks.add(actions);
+
+        return blocks;
+    }
+
+    private List<Map<String, Object>> buildOutlierDetectionBlocks(String id, String service, int consecutive5xxErrors, String reason) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("type", "header");
+        header.put("text", Map.of("type", "plain_text", "text", "🛡️ Outlier Detection 임계값 조정 승인 요청"));
+        blocks.add(header);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("type", "section");
+        section.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*대상 서비스:* `%s`\n*새 임계값:* consecutive5xxErrors=%d\n*이유:* %s", service, consecutive5xxErrors, reason)));
+        blocks.add(section);
+
+        Map<String, Object> approveBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "✅ 승인"),
+                "style", "primary",
+                "action_id", "approve_outlier_update",
+                "value", id);
+
+        Map<String, Object> rejectBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "❌ 거절"),
+                "style", "danger",
+                "action_id", "reject_outlier_update",
                 "value", id);
 
         Map<String, Object> actions = new LinkedHashMap<>();

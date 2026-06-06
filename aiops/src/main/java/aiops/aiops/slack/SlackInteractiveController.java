@@ -96,6 +96,40 @@ public class SlackInteractiveController {
                 slackService.sendToResponseUrl(responseUrl, approvalService.executeHelmRollback(pending));
             }
 
+            if ("reject_traffic_shift".equals(actionId)) {
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ 트래픽 시프트 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_traffic_shift".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] 트래픽 시프트 승인: id={}, params={}", pending.id(), pending.params());
+                slackService.sendToResponseUrl(responseUrl, approvalService.executeTrafficShift(pending));
+            }
+
+            if ("reject_outlier_update".equals(actionId)) {
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ Outlier Detection 업데이트 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_outlier_update".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] Outlier Detection 업데이트 승인: id={}, params={}", pending.id(), pending.params());
+                slackService.sendToResponseUrl(responseUrl, approvalService.executeOutlierDetectionUpdate(pending));
+            }
+
         } catch (Exception e) {
             log.error("[Slack Interactive] 처리 실패: {}", e.getMessage());
         }

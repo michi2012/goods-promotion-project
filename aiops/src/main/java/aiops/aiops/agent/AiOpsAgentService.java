@@ -64,6 +64,14 @@ public class AiOpsAgentService {
                - HTTP 요청이 큐잉되어 처리 안 되는데 liveness probe는 정상(up==1)이고 에러 로그에 deadlock/blocked thread가 확인되면 proposeRolloutRestart를 호출하라.
                - 추측 기반 제안 절대 금지. getClusterStatus 또는 알람 수치로 근거가 없으면 호출하지 마라.
 
+            10. Istio 트래픽 제어 시나리오 (카나리 배포 중인 경우에만 해당):
+                - 카나리 배포 감지 기준: getClusterStatus 결과에 동일 서비스에 v1/v2 파드가 동시에 존재하는 경우.
+                - v2 파드에서 에러율이 높고 v1은 정상인 경우: proposeTrafficShift(serviceName, v1Weight=100, v2Weight=0, reason)을 호출하여 v2 격리를 제안하라.
+                  이 경우 proposeHelmRollback보다 proposeTrafficShift를 우선 제안하라. 파드를 유지하면서 트래픽만 차단하므로 더 빠른 격리가 가능하다.
+                - 특정 파드에서만 간헐적 5xx가 발생하고 전체 에러율은 낮은 경우: proposeOutlierDetectionUpdate를 호출하여 outlier detection 임계값 강화를 제안하라.
+                  단, v2 파드 자체 결함이 명확하면 proposeTrafficShift를 호출하라. 두 도구를 동시에 호출하지 마라.
+                - 카나리 배포 중이 아닌 경우(v1만 존재): 이 단계를 스킵하라.
+
             9. 수집한 모든 정보를 바탕으로 아래 형식의 보고서를 작성하라.
                데이터로 뒷받침되지 않는 추측은 쓰지 마라.
 

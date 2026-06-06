@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -153,6 +155,89 @@ public class ActionApprovalService {
         } catch (Exception e) {
             log.error("[Approval] executeHelmRollback 예외: {}", e.getMessage());
             return "❌ Helm 롤백 실행 중 오류: " + e.getMessage();
+        }
+    }
+
+    public String executeTrafficShift(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String service = params.path("service").asText();
+            int v1Weight = params.path("v1Weight").asInt();
+            int v2Weight = params.path("v2Weight").asInt();
+            String ns = params.path("namespace").asText("promotion");
+
+            String patch = String.format(
+                    "{\"spec\":{\"http\":[{\"route\":[{\"destination\":{\"host\":\"%s\",\"subset\":\"v1\"},\"weight\":%d},{\"destination\":{\"host\":\"%s\",\"subset\":\"v2\"},\"weight\":%d}]}]}}",
+                    service, v1Weight, service, v2Weight);
+
+            Path patchFile = Files.createTempFile("vs-patch-", ".json");
+            String output;
+            try {
+                Files.writeString(patchFile, patch);
+                List<String> command = List.of("kubectl", "patch", "virtualservice", service,
+                        "-n", ns, "--patch-file", patchFile.toString(), "--type", "merge");
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    output = reader.lines().collect(Collectors.joining("\n"));
+                }
+                int exitCode = process.waitFor();
+                if (exitCode != 0) {
+                    log.error("[Approval] kubectl patch virtualservice 실패: exitCode={}, output={}", exitCode, output);
+                    return "❌ 트래픽 시프트 실패 (exitCode=" + exitCode + "): " + output;
+                }
+            } finally {
+                Files.deleteIfExists(patchFile);
+            }
+
+            log.info("[Approval] 트래픽 시프트 성공: service={}, v1={}%, v2={}%", service, v1Weight, v2Weight);
+            return String.format("✅ 트래픽 시프트 완료: `%s` v1=%d%% / v2=%d%%\n`%s`", service, v1Weight, v2Weight, output);
+
+        } catch (Exception e) {
+            log.error("[Approval] executeTrafficShift 예외: {}", e.getMessage());
+            return "❌ 트래픽 시프트 실행 중 오류: " + e.getMessage();
+        }
+    }
+
+    public String executeOutlierDetectionUpdate(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String service = params.path("service").asText();
+            int consecutive5xxErrors = params.path("consecutive5xxErrors").asInt();
+            String ns = params.path("namespace").asText("promotion");
+
+            String patch = String.format(
+                    "{\"spec\":{\"trafficPolicy\":{\"outlierDetection\":{\"consecutive5xxErrors\":%d}}}}",
+                    consecutive5xxErrors);
+
+            Path patchFile = Files.createTempFile("dr-patch-", ".json");
+            String output;
+            try {
+                Files.writeString(patchFile, patch);
+                List<String> command = List.of("kubectl", "patch", "destinationrule", service,
+                        "-n", ns, "--patch-file", patchFile.toString(), "--type", "merge");
+                ProcessBuilder pb = new ProcessBuilder(command);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                    output = reader.lines().collect(Collectors.joining("\n"));
+                }
+                int exitCode = process.waitFor();
+                if (exitCode != 0) {
+                    log.error("[Approval] kubectl patch destinationrule 실패: exitCode={}, output={}", exitCode, output);
+                    return "❌ Outlier Detection 업데이트 실패 (exitCode=" + exitCode + "): " + output;
+                }
+            } finally {
+                Files.deleteIfExists(patchFile);
+            }
+
+            log.info("[Approval] Outlier Detection 업데이트 성공: service={}, consecutive5xx={}", service, consecutive5xxErrors);
+            return String.format("✅ Outlier Detection 업데이트 완료: `%s` consecutive5xxErrors=%d\n`%s`", service, consecutive5xxErrors, output);
+
+        } catch (Exception e) {
+            log.error("[Approval] executeOutlierDetectionUpdate 예외: {}", e.getMessage());
+            return "❌ Outlier Detection 업데이트 실행 중 오류: " + e.getMessage();
         }
     }
 
