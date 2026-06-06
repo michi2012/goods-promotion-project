@@ -4,6 +4,24 @@
 
 ---
 
+## v1.3.0 — 2026-06-06
+
+> Istio Ambient 기반 서비스 메시 인프라 전환과 AIOps 트래픽 제어 자동화 연동 완료
+
+### ✨ New Features
+- [AIOps] Istio 트래픽 제어 연동 — `proposeTrafficShift` / `executeTrafficShift` 구현 (d42f0e1)
+- [Istio] Ambient Helm 차트 및 VirtualService/DestinationRule 추가 (a0ea029)
+- [AIOps] K8s 자동화 및 K8s 인프라 전환 (bad93e6)
+
+### 🐛 Bug Fixes
+- [ObservabilityTools] `queryDatabaseHealth` 누락된 예외 처리 추가 (c7c02e7)
+
+### 🔧 Chore / Docs
+- CLAUDE.md E2E 테스트 원칙 및 K8s 스킬 보완 (6810eee)
+- Istio Ambient 도입 및 AIOps 트래픽 제어 반영 — docs 업데이트 (8d86e56)
+
+---
+
 ## v1.2.0 — 2026-06-06
 
 > AIOps K8s 자동화(HPA 조정·Helm 롤백·롤링 재시작 Slack 승인 플로우) 및 K8s 인프라 전환 전면 도입
