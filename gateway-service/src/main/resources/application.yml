@@ -12,6 +12,8 @@ eureka:
 spring:
   application:
     name: gateway-service
+  jwt:
+    secret: ${JWT_SECRET:local-dev-jwt-secret-key-must-be-at-least-256-bits-for-hs256-algorithm}
   lifecycle:
     timeout-per-shutdown-phase: 30s
   data:
@@ -94,6 +96,26 @@ spring:
           uri: lb://serverC
           predicates:
             - Path=/api/v1/payments/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
+        # 회원가입 · 로그인 · 토큰 재발급 — Rate Limiting 미적용 (인증 전 공개 경로)
+        - id: user-service-auth
+          uri: lb://user-service
+          predicates:
+            - Path=/login, /reissue
+            - Method=POST
+
+        # 사용자 API — 초당 20건, 버스트 50
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
           filters:
             - name: RequestRateLimiter
               args:

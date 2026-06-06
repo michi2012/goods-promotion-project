@@ -69,6 +69,26 @@ spring:
                 redis-rate-limiter.requestedTokens: 1
                 key-resolver: "#{@ipKeyResolver}"
 
+        # 회원가입 · 로그인 · 토큰 재발급 — Rate Limiting 미적용
+        - id: user-service-auth
+          uri: http://user-service:8086
+          predicates:
+            - Path=/login, /reissue
+            - Method=POST
+
+        # 사용자 API — 초당 20건, 버스트 50
+        - id: user-service
+          uri: http://user-service:8086
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@ipKeyResolver}"
+
         # AIOps — Rate Limiting 미적용 (Alertmanager 내부 호출 + Slack Interactive 콜백)
         - id: aiops
           uri: http://aiops:8085
