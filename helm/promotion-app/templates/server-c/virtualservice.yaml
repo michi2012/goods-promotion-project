@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ .Values.serverC.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.serverC.name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  hosts:
+    - {{ .Values.serverC.name }}
+  http:
+    - route:
+        - destination:
+            host: {{ .Values.serverC.name }}
+            subset: v1
+          weight: 100
+        - destination:
+            host: {{ .Values.serverC.name }}
+            subset: v2
+          weight: 0

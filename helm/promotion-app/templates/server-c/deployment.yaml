@@ -21,6 +21,7 @@ spec:
         app: {{ .Values.serverC.name }}
         app.kubernetes.io/name: {{ .Values.serverC.name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
+        version: v1
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ .Values.serverC.port | quote }}

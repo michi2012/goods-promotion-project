@@ -1,0 +1,17 @@
+apiVersion: v2
+name: promotion-istio
+description: Istio Ambient mode 설치 차트 (istiod + ztunnel + waypoint)
+type: application
+version: 0.1.0
+appVersion: "1.24.0"
+
+dependencies:
+  - name: base
+    version: "1.24.0"
+    repository: https://istio-release.storage.googleapis.com/charts
+  - name: istiod
+    version: "1.24.0"
+    repository: https://istio-release.storage.googleapis.com/charts
+  - name: ztunnel
+    version: "1.24.0"
+    repository: https://istio-release.storage.googleapis.com/charts

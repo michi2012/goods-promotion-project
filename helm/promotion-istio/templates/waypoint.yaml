@@ -1,0 +1,17 @@
+# L7 waypoint proxy — VirtualService/DestinationRule 규칙 적용 담당
+# Gateway API 리소스를 apply하면 Istio가 waypoint Deployment를 자동 생성
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: {{ .Values.appNamespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    istio.io/waypoint-for: all   # 네임스페이스 내 모든 서비스에 적용
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE   # HTTP-Based Overlay Network Encapsulation (Istio Ambient L7 터널)

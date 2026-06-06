@@ -1,0 +1,17 @@
+# promotion-istio values.yaml
+# Istio Ambient mode 설치 설정
+
+appNamespace: promotion   # waypoint, 네임스페이스 레이블이 적용될 앱 네임스페이스
+
+# istio/base — CRD 설치
+base:
+  enableCRDTemplates: true
+
+# istio/istiod — 컨트롤 플레인
+istiod:
+  profile: ambient
+  meshConfig:
+    accessLogFile: /dev/stdout   # Envoy 접근 로그 stdout 출력
+
+# istio/ztunnel — 노드별 L4 ambient 프록시 (DaemonSet)
+ztunnel: {}

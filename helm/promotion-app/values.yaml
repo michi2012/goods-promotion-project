@@ -189,6 +189,14 @@ serverC:
             value: 1
             periodSeconds: 60
 
+# Istio 트래픽 정책 기본값
+traffic:
+  outlierDetection:
+    consecutive5xxErrors: 5   # 이 횟수만큼 5xx 연속 발생 시 파드를 풀에서 제거
+    interval: 10s             # 체크 주기
+    baseEjectionTime: 30s     # 첫 이젝션 유지 시간 (이후 누적 배수로 증가)
+    maxEjectionPercent: 50    # 풀의 최대 50%까지만 제거 (서비스 완전 중단 방지)
+
 aiops:
   name: aiops
   replicas: 1
