@@ -128,19 +128,24 @@ public class ObservabilityTools {
             실패 시: Prometheus 장애이므로 스킵하고 Loki 로그만으로 분석을 계속하세요.
             """)
     public String queryDatabaseHealth() {
-        StringBuilder result = new StringBuilder();
-        result.append("[MySQL 활성 커넥션]\n")
-              .append(truncateData(callPrometheus("mysql_global_status_threads_connected"), "MySQL-conn")).append("\n\n");
-        result.append("[MySQL 슬로우 쿼리 비율 (5m)]\n")
-              .append(truncateData(callPrometheus("rate(mysql_global_status_slow_queries[5m])"), "MySQL-slow")).append("\n\n");
-        result.append("[HikariCP 대기 커넥션]\n")
-              .append(truncateData(callPrometheus("hikaricp_connections_pending"), "HikariCP")).append("\n\n");
-        result.append("[Redis 메모리 사용량]\n")
-              .append(truncateData(callPrometheus("redis_memory_used_bytes"), "Redis-mem")).append("\n\n");
-        result.append("[Redis 연결 클라이언트 수]\n")
-              .append(truncateData(callPrometheus("redis_connected_clients"), "Redis-conn"));
-        log.info("[Tool] DB 상태 진단 완료");
-        return result.toString();
+        try {
+            StringBuilder result = new StringBuilder();
+            result.append("[MySQL 활성 커넥션]\n")
+                  .append(truncateData(callPrometheus("mysql_global_status_threads_connected"), "MySQL-conn")).append("\n\n");
+            result.append("[MySQL 슬로우 쿼리 비율 (5m)]\n")
+                  .append(truncateData(callPrometheus("rate(mysql_global_status_slow_queries[5m])"), "MySQL-slow")).append("\n\n");
+            result.append("[HikariCP 대기 커넥션]\n")
+                  .append(truncateData(callPrometheus("hikaricp_connections_pending"), "HikariCP")).append("\n\n");
+            result.append("[Redis 메모리 사용량]\n")
+                  .append(truncateData(callPrometheus("redis_memory_used_bytes"), "Redis-mem")).append("\n\n");
+            result.append("[Redis 연결 클라이언트 수]\n")
+                  .append(truncateData(callPrometheus("redis_connected_clients"), "Redis-conn"));
+            log.info("[Tool] DB 상태 진단 완료");
+            return result.toString();
+        } catch (Exception e) {
+            log.warn("[Tool] DB 상태 진단 실패: {}", e.getMessage());
+            return "DB 상태 진단 실패 (Prometheus 장애 가능성): " + e.getMessage() + " — 스킵하고 분석을 계속하세요.";
+        }
     }
 
     @Tool(description = """
