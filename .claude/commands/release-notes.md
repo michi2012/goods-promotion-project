@@ -159,20 +159,18 @@ Full diff: `git log {range} --oneline`
 
 릴리즈 노트 출력 후 아래 순서로 진행한다.
 
-### 4-A. CHANGELOG 업데이트
+### 4-A. CHANGELOG 업데이트 및 태그 생성
 ```
-CHANGELOG.md 상단에 추가할까요? (y/n)
+CHANGELOG.md 상단에 추가하고, 커밋·태그·푸시까지 진행할까요? (y/n)
 ```
-사용자가 승인하면 `docs/CHANGELOG.md` 파일 상단에 해당 버전 블록을 삽입한다.
-파일이 없으면 새로 생성한다.
-
-### 4-B. git tag 생성 (CHANGELOG 업데이트 여부와 무관하게 항상 제안)
-```
-git tag v{버전} HEAD 로 태그를 생성할까요? (y/n)
-[생성하면 다음 /release-notes 실행 시 자동으로 이번 버전 이후 커밋만 수집됩니다]
-```
-사용자가 승인하면 다음 명령어를 실행한다:
+사용자가 승인하면 아래 순서대로 실행한다:
+1. `docs/CHANGELOG.md` 파일 상단에 해당 버전 블록을 삽입한다. 파일이 없으면 새로 생성한다.
+2. 다음 명령어를 순서대로 실행한다:
 ```powershell
+git add docs/CHANGELOG.md
+git commit -m "docs: CHANGELOG v{버전}"
 git tag v{버전}
-Write-Host "태그 v{버전} 생성 완료. 'git push origin v{버전}' 으로 원격에 푸시할 수 있습니다."
+Write-Host "CHANGELOG 커밋 및 태그 v{버전} 생성 완료."
+Write-Host "아래 명령어로 원격에 푸시하세요:"
+Write-Host "  git push origin HEAD v{버전}"
 ```
