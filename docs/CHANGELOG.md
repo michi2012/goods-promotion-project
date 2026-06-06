@@ -4,6 +4,24 @@
 
 ---
 
+## v1.4.0 — 2026-06-06
+
+> user-service를 전체 스택(모듈·Docker Compose·Helm·Gateway)에 통합하고, 인프라 다이어그램을 Cloudflare WAF 기준으로 업데이트한 릴리즈.
+
+### ✨ New Features
+- helm user-service 차트 추가 (374caca)
+- docker compose user-service 및 mysql-user 추가 (78a033a)
+- gateway user-service 라우팅 및 JWT 인증 필터 추가 (fa9365e)
+- user-service 모듈 통합 (35fc2aa)
+
+### 🔧 Chore / Docs
+- server-a DB 이름 `promotion` → `order` 변경 (8b4109a)
+- CLAUDE.md docs 관리 원칙 추가 및 작업 기록 업데이트 (a433e6a)
+- infra 다이어그램 K8s에서 AWS WAF 제거 (Cloudflare로 대체), 엣지 라벨 단순화 (45e2808, 5717252)
+- user-service 통합 반영 (arch-snapshot, infra-diagram, README) (9680581)
+
+---
+
 ## v1.3.0 — 2026-06-06
 
 > Istio Ambient 기반 서비스 메시 인프라 전환과 AIOps 트래픽 제어 자동화 연동 완료
