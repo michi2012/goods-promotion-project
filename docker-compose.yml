@@ -59,6 +59,33 @@ services:
           cpus: '1.0'
           memory: 2G
 
+  # 1-c. MySQL (user-service 전용)
+  mysql-user:
+    image: mysql:8.0
+    container_name: promotion-mysql-user
+    ports:
+      - "3309:3306"
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: user
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --server-id=3
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - promotion-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
   # 2. Redis (serverA 전용)
   redis:
     image: redis:7.0-alpine
@@ -318,6 +345,40 @@ services:
       - promotion-network
     restart: on-failure
     stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  # User Service
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: promotion-user-service
+    volumes:
+      - shared-logs:/logs
+    ports:
+      - "8086:8086"
+    environment:
+      TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-user:3306/user?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&characterEncoding=UTF-8&useUnicode=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      JWT_SECRET: local-dev-jwt-secret-key-must-be-at-least-256-bits-for-hs256-algorithm
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+      EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      mysql-user:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    networks:
+      - promotion-network
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -658,3 +719,4 @@ networks:
 volumes:
   kafka-data:
   shared-logs:
+  mysql-user-data:
