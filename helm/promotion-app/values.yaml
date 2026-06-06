@@ -62,7 +62,7 @@ serverA:
   image: ""  # --set serverA.image=<ECR_URL>/server-a:tag
   springProfilesActive: "k8s"
   datasource:
-    url: ""       # --set serverA.datasource.url=jdbc:mysql://<RDS_ENDPOINT>:3306/promotion?...
+    url: ""       # --set serverA.datasource.url=jdbc:mysql://<RDS_ENDPOINT>:3306/order?...
     username: ""  # --set serverA.datasource.username=root
     password: ""  # --set serverA.datasource.password=<password>
   redis:

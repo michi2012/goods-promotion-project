@@ -13,14 +13,13 @@
 | 캐시 | Redis, Caffeine |
 | 장애 내성 | Resilience4j (Circuit Breaker) |
 | AI / AIOps | Spring AI (ChatClient, Tool Calling) |
-| 서비스 메시 | Istio Ambient (ztunnel + waypoint, 사이드카리스 mTLS + L7 트래픽 제어) |
+| 서비스 메시 | Istio |
 | DB | MySQL (DB-per-service) |
 | 모니터링 | Prometheus, Grafana, Tempo, Loki, Alertmanager, OpenTelemetry Collector, Vector |
 | 부하 테스트 | k6 |
-| 빌드 | Gradle 멀티 모듈 |
 | 로컬 인프라 | Docker Compose |
 | 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress |
-| 보안 | Cloudflare WAF (권장) 또는 AWS WAF |
+| 보안 | Cloudflare WAF |
 
 ---
 
@@ -77,7 +76,7 @@ docker compose up -d
 |------|------|------|----|-------|
 | discovery-service | 8761 | Eureka 서버. **local 전용** — K8s에서는 미배포(K8s Service DNS로 대체) | 없음 | 없음 |
 | gateway-service | 8088 | API Gateway. IP별 토큰버킷 Rate Limiting (구매 2 req/s · 일반 20 req/s), ALB Ingress TLS termination | 없음 | ✅ (Rate Limiting) |
-| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | promotion DB | ✅ |
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어 | order DB | ✅ |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회 | 없음 | ✅ |
 | serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용 | payment DB | 없음 |
 | aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정) | 없음 | 없음 |
@@ -91,7 +90,7 @@ docker compose up -d
 sequenceDiagram
     participant C as Client
     participant A as serverA
-    participant DB_A as promotionDB
+    participant DB_A as orderDB
     participant B as serverB
     participant SC as serverC
     participant PG as PG사
