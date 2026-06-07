@@ -81,7 +81,7 @@ docker compose up -d
 | serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어                                                                                                                       | order DB | ✅ |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회                                                                                                                                        | 없음 | ✅ |
 | serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용                                                                                                                                        | payment DB | 없음 |
-| aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정) | 없음 | 없음 |
+| aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정·Kafka Lag 조회·Istio 메시 상태 조회) | 없음 | 없음 |
 | user-service | 8086 | 회원 관리. JWT 로그인·Refresh 토큰 발급·재발급                                                                                                                                 | user DB (3309) | 없음 |
 
 ### Before Kafka — Phase 1 최종 아키텍처
@@ -323,12 +323,14 @@ Alertmanager webhook → AIOps(8085)
      - queryLokiLogs           : 대상 서비스 최근 5분 ERROR 로그
      - queryTempoTrace         : traceId 추출 시 분산 트레이스 조회
      - queryRecentCommits(60)  : 최근 1시간 배포 이력 (장애 시각 10분 이내 커밋 → 롤백 권장)
+     - queryKafkaLag           : Kafka consumergroup·topic별 consumer lag 조회 (KafkaConsumerLagHigh 알람 전용)
      [KubernetesTools]
      - getClusterStatus              : K8s 파드·디플로이먼트·HPA 상태 조회
+     - getIstioMeshStatus            : Istio VirtualService·DestinationRule 현재 설정 조회 (v1/v2 가중치 파악)
      - proposeHpaPatch               : HPA maxReplicas 조정 Slack 승인 요청
      - proposeHelmRollback           : Helm 릴리즈 롤백 Slack 승인 요청
      - proposeRolloutRestart         : 디플로이먼트 롤링 재시작 Slack 승인 요청
-     - proposeTrafficShift           : Istio VirtualService 가중치 조정 Slack 승인 요청 (카나리 v2 격리)
+     - proposeTrafficShift           : Istio VirtualService 가중치 조정 Slack 승인 요청 (카나리 v2 격리, v1+v2=100 검증)
      - proposeOutlierDetectionUpdate : Istio DestinationRule outlier detection 임계값 강화 Slack 승인 요청
   ③ 연쇄 장애 추론 (DB 부하 → CDC 지연 → Kafka 블로킹 → HTTP 5xx 등 계층별 인과 서술)
   ④ Slack 보고서 + 필요 시 K8s 조치 승인 버튼 발송
