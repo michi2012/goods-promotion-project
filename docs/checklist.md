@@ -1,27 +1,27 @@
-# 체크리스트: Karpenter 차트 추가 및 aiops 노드 상태 조회
+# 체크리스트: Pyroscope(Continuous Profiler) 도입 및 aiops 통합
 
 - 마지막 업데이트: 2026-06-07
 
 ## 진행 상황
-
-- [x] 단계 1: helm/promotion-karpenter/ 차트 생성
-  - [x] Chart.yaml (karpenter 1.0.8 OCI dependency)
-  - [x] values.yaml (clusterName, nodeRole 등 placeholder)
-  - [x] templates/nodepool.yaml (Spot+On-demand, role:app, CPU 10/40Gi 상한)
-  - [x] templates/ec2nodeclass.yaml (AL2023, karpenter.sh/discovery 태그 기반)
-  - [x] 검증 통과 (임시 Chart.yaml로 helm template 렌더링 정상)
-
-- [x] 단계 2: KubernetesTools.java — getClusterStatus() 노드 상태 추가
-  - [x] `kubectl get nodes --no-headers` 추가, [Nodes] 섹션 선두 배치
-  - [x] @Tool description 반환값 설명 업데이트
-  - [x] 검증 통과 (`.\gradlew.bat :aiops:compileJava` — BUILD SUCCESSFUL)
+- [ ] 단계 1: Pyroscope 서버 helm 템플릿 + Grafana 데이터소스 등록
+  - [ ] helm template promotion-monitoring 렌더링 통과 (육안 확인)
+- [ ] 단계 2: 파일럿 서비스(server-a/b/c) Java agent 연동
+  - [ ] helm template promotion-app 렌더링 통과 (육안 확인)
+- [ ] 단계 3: 로컬 docker-compose Pyroscope 추가 및 E2E 검증
+  - [ ] Pyroscope UI에서 server-a 프로파일 데이터 확인 (로컬 E2E)
+- [ ] 단계 4: aiops ObservabilityTools — queryProfilerHotspots 추가
+  - [ ] .\gradlew.bat :aiops:compileJava BUILD SUCCESSFUL
+- [ ] 단계 5: AiOpsAgentService 프롬프트 — 새 도구 호출 케이스 명시
+  - [ ] .\gradlew.bat :aiops:compileJava BUILD SUCCESSFUL
+- [ ] 단계 6: 통합 검증
+  - [ ] gradle build / helm template / docker-compose E2E 종합 확인
 
 ## 최종 검증
-- [x] helm template 렌더링 오류 없음 (NodePool·EC2NodeClass 정상 출력)
-- [x] gradlew compileJava 오류 없음
-- [x] git status: helm/promotion-karpenter/(신규) + KubernetesTools.java(수정)만 변경 확인
-- [x] 비범위(aiops 노드 제어 도구, IAM 리소스) 침범 없음
+- [ ] .\gradlew.bat :aiops:build 통과
+- [ ] helm template (promotion-monitoring, promotion-app) 렌더링 오류 없음
+- [ ] 로컬 docker-compose E2E로 Pyroscope 데이터 수집 확인
+- [ ] plan.md "비범위" 침범 없음 확인
+- [ ] git diff --stat로 변경 범위 최종 확인
 
-## 발견 사항
-- helm template 전체 실행은 ECR 인증 후 helm dependency update 필요 (로컬 불가)
-  → 실제 EKS 배포 전 수행
+## 발견 사항 (작업 중 별도 처리 필요한 것)
+- (작업 중 기록 예정)

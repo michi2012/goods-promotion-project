@@ -31,6 +31,15 @@ spec:
       terminationGracePeriodSeconds: 60
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- if .Values.serverA.profiler.enabled }}
+      initContainers:
+        - name: pyroscope-agent-init
+          image: curlimages/curl:latest
+          command: ["sh", "-c", "curl -sL https://github.com/grafana/pyroscope-java/releases/latest/download/pyroscope.jar -o /agent/pyroscope.jar"]
+          volumeMounts:
+            - name: pyroscope-agent
+              mountPath: /agent
+      {{- end }}
       containers:
         - name: {{ .Values.serverA.name }}
           image: {{ .Values.serverA.image }}
@@ -62,6 +71,21 @@ spec:
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.serverA.otlpEndpoint | quote }}
             {{- end }}
+            {{- if .Values.serverA.profiler.enabled }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/agent/pyroscope.jar"
+            - name: PYROSCOPE_APPLICATION_NAME
+              value: {{ .Values.serverA.name | quote }}
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: "http://pyroscope:4040"
+            - name: PYROSCOPE_FORMAT
+              value: "jfr"
+            {{- end }}
+          {{- if .Values.serverA.profiler.enabled }}
+          volumeMounts:
+            - name: pyroscope-agent
+              mountPath: /agent
+          {{- end }}
           resources:
             requests:
               cpu: {{ .Values.serverA.resources.requests.cpu | quote }}
@@ -83,6 +107,11 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
+      {{- if .Values.serverA.profiler.enabled }}
+      volumes:
+        - name: pyroscope-agent
+          emptyDir: {}
+      {{- end }}
 
 
 

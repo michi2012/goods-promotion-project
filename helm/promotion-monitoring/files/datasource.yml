@@ -31,6 +31,14 @@ datasources:
         enabled: true
       lokiSearch:
         datasourceUid: 'loki'
+      tracesToProfiles:
+        datasourceUid: 'pyroscope'
+        tags: ['service.name']
+
+  - name: Pyroscope
+    type: grafana-pyroscope-datasource
+    uid: pyroscope
+    url: http://pyroscope:4040
 
   - name: Loki
     type: loki

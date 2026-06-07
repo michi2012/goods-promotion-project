@@ -1,0 +1,54 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.pyroscope.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.pyroscope.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-monitoring.chart" . }}
+spec:
+  replicas: {{ .Values.pyroscope.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.pyroscope.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.pyroscope.name }}
+        app.kubernetes.io/name: {{ .Values.pyroscope.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Values.pyroscope.name }}
+          image: {{ .Values.pyroscope.image }}
+          imagePullPolicy: Always
+          args: ["server"]
+          ports:
+            - containerPort: {{ .Values.pyroscope.port }}
+          resources:
+            requests:
+              cpu: {{ .Values.pyroscope.resources.requests.cpu | quote }}
+              memory: {{ .Values.pyroscope.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.pyroscope.resources.limits.cpu | quote }}
+              memory: {{ .Values.pyroscope.resources.limits.memory | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.pyroscope.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Values.pyroscope.name }}
+  ports:
+    - port: {{ .Values.pyroscope.port }}
+      targetPort: {{ .Values.pyroscope.port }}

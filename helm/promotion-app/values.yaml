@@ -42,6 +42,8 @@ gateway:
   corsAllowedOrigin: ""  # --set gateway.corsAllowedOrigin=https://yourdomain.com
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  profiler:
+    enabled: true  # Pyroscope continuous profiling (Java agent, initContainer로 jar 주입)
   resources:
     requests:
       cpu: "100m"
@@ -72,6 +74,8 @@ serverA:
     bootstrapServers: "kafka-service:9092"
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  profiler:
+    enabled: true  # Pyroscope continuous profiling 파일럿 (Java agent, initContainer로 jar 주입)
   resources:
     requests:
       cpu: "200m"
@@ -115,6 +119,8 @@ serverB:
     bootstrapServers: "kafka-service:9092"
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  profiler:
+    enabled: true  # Pyroscope continuous profiling 파일럿 (Java agent, initContainer로 jar 주입)
   resources:
     requests:
       cpu: "200m"
@@ -159,6 +165,8 @@ serverC:
     bootstrapServers: "kafka-service:9092"
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  profiler:
+    enabled: true  # Pyroscope continuous profiling 파일럿 (Java agent, initContainer로 jar 주입)
   resources:
     requests:
       cpu: "200m"
@@ -203,6 +211,8 @@ userService:
   corsAllowedOrigins: ""  # --set userService.corsAllowedOrigins=https://yourdomain.com
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  profiler:
+    enabled: true  # Pyroscope continuous profiling (Java agent, initContainer로 jar 주입)
   resources:
     requests:
       cpu: "100m"

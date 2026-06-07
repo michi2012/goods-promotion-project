@@ -73,6 +73,19 @@ tempo:
       cpu: "1000m"
       memory: "2Gi"
 
+pyroscope:
+  name: pyroscope
+  replicas: 1
+  port: 4040
+  image: grafana/pyroscope:latest
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
 loki:
   name: loki
   replicas: 1
