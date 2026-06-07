@@ -4,6 +4,26 @@
 
 ---
 
+## v1.5.0 — 2026-06-07
+
+> Karpenter Helm 차트 통합 및 AIOps 관측성 도구 확장
+
+### ✨ New Features
+- [aiops] getClusterStatus에 노드 상태 조회 추가 (d59c44c)
+- [karpenter] promotion-karpenter Helm 차트 추가 (9941f45)
+- [aiops] queryKafkaLag 추가 및 시스템 프롬프트 업데이트 (372c3d8)
+- [aiops] getIstioMeshStatus 추가 및 proposeTrafficShift 가중치 검증 (3c7223b)
+
+### 🐛 Bug Fixes
+- [karpenter] Karpenter v1 disruption 버그 수정 및 limits 상향 (8522a92)
+
+### 🔧 Chore / Docs
+- README 및 port.md에 Karpenter 추가 내용 반영 (a6d7f45)
+- README aiops 도구 목록 업데이트 — queryKafkaLag, getIstioMeshStatus 추가 (6ac9e43)
+- Karpenter 차트 추가 작업 계획 기록 (외 2건) (462fa90, db2168e, 2d80095)
+
+---
+
 ## v1.4.0 — 2026-06-06
 
 > user-service를 전체 스택(모듈·Docker Compose·Helm·Gateway)에 통합하고, 인프라 다이어그램을 Cloudflare WAF 기준으로 업데이트한 릴리즈.
