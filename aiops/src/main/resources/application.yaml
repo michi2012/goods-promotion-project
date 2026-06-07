@@ -31,6 +31,8 @@ observability:
     url: "${TEMPO_URL:http://tempo:3200}"
   prometheus:
     url: "${PROMETHEUS_URL:http://prometheus:9090}"
+  pyroscope:
+    url: "${PYROSCOPE_URL:http://pyroscope:4040}"
 
 github:
   owner: ${GITHUB_OWNER:michi2012}

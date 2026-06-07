@@ -46,6 +46,15 @@ public class AiOpsAgentService {
 
             6. 5번 로그에서 'traceId' 또는 'trace_id'가 있으면 queryTempoTrace를 호출하라. 없으면 스킵하라.
 
+            6-1. 다음 중 하나라도 해당하면 4번에서 식별한 서비스명으로 queryProfilerHotspots(serviceName, 10, 5)를
+                 호출하여 자체 CPU 시간 기준 상위 핫스팟 메서드를 확인하라:
+                 - 6번 트레이스 조회 결과 특정 서비스의 스팬에서 지연이 확인되었으나 그 서비스 내부의
+                   어떤 코드가 병목인지 불분명한 경우(DB 쿼리·외부 호출·락 경합 등 추측만 가능한 경우)
+                 - alertname·summary·description에 CPU·리소스 사용률 관련 내용이 포함되어, 트레이스
+                   지연 여부와 무관하게 해당 서비스의 코드 레벨 진단이 필요한 경우
+                 핫스팟이 확인되면 *원인* 섹션에 구체적 메서드명과 비율을 포함해 서술하라.
+                 profiler 데이터가 없다고 응답하면 스킵하라.
+
             7. queryRecentCommits(60)를 호출하여 최근 1시간 배포 이력을 조회하라.
                커밋 시각이 장애 발생 시각 10분 이내라면 해당 커밋을 원인 후보 1순위로 기록하고 롤백을 권장 조치에 포함하라.
                추가로, 배포 이력이 있고 HTTP 5xx 에러율이 급증하는 경우(SystemErrorRateCritical, HighErrorBurnRateFast 동반) proposeHelmRollback("promotion-app", ...)을 호출하라.

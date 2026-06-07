@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -21,6 +22,7 @@ public class ObservabilityTools {
     private final RestClient lokiClient;
     private final RestClient tempoClient;
     private final RestClient prometheusClient;
+    private final RestClient pyroscopeClient;
     private final RestClient githubClient;
     private final ActionApprovalService approvalService;
     private final String githubOwner;
@@ -30,6 +32,7 @@ public class ObservabilityTools {
             @Qualifier("lokiClient") RestClient lokiClient,
             @Qualifier("tempoClient") RestClient tempoClient,
             @Qualifier("prometheusClient") RestClient prometheusClient,
+            @Qualifier("pyroscopeClient") RestClient pyroscopeClient,
             @Qualifier("githubClient") RestClient githubClient,
             ActionApprovalService approvalService,
             @Value("${github.owner}") String githubOwner,
@@ -37,6 +40,7 @@ public class ObservabilityTools {
         this.lokiClient = lokiClient;
         this.tempoClient = tempoClient;
         this.prometheusClient = prometheusClient;
+        this.pyroscopeClient = pyroscopeClient;
         this.githubClient = githubClient;
         this.approvalService = approvalService;
         this.githubOwner = githubOwner;
@@ -100,6 +104,44 @@ public class ObservabilityTools {
         } catch (Exception e) {
             log.warn("[Tool] Tempo 조회 실패: {}", e.getMessage());
             return "Tempo 조회 실패: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = """
+            Pyroscope에서 특정 서비스의 CPU 프로파일링 데이터를 조회해 핫스팟 메서드(자체 실행 시간 기준 상위 N개)를 추출합니다.
+            언제 호출: Tempo 트레이스에서 특정 서비스/스팬의 지연이 확인됐지만, 그 서비스 내부의 어떤 코드(메서드)가
+            병목인지 불분명할 때. "어느 서비스가 느린가"는 Tempo로, "그 서비스 안 어떤 코드가 느린가"는 이 도구로 좁히세요.
+            반환: "자체 CPU 시간 비율(%) | 메서드명" 형식의 상위 핫스팟 목록 (최대 N건).
+            실패 시: Pyroscope 서버 장애이거나 해당 서비스에 profiler가 연동되지 않았을 수 있으므로
+            스킵하고 Tempo·Loki 기반 분석을 계속하세요.
+            """)
+    public String queryProfilerHotspots(
+            @ToolParam(description = "조회할 서비스 이름 (예: server-a, server-b, server-c)") String service,
+            @ToolParam(description = "조회 범위. 현재 시각 기준 몇 분 전까지 조회할지 (예: 10)") int minutes,
+            @ToolParam(description = "반환할 핫스팟 메서드 개수 (예: 10)") int topN) {
+        try {
+            long until = Instant.now().toEpochMilli();
+            long from = until - (long) minutes * 60 * 1000;
+            String query = "process_cpu:cpu:nanoseconds:cpu:nanoseconds{service_name=\"" + service + "\"}";
+
+            Map<String, Object> uriVariables = Map.of(
+                    "queryVal", query,
+                    "fromVal", from,
+                    "untilVal", until
+            );
+
+            String response = pyroscopeClient.get()
+                                              .uri("/pyroscope/render?query={queryVal}&from={fromVal}&until={untilVal}&format=json", uriVariables)
+                                              .retrieve()
+                                              .body(String.class);
+
+            String summary = extractHotspots(response, topN);
+            log.info("[Tool] Pyroscope 핫스팟 조회 성공: service={}", service);
+            return summary;
+        } catch (Exception e) {
+            log.warn("[Tool] Pyroscope 핫스팟 조회 실패: {}", e.getMessage());
+            return "Pyroscope 핫스팟 조회 실패 (서버 장애 또는 profiler 미연동 가능성): " + e.getMessage()
+                   + " — 스킵하고 Tempo·Loki 기반 분석을 계속하세요.";
         }
     }
 
@@ -235,6 +277,46 @@ public class ObservabilityTools {
             return sb.toString().trim();
         } catch (Exception e) {
             return "커밋 파싱 실패: " + e.getMessage();
+        }
+    }
+
+    private String extractHotspots(String rawJson, int topN) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode flamebearer = mapper.readTree(rawJson).path("flamebearer");
+            JsonNode names = flamebearer.path("names");
+            JsonNode levels = flamebearer.path("levels");
+            long totalTicks = flamebearer.path("numTicks").asLong(0);
+
+            if (!names.isArray() || !levels.isArray() || totalTicks == 0) {
+                return "프로파일 데이터 없음 (해당 기간 동안 수집된 샘플이 없을 수 있습니다)";
+            }
+
+            // 플레임그래프는 [offset, total, self, nameIndex] 4개 단위 그룹의 레벨 배열로 구성됨.
+            // 메서드별 "자체(self) CPU 시간"을 합산해 핫스팟을 가린다 (total은 하위 호출 포함이라 중복 집계됨).
+            Map<Integer, Long> selfByNameIndex = new HashMap<>();
+            for (JsonNode level : levels) {
+                for (int i = 0; i + 3 < level.size(); i += 4) {
+                    long self = level.get(i + 2).asLong();
+                    if (self > 0) {
+                        int nameIndex = level.get(i + 3).asInt();
+                        selfByNameIndex.merge(nameIndex, self, Long::sum);
+                    }
+                }
+            }
+
+            StringBuilder sb = new StringBuilder("[프로파일 핫스팟 Top " + topN + " (자체 CPU 시간 비율 기준)]\n");
+            selfByNameIndex.entrySet().stream()
+                           .sorted(Map.Entry.<Integer, Long>comparingByValue().reversed())
+                           .limit(topN)
+                           .forEach(entry -> {
+                               String methodName = names.get(entry.getKey()).asText("?");
+                               double percentage = entry.getValue() * 100.0 / totalTicks;
+                               sb.append(String.format("%.2f%% | %s%n", percentage, methodName));
+                           });
+            return sb.toString().trim();
+        } catch (Exception e) {
+            return "핫스팟 데이터 파싱 실패: " + e.getMessage();
         }
     }
 

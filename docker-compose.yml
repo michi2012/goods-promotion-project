@@ -317,6 +317,7 @@ services:
     container_name: promotion-server-a
     volumes:
       - shared-logs:/logs
+      - pyroscope-agent:/agent
     ports:
       - "8080:8080"
     environment:
@@ -330,6 +331,10 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
       OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      JAVA_TOOL_OPTIONS: "-javaagent:/agent/pyroscope.jar"
+      PYROSCOPE_APPLICATION_NAME: server-a
+      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_FORMAT: jfr
     depends_on:
       mysql:
         condition: service_healthy
@@ -341,6 +346,8 @@ services:
         condition: service_started
       discovery-service:
         condition: service_healthy
+      pyroscope-agent-init:
+        condition: service_completed_successfully
     networks:
       - promotion-network
     restart: on-failure
@@ -512,6 +519,32 @@ services:
         limits:
           cpus: '1.0'
           memory: 2G
+
+  pyroscope:
+    image: grafana/pyroscope:latest
+    container_name: pyroscope
+    command: ["server"]
+    ports:
+      - "4040:4040"
+    restart: unless-stopped
+    networks:
+      - promotion-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+  pyroscope-agent-init:
+    image: curlimages/curl:latest
+    container_name: pyroscope-agent-init
+    user: root
+    command: ["sh", "-c", "curl -sL https://github.com/grafana/pyroscope-java/releases/latest/download/pyroscope.jar -o /agent/pyroscope.jar"]
+    volumes:
+      - pyroscope-agent:/agent
+    networks:
+      - promotion-network
+    restart: "no"
 
   vector:
     image: timberio/vector:latest-alpine
@@ -720,3 +753,4 @@ volumes:
   kafka-data:
   shared-logs:
   mysql-user-data:
+  pyroscope-agent:
