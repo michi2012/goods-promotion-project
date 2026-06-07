@@ -1,87 +1,47 @@
-# PR 계획서: user-service 통합 + Gateway JWT 검증
+# 계획서: AIOps 도구 추가 — getIstioMeshStatus / queryKafkaLag / 트래픽 가중치 검증
 
-- 브랜치: main (feature 브랜치 분리 필요 시 별도 확인)
+- 작성일: 2026-06-07
 
----
+## 목표
+AIOps 에이전트가 현재 Istio 메시 상태를 직접 조회하고, Kafka consumer lag를 정확한 수치로 확인할 수 있도록 두 도구를 추가한다.
+또한 트래픽 시프트 제안 시 v1+v2 합이 100이 아닌 잘못된 입력을 사전 차단한다.
 
-## [완료] user-service 이식 통합
+## 성공 기준
+- [ ] `getIstioMeshStatus()` 추가 — kubectl로 VirtualService + DestinationRule yaml 반환 (KubernetesTools.java)
+- [ ] `proposeTrafficShift()` 검증 — v1Weight + v2Weight ≠ 100이면 에러 String 반환, propose 미호출 (KubernetesTools.java)
+- [ ] `queryKafkaLag()` 추가 — `kafka_consumergroup_lag` Prometheus 쿼리 반환 (ObservabilityTools.java)
+- [ ] `gradle :aiops:compileJava` 오류 없음 (컴파일 통과)
 
-- 작성일: 2026-06-06
+## 비범위 (Out of Scope)
+- AiOpsAgentService 시스템 프롬프트 수정 (별도 작업)
+- ActionApprovalService / SlackInteractiveController 변경 없음
+- 테스트 코드 (로컬 kubectl/Prometheus 없으므로 컴파일 통과로 대체)
 
-### 목표
-다른 프로젝트에서 가져온 user-service를 이 프로젝트에 완전히 통합한다.
-원본 서비스(serverC) 설정 오염 제거, 코드 버그 수정, Gateway 라우팅, Docker Compose, Helm 차트까지 포함한다.
+## 단계별 작업 계획
 
-### 성공 기준
-- [x] `./gradlew :user-service:build` 통과
-- [x] `docker compose config` 오류 없음 (mysql-user + user-service 컨테이너 포함)
-- [x] `helm template ./helm/promotion-app` 오류 없음 (user-service 리소스 포함)
-- [x] Gateway 라우팅 `/api/users/**`, `/login`, `/reissue` → user-service 경로 추가 확인
-- [x] Flyway migration SQL이 users / payment_method / refresh_token 3개 테이블을 모두 생성
+### 단계 1: KubernetesTools.java — getIstioMeshStatus() 추가 + proposeTrafficShift() 검증
+- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
+- 변경 내용:
+  - `getIstioMeshStatus()`: `runKubectl("get", "virtualservice", "-n", namespace, "-o", "yaml")` +
+    `runKubectl("get", "destinationrule", "-n", namespace, "-o", "yaml")` 조합해 반환
+  - `proposeTrafficShift()` 맨 앞에 `v1Weight + v2Weight != 100` guard 추가, 위반 시 에러 String 반환
+- 검증 방법: `.\gradlew.bat :aiops:compileJava`
+- 롤백 방법: git checkout KubernetesTools.java
+- 예상 소요: 짧음
 
-### 비범위
-- Gateway JWT 검증 필터 구현 → 아래 섹션에서 처리
-- `/internal/api/**` 인증 미들웨어 (라우팅 미노출로 대체)
-- mysql-user Debezium CDC 연동
+### 단계 2: ObservabilityTools.java — queryKafkaLag() 추가
+- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/ObservabilityTools.java`
+- 변경 내용:
+  - `queryKafkaLag()`: `callPrometheus("kafka_consumergroup_lag")` + `truncateData()` 패턴 적용
+  - consumergroup, topic 레이블별 분류 반환
+- 검증 방법: `.\gradlew.bat :aiops:compileJava`
+- 롤백 방법: git checkout ObservabilityTools.java
+- 예상 소요: 짧음
 
-### 변경 파일
-- `settings.gradle`, `user-service/build.gradle`
-- `user-service/src/main/resources/application.yml`, `application-k8s.yml`
-- `user-service/src/main/resources/db/migration/V1__init_user_schema.sql` (신규)
-- `user-service/src/main/java/.../UserService.java`, `PaymentMethodService.java`, `UserServiceApplication.java`, `ReissueController.java`
-- `gateway-service/src/main/resources/application.yml`, `application-k8s.yml`
-- `docker-compose.yml`
-- `helm/promotion-app/values.yaml`, `templates/user-service/*` (5개 신규)
+## 리스크 및 대응
+- Kafka 메트릭명 불일치: `kafka_consumergroup_lag` — alert-rules.yml, AiOpsAgentService 시스템 프롬프트에서 동일 확인 완료
+- getIstioMeshStatus yaml 출력 용량: `truncateData()` 없이 반환 → 필요 시 truncate 추가
 
----
-
-## [진행 중] Gateway JWT 검증 필터
-
-- 작성일: 2026-06-06
-
-### 목표
-Gateway에 GlobalFilter로 JWT 검증을 추가하여 인증이 필요한 모든 라우트를 보호한다.
-검증 성공 시 X-User-Id / X-User-Role 헤더를 downstream에 전달하고,
-docker compose 기반 E2E로 로그인~보호 경로 접근까지 확인 후 커밋한다.
-
-### 성공 기준
-- [ ] `./gradlew :gateway-service:test` 통과 (JwtAuthFilter 단위 테스트 포함)
-- [ ] 토큰 없이 `/api/users/**` 호출 → 401 (docker compose + curl 확인)
-- [ ] 유효한 토큰으로 `/api/users/**` 호출 → 200 (docker compose + curl 확인)
-- [ ] `POST /login`, `POST /reissue` 는 토큰 없이 통과
-- [ ] `./gradlew :gateway-service:build` 통과
-
-### 비범위
-- Role 기반 경로 접근 제어 (인증 여부만 검사)
-- Refresh 토큰 만료 검증 (reissue는 user-service가 처리)
-- Helm 차트 gateway deployment에 JWT_SECRET 추가 (별도 커밋)
-
-### 단계별 계획
-
-#### 단계 1: gateway-service build.gradle에 jjwt 의존성 추가
-- 변경 파일: `gateway-service/build.gradle`
-- 검증: `./gradlew :gateway-service:compileJava`
-
-#### 단계 2: JwtAuthFilter 구현
-- 변경 파일: `gateway-service/src/main/java/.../filter/JwtAuthFilter.java` (신규)
-- GlobalFilter + Ordered (order=-1), 화이트리스트: POST /login, POST /reissue
-- 성공 시 X-User-Id, X-User-Role 헤더 추가, 실패 시 401
-- 검증: `./gradlew :gateway-service:compileJava`
-
-#### 단계 3: gateway application.yml JWT_SECRET 추가
-- 변경 파일: `application.yml`, `application-k8s.yml`
-- 검증: `./gradlew :gateway-service:build`
-
-#### 단계 4: JwtAuthFilter 단위 테스트 작성
-- 변경 파일: `gateway-service/src/test/.../filter/JwtAuthFilterTest.java` (신규)
-- 케이스: 화이트리스트 통과 / 토큰 없음 401 / 위변조 401 / 유효 토큰 통과 + 헤더 확인
-- 검증: `./gradlew :gateway-service:test`
-
-#### 단계 5: docker compose E2E 검증 (사용자 직접 실행)
-- POST /login → 200 + access token
-- 유효 토큰 → GET /api/users/{id} → 200
-- 토큰 없이 → 401, 위변조 토큰 → 401
-
-### 리스크
-- JWT claim 키 이름: user-service JWTUtil 실제 claim 키를 단계 2 진입 시 확인
-- Spring WebFlux: GlobalFilter는 Mono<Void> 반환, 블로킹 코드 금지
+## 의존성
+- 기존 `runKubectl()`, `callPrometheus()`, `truncateData()` 메서드 재사용 (신규 메서드 없음)
+- 신규 Gradle 의존성 없음
