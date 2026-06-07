@@ -1,0 +1,14 @@
+apiVersion: v2
+name: promotion-karpenter
+description: "Karpenter 노드 자동 프로비저닝 (controller + NodePool + EC2NodeClass)"
+type: application
+version: 0.1.0
+appVersion: "1.0.8"
+
+# helm dependency update 전 ECR 퍼블릭 레지스트리 인증 필요 (Helm 3.8+):
+# aws ecr-public get-login-password --region us-east-1 \
+#   | helm registry login --username AWS --password-stdin public.ecr.aws
+dependencies:
+  - name: karpenter
+    version: "1.0.8"
+    repository: "oci://public.ecr.aws/karpenter"

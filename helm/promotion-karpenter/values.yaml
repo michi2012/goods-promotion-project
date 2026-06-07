@@ -1,0 +1,49 @@
+# promotion-karpenter values.yaml
+# 민감값은 helm install --set 으로 주입
+#
+# 설치 예시:
+#   helm install promotion-karpenter ./helm/promotion-karpenter \
+#     --namespace karpenter --create-namespace \
+#     --set clusterName=my-cluster \
+#     --set nodeRole=KarpenterNodeRole-my-cluster \
+#     --set karpenter.settings.clusterName=my-cluster \
+#     --set karpenter.settings.clusterEndpoint=https://XXXX.gr7.ap-northeast-2.eks.amazonaws.com \
+#     --set "karpenter.serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::ACCOUNT_ID:role/KarpenterControllerRole"
+#
+# 사전 준비 (AWS):
+#   1. Karpenter controller IAM Role (IRSA) 생성
+#   2. EC2 노드 IAM Instance Profile 생성 (nodeRole 값)
+#   3. 서브넷·보안그룹에 karpenter.sh/discovery=<clusterName> 태그 부착
+
+# EKS 클러스터 이름 — EC2NodeClass subnetSelector / securityGroupSelector 태그에 사용
+clusterName: ""    # --set clusterName=my-cluster
+
+# EC2 노드 IAM Instance Profile 이름 (Karpenter가 프로비저닝하는 노드에 부착)
+nodeRole: ""       # --set nodeRole=KarpenterNodeRole-my-cluster
+
+# NodePool 리소스 상한 — 클러스터 전체 Karpenter 프로비저닝 최대치
+nodePool:
+  limits:
+    cpu: "10"
+    memory: "40Gi"
+
+# Karpenter controller subchart values
+# 전체 값 목록: https://github.com/aws/karpenter-provider-aws/blob/main/charts/karpenter/values.yaml
+karpenter:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: ""  # --set "karpenter.serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:..."
+
+  settings:
+    clusterName: ""       # --set karpenter.settings.clusterName=my-cluster
+    clusterEndpoint: ""   # --set karpenter.settings.clusterEndpoint=https://...
+    interruptionQueue: "" # Spot 인터럽션 SQS 큐 이름 (선택 — 미설정 시 인터럽션 처리 비활성화)
+
+  controller:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"

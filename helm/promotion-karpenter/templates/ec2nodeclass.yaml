@@ -1,0 +1,23 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  # EKS 기본 AMI — 최신 AL2023 자동 선택 (패치 버전 고정 불필요)
+  amiSelectorTerms:
+    - alias: al2023@latest
+
+  # 서브넷 자동 선택: karpenter.sh/discovery=<clusterName> 태그가 붙은 서브넷
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ .Values.clusterName | quote }}
+
+  # 보안 그룹 자동 선택: 동일 태그
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ .Values.clusterName | quote }}
+
+  # EC2 노드에 부착할 IAM Instance Profile 이름
+  role: {{ .Values.nodeRole | quote }}
