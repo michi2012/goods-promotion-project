@@ -175,6 +175,23 @@ public class ObservabilityTools {
     }
 
     @Tool(description = """
+            Kafka 컨슈머 그룹의 consumer lag를 Prometheus에서 조회합니다.
+            언제 호출: KafkaConsumerLagHigh 알람 수신 시, HPA 조정 전 lag 수치 근거 확인 시.
+            반환: consumergroup·topic별 현재 lag 수치 (JSON). lag 500 이상이면 HPA 조정 검토 대상.
+            실패 시: Prometheus 장애이므로 스킵하고 Loki 로그만으로 분석을 계속하세요.
+            """)
+    public String queryKafkaLag() {
+        try {
+            String response = callPrometheus("kafka_consumergroup_lag");
+            log.info("[Tool] Kafka consumer lag 조회 성공");
+            return truncateData(response, "KafkaLag");
+        } catch (Exception e) {
+            log.warn("[Tool] Kafka consumer lag 조회 실패: {}", e.getMessage());
+            return "Kafka consumer lag 조회 실패 (Prometheus 장애 가능성): " + e.getMessage() + " — 스킵하고 분석을 계속하세요.";
+        }
+    }
+
+    @Tool(description = """
             데이터로 뒷받침된 원인이 특정된 경우에만 호출. 엔지니어 승인이 필요한 조치를 제안하고 승인 대기열에 등록합니다.
             언제 호출: 확실한 원인이 밝혀졌고 실행 가능한 구체적 조치가 있을 때만. 추측 기반 제안 금지.
             반환: 승인 명령어 (curl). 이 명령어를 보고서 권장 조치 섹션에 포함해 엔지니어가 직접 실행하도록 안내하세요.

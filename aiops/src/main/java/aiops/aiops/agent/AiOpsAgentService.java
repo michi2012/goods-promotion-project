@@ -56,7 +56,7 @@ public class AiOpsAgentService {
                - KubeHPAAtMaxReplicas 알람 — 알람의 horizontalpodautoscaler 라벨에서 HPA 이름을 읽어 maxReplicas를 현재값 +2로 제안하라.
                - HPA REPLICAS == MAXPODS이고 CPU 포화가 알람 또는 메트릭으로 확인된 경우
                - KafkaConsumerLagHigh 알람 — 다음 순서로 처리하라:
-                 1) queryPrometheusMetrics로 실제 랙 수치를 조회하라: kafka_consumergroup_lag{namespace="promotion"}
+                 1) queryKafkaLag를 호출하여 consumergroup·topic별 실제 랙 수치를 조회하라.
                  2) 랙이 500 이상이고 지속 증가 추세이면 consumergroup 라벨에서 서비스명(server-a, server-b, server-c)을 추론하여 해당 서비스의 HPA에 proposeHpaPatch를 호출하라.
                  3) 랙이 500 미만이거나 감소 추세이면 proposeHpaPatch를 호출하지 말고 "랙 자연 해소 중" 으로 보고서에 기록하라.
                - KubeHPAOverprovisioned 알람 — 부하가 정상화되어 HPA가 minReplicas로 30분 이상 유지 중. maxReplicas를 minReplicas + 3 값으로 원복 제안하라 (예: minReplicas=2이면 maxReplicas=5로 제안).
