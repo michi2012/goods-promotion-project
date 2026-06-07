@@ -1,47 +1,55 @@
-# 계획서: AIOps 도구 추가 — getIstioMeshStatus / queryKafkaLag / 트래픽 가중치 검증
+# 계획서: Karpenter 차트 추가 및 aiops 노드 상태 조회
 
 - 작성일: 2026-06-07
 
 ## 목표
-AIOps 에이전트가 현재 Istio 메시 상태를 직접 조회하고, Kafka consumer lag를 정확한 수치로 확인할 수 있도록 두 도구를 추가한다.
-또한 트래픽 시프트 제안 시 v1+v2 합이 100이 아닌 잘못된 입력을 사전 차단한다.
+EKS 노드 자동 프로비저닝을 위한 `promotion-karpenter` Helm 차트를 추가하고,
+aiops `getClusterStatus()`에 노드 상태 조회를 추가해 보고서에 노드 현황이 포함되도록 한다.
 
 ## 성공 기준
-- [ ] `getIstioMeshStatus()` 추가 — kubectl로 VirtualService + DestinationRule yaml 반환 (KubernetesTools.java)
-- [ ] `proposeTrafficShift()` 검증 — v1Weight + v2Weight ≠ 100이면 에러 String 반환, propose 미호출 (KubernetesTools.java)
-- [ ] `queryKafkaLag()` 추가 — `kafka_consumergroup_lag` Prometheus 쿼리 반환 (ObservabilityTools.java)
-- [ ] `gradle :aiops:compileJava` 오류 없음 (컴파일 통과)
+- [ ] `helm/promotion-karpenter/` 차트 생성 — Chart.yaml, values.yaml, templates 2개(NodePool, EC2NodeClass)
+- [ ] `helm template promotion-karpenter ./helm/promotion-karpenter --set clusterName=test` 렌더링 오류 없음
+- [ ] `getClusterStatus()`가 Pods/Deployments/HPA 외 Nodes 항목 반환
+- [ ] `.\gradlew.bat :aiops:compileJava` 오류 없음
 
 ## 비범위 (Out of Scope)
-- AiOpsAgentService 시스템 프롬프트 수정 (별도 작업)
-- ActionApprovalService / SlackInteractiveController 변경 없음
-- 테스트 코드 (로컬 kubectl/Prometheus 없으므로 컴파일 통과로 대체)
+- Karpenter controller IAM Role / SQS 인터럽션 큐 AWS 리소스 직접 생성 (Terraform/CDK 영역)
+- Karpenter controller 설치 검증 (EKS 클러스터 필요)
+- aiops에 노드 프로비저닝 직접 제어 도구 추가 (Karpenter가 자동 처리)
 
 ## 단계별 작업 계획
 
-### 단계 1: KubernetesTools.java — getIstioMeshStatus() 추가 + proposeTrafficShift() 검증
+### 단계 1: helm/promotion-karpenter/ 차트 생성
+- 변경 파일: (신규) `helm/promotion-karpenter/Chart.yaml`, `values.yaml`,
+  `templates/nodepool.yaml`, `templates/ec2nodeclass.yaml`
+- 변경 내용:
+  - Chart.yaml: karpenter 1.0.x를 OCI dependency로 선언 (`oci://public.ecr.aws/karpenter`)
+  - values.yaml: clusterName·clusterEndpoint·nodeRole·karpenterRoleArn 등 민감값은 `--set` 주입 placeholder
+  - NodePool: Spot + On-demand 혼합, `role: app` 라벨 (promotion-app nodeSelector와 매핑),
+    인스턴스 카테고리 c/m/r, 세대 4~6, CPU 10 / 메모리 40Gi 상한
+  - EC2NodeClass: AL2023, subnet/SG는 `karpenter.sh/discovery` 태그 기반 자동 선택
+- 검증 방법: `helm template promotion-karpenter ./helm/promotion-karpenter --set clusterName=test`
+- 롤백 방법: `rm -rf helm/promotion-karpenter/`
+- 예상 소요: 보통
+
+### 단계 2: KubernetesTools.java — getClusterStatus() 노드 상태 추가
 - 변경 파일: `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
 - 변경 내용:
-  - `getIstioMeshStatus()`: `runKubectl("get", "virtualservice", "-n", namespace, "-o", "yaml")` +
-    `runKubectl("get", "destinationrule", "-n", namespace, "-o", "yaml")` 조합해 반환
-  - `proposeTrafficShift()` 맨 앞에 `v1Weight + v2Weight != 100` guard 추가, 위반 시 에러 String 반환
+  - `kubectl get nodes --no-headers` 결과를 `[Nodes]` 섹션으로 기존 출력에 추가
+  - 노드 이름·상태(Ready/NotReady)·역할·AGE·버전 포함
 - 검증 방법: `.\gradlew.bat :aiops:compileJava`
 - 롤백 방법: git checkout KubernetesTools.java
 - 예상 소요: 짧음
 
-### 단계 2: ObservabilityTools.java — queryKafkaLag() 추가
-- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/ObservabilityTools.java`
-- 변경 내용:
-  - `queryKafkaLag()`: `callPrometheus("kafka_consumergroup_lag")` + `truncateData()` 패턴 적용
-  - consumergroup, topic 레이블별 분류 반환
-- 검증 방법: `.\gradlew.bat :aiops:compileJava`
-- 롤백 방법: git checkout ObservabilityTools.java
-- 예상 소요: 짧음
-
 ## 리스크 및 대응
-- Kafka 메트릭명 불일치: `kafka_consumergroup_lag` — alert-rules.yml, AiOpsAgentService 시스템 프롬프트에서 동일 확인 완료
-- getIstioMeshStatus yaml 출력 용량: `truncateData()` 없이 반환 → 필요 시 truncate 추가
+- OCI dependency helm dependency update 시 ECR 인증 필요
+  → Chart.yaml 주석에 `aws ecr-public get-login-password | helm registry login` 명령 안내
+- Spot 인터럽션 SQS 큐 미설정 시 Karpenter 경고 발생 (기능 동작은 함)
+  → values.yaml에 interruptionQueue 빈값 허용, 주석으로 안내
+- NodePool `role: app` 라벨이 기존 노드에 없으면 스케줄링 안 됨
+  → EC2NodeClass에서 Karpenter가 신규 노드 프로비저닝 시 자동 부착되므로 정상
 
 ## 의존성
-- 기존 `runKubectl()`, `callPrometheus()`, `truncateData()` 메서드 재사용 (신규 메서드 없음)
-- 신규 Gradle 의존성 없음
+- Helm 3.8+ (OCI registry 지원)
+- EKS 클러스터에 Karpenter controller IAM Role(IRSA) 사전 생성 필요 (AWS 인프라)
+- EC2 노드 IAM Instance Profile 사전 생성 필요 (AWS 인프라)

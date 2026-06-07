@@ -1,40 +1,53 @@
-# 맥락 노트: AIOps 도구 추가 — getIstioMeshStatus / queryKafkaLag / 트래픽 가중치 검증
+# 맥락 노트: Karpenter 차트 추가 및 aiops 노드 상태 조회
 
 ## 왜 이 방식을 선택했는가
 
-**getIstioMeshStatus**: `proposeTrafficShift`가 현재 v1/v2 가중치를 모른 채 제안을 생성하는 맹점이 있었음.
-kubectl로 VirtualService + DestinationRule을 `-o yaml`로 읽으면 AI가 현재 상태를 파악한 뒤 적절한 가중치를 제안 가능.
-read-only이므로 Slack 승인 불필요 — `getClusterStatus()` 패턴 그대로 적용.
+**왜 Karpenter인가 (Cluster Autoscaler 대신)**:
+기존 Cluster Autoscaler는 ASG(Auto Scaling Group) 기반으로 노드를 프로비저닝하며,
+Karpenter는 Pending Pod를 직접 보고 최적 인스턴스 타입을 즉시 프로비저닝함.
+반응 속도(수초 vs 수분)와 비용 최적화(Spot 자동 fallback) 모두 Karpenter가 우위.
 
-**queryKafkaLag**: AiOpsAgentService 시스템 프롬프트에 "KafkaConsumerLagHigh 알람 시 queryPrometheusMetrics로 kafka_consumergroup_lag를 조회하라"고 명시되어 있으나,
-AI가 매번 PromQL을 직접 작성해야 해 오류 위험이 있었음. 전용 도구로 고정 쿼리를 제공하면 일관성 보장.
-kafka-exporter(danielqsj/kafka-exporter)가 사용 중임을 docker-compose.yml + alert-rules.yml에서 확인.
+**왜 aiops가 노드를 직접 제어하지 않는가**:
+Karpenter가 자동으로 처리하는 영역에 aiops가 개입하면 Dual Controller 충돌 발생.
+aiops의 역할은 "노드 상황을 보고서에 포함하는 것"으로 한정.
+Slack 승인을 요하는 수동 노드 조작은 Karpenter 자동화가 이미 처리하므로 불필요.
 
-**v1+v2 검증**: AI가 v1=60, v2=60 같은 잘못된 합계를 줄 경우 kubectl patch 실행 시까지 오류가 미뤄짐.
-Slack 승인 후 실행 단계(ActionApprovalService)에서 잡을 수 있지만, 도구 레벨에서 즉시 에러 String 반환이 AI 피드백 루프에 유리.
+**차트 구조 선택 (promotion-karpenter 독립 차트)**:
+promotion-istio가 독립 차트로 인프라 레이어를 분리한 패턴과 동일.
+Karpenter는 클러스터 레벨 인프라이므로 앱 차트(promotion-app)와 분리가 맞음.
+Karpenter controller를 OCI dependency로 포함해 `helm install`만으로 완전 설치 가능하게 함.
+
+**Spot + On-demand 혼합 선택**:
+사용자 명시적 선택. Karpenter가 Spot 인터럽션 시 자동으로 On-demand로 교체하므로
+서비스 중단 없이 비용 60~70% 절감 가능.
 
 ## 검토했으나 채택하지 않은 대안
 
-### getIstioMeshStatus — JSON 출력
-- `-o json`: 구조화 데이터이지만 field 수가 많아 토큰 낭비
-- yaml이 AI 가독성과 토큰 균형 모두 유리
+### Cluster Autoscaler
+- 무엇: ASG 기반 기존 K8s 표준 autoscaler
+- 왜 안 썼나: 반응 속도 느림(수분), 인스턴스 타입 선택 제한, AWS EKS에서 Karpenter가 공식 권장
 
-### queryKafkaLag — consumergroup 파라미터
-- 특정 컨슈머그룹만 필터링하는 파라미터 추가 가능
-- 현재 서비스가 server-c 단일 컨슈머그룹이므로 전체 조회로 충분. 파라미터 없는 단순 버전 채택.
+### aiops에 노드 프로비저닝 도구 추가
+- 무엇: AWS EC2 API 또는 ASG API를 호출해 노드를 직접 추가/제거
+- 왜 안 썼나: Karpenter와 충돌, 승인 지연(수 분) 동안 Pod가 Pending 상태 유지,
+  Karpenter가 이미 수초 내 자동 처리
 
-### 검증 실패 — IllegalArgumentException
-- 예외 대신 에러 String 반환: Tool Calling에서 예외는 프레임워크가 에러 메시지로 변환하지만,
-  명시적 String 반환이 AI에게 더 명확한 피드백 제공. 기존 도구의 실패 처리 패턴과 일치.
+### promotion-infra에 포함
+- 무엇: 기존 infra 차트에 Karpenter 리소스 추가
+- 왜 안 썼나: Karpenter는 클러스터 전역 컴포넌트, promotion-infra는 앱 네임스페이스 인프라 담당.
+  관심사 분리가 더 명확함.
 
 ## 기존 코드베이스 컨벤션
-- 읽기 도구: 반환 타입 String, Slack 승인 없음 — `getClusterStatus()`, `queryPrometheusMetrics()` 참고
-- 쓰기/조치 도구: `approvalService.propose()` + `slackService.sendBlockKit()` — `proposeTrafficShift()` 참고
-- Prometheus 쿼리: `callPrometheus(promql)` + `truncateData(response, label)` 패턴
-- kubectl 실행: `runKubectl(String... args)` — List 기반으로 커맨드 인젝션 방지
+- 차트 구조: `helm/promotion-*/` — 독립 차트, dependency로 외부 컴포넌트 포함
+- 민감값: 모두 `--set`으로 주입, values.yaml은 placeholder(`""`)
+- nodeSelector: `role: app` — NodePool spec.template.metadata.labels에 동일 라벨 부착 필요
 
 ## 관련 파일/위치
-- `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java` — getIstioMeshStatus, 검증 추가
-- `aiops/src/main/java/aiops/aiops/tools/ObservabilityTools.java` — queryKafkaLag 추가
-- `aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java` — 시스템 프롬프트에서 kafka_consumergroup_lag 확인
-- `monitoring/prometheus/alert-rules.yml` — kafka_consumergroup_lag 메트릭명 확인
+- `helm/promotion-karpenter/` — 신규 차트 (Karpenter controller + NodePool + EC2NodeClass)
+- `helm/promotion-app/values.yaml` — `nodeSelector.role: app` 확인
+- `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java` — getClusterStatus() 수정
+
+## 외부 참조
+- Karpenter 설치 가이드: https://karpenter.sh/docs/getting-started/getting-started-with-karpenter/
+- NodePool API v1: https://karpenter.sh/docs/concepts/nodepools/
+- EC2NodeClass API v1: https://karpenter.sh/docs/concepts/nodeclasses/
