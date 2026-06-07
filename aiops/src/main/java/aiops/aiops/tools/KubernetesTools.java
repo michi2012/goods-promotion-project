@@ -123,6 +123,24 @@ public class KubernetesTools {
     }
 
     @Tool(description = """
+            Istio VirtualService와 DestinationRule의 현재 설정을 조회합니다. (읽기 전용)
+            언제 호출: 트래픽 시프트 제안 전 현재 v1/v2 가중치 확인, OutlierDetection 임계값 확인, 카나리 배포 현황 파악 시.
+            반환: 네임스페이스 내 모든 VirtualService(v1/v2 가중치)와 DestinationRule(outlierDetection 설정) yaml.
+            실패 시: kubectl 접근 불가 환경이므로 스킵하고 기존 정보로 분석을 계속하세요.
+            """)
+    public String getIstioMeshStatus() {
+        try {
+            String vs = runKubectl("get", "virtualservice", "-n", namespace, "-o", "yaml");
+            String dr = runKubectl("get", "destinationrule", "-n", namespace, "-o", "yaml");
+            log.info("[Istio] 메시 상태 조회 완료: namespace={}", namespace);
+            return "[VirtualServices]\n" + vs + "\n\n[DestinationRules]\n" + dr;
+        } catch (Exception e) {
+            log.warn("[Istio] 메시 상태 조회 실패: {}", e.getMessage());
+            return "Istio 메시 상태 조회 실패 — kubectl 접근 불가 환경일 수 있습니다: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = """
             Istio VirtualService의 트래픽 가중치를 조정해 특정 버전(v2)으로 가는 트래픽을 격리합니다. Slack에 승인 요청합니다.
             언제 호출: 다음 중 하나라도 해당하면 즉시 호출하라.
               1) 카나리 배포 중 v2 버전에서 에러율 급증이 관측된 경우 → v2Weight=0으로 격리
@@ -136,6 +154,10 @@ public class KubernetesTools {
             @ToolParam(description = "v1 버전 트래픽 가중치 (0~100)") int v1Weight,
             @ToolParam(description = "v2 버전 트래픽 가중치 (0~100, v1Weight + v2Weight = 100)") int v2Weight,
             @ToolParam(description = "트래픽 조정이 필요한 이유. 관측된 에러율 또는 지연 수치를 포함한 1문장.") String reason) {
+        if (v1Weight + v2Weight != 100) {
+            return String.format("트래픽 시프트 거부: v1Weight(%d) + v2Weight(%d) = %d 이어야 합니다. 합이 100이 되도록 수정 후 재호출하세요.",
+                    v1Weight, v2Weight, v1Weight + v2Weight);
+        }
         String params = String.format(
                 "{\"service\":\"%s\",\"v1Weight\":%d,\"v2Weight\":%d,\"namespace\":\"%s\"}",
                 serviceName, v1Weight, v2Weight, namespace);
