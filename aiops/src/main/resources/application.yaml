@@ -33,6 +33,8 @@ observability:
     url: "${PROMETHEUS_URL:http://prometheus:9090}"
   pyroscope:
     url: "${PYROSCOPE_URL:http://pyroscope:4040}"
+  kafka-connect:
+    url: "${KAFKA_CONNECT_URL:http://kafka-connect:8083}"
 
 github:
   owner: ${GITHUB_OWNER:michi2012}

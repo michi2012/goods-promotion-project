@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -27,6 +28,7 @@ public class ActionApprovalService {
     private static final Duration TTL = Duration.ofHours(1);
     private final ConcurrentHashMap<String, PendingAction> pending = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper;
+    private final RestClient kafkaConnectClient;
 
     public record PendingAction(String id, String actionType, String params, String reason, Instant proposedAt) {}
 
@@ -197,6 +199,25 @@ public class ActionApprovalService {
         } catch (Exception e) {
             log.error("[Approval] executeTrafficShift 예외: {}", e.getMessage());
             return "❌ 트래픽 시프트 실행 중 오류: " + e.getMessage();
+        }
+    }
+
+    public String executeDebeziumConnectorRestart(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String connector = params.path("connector").asText();
+
+            kafkaConnectClient.post()
+                              .uri("/connectors/{name}/restart?includeTasks=true&onlyFailed=true", connector)
+                              .retrieve()
+                              .toBodilessEntity();
+
+            log.info("[Approval] Debezium 커넥터 재시작 성공: connector={}", connector);
+            return "✅ Debezium 커넥터 재시작 완료: `" + connector + "` (실패한 태스크만 재시작)";
+
+        } catch (Exception e) {
+            log.error("[Approval] executeDebeziumConnectorRestart 예외: {}", e.getMessage());
+            return "❌ Debezium 커넥터 재시작 실행 중 오류: " + e.getMessage();
         }
     }
 

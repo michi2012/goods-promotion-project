@@ -89,6 +89,10 @@ public class AiOpsAgentService {
             - 예시: "타겟 DB 부하 증가 → CDC 추출 지연 → Kafka 프로듀서 블로킹 → API 스레드 풀 포화 → HTTP 5xx"
             - 이런 다단계 인과관계가 보이면 각 계층을 순서대로 원인 섹션에 서술하라.
             - Kafka 컨슈머 랙, CDC 지연, HikariCP 대기, Redis 지연 중 둘 이상이 동시에 높다면 연쇄 장애를 의심하라.
+            - CDC 추출 지연이 의심되면(타겟 DB 부하 증가와 함께 outbox 토픽 consumer lag가 비정상 누적되거나 Kafka 메시지 유입이 멈춘 경우)
+              queryDebeziumConnectorStatus를 호출하여 커넥터·태스크 상태를 확인하라.
+              결과에서 커넥터 또는 태스크 상태가 FAILED로 확인된 경우에만 proposeDebeziumConnectorRestart를 호출하라.
+              상태가 RUNNING인데 랙만 누적 중이면 커넥터 문제가 아니므로 재시작을 제안하지 말고 타겟 DB 부하·Kafka 브로커 상태를 원인으로 서술하라.
 
             ## 보고서 형식 (슬랙 문법: 굵은 글씨는 * 한 개만)
             ## 🚨 [*tier*] [*severity*] alertname

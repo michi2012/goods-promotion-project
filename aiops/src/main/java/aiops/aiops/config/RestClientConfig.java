@@ -42,6 +42,11 @@ public class RestClientConfig {
     }
 
     @Bean
+    public RestClient kafkaConnectClient(@Value("${observability.kafka-connect.url}") String kafkaConnectUrl) {
+        return buildWithTimeout(kafkaConnectUrl);
+    }
+
+    @Bean
     public RestClient slackClient() {
         return RestClient.builder().build();
     }

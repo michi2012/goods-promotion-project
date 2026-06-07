@@ -130,6 +130,24 @@ public class SlackInteractiveController {
                 slackService.sendToResponseUrl(responseUrl, approvalService.executeOutlierDetectionUpdate(pending));
             }
 
+            if ("reject_debezium_restart".equals(actionId)) {
+                log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ Debezium 커넥터 재시작 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_debezium_restart".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] Debezium 커넥터 재시작 승인: id={}, params={}", pending.id(), pending.params());
+                slackService.sendToResponseUrl(responseUrl, approvalService.executeDebeziumConnectorRestart(pending));
+            }
+
         } catch (Exception e) {
             log.error("[Slack Interactive] 처리 실패: {}", e.getMessage());
         }

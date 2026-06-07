@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import aiops.aiops.approval.ActionApprovalService;
+import aiops.aiops.slack.SlackNotificationService;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,7 +13,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -24,7 +28,9 @@ public class ObservabilityTools {
     private final RestClient prometheusClient;
     private final RestClient pyroscopeClient;
     private final RestClient githubClient;
+    private final RestClient kafkaConnectClient;
     private final ActionApprovalService approvalService;
+    private final SlackNotificationService slackService;
     private final String githubOwner;
     private final String githubRepo;
 
@@ -34,7 +40,9 @@ public class ObservabilityTools {
             @Qualifier("prometheusClient") RestClient prometheusClient,
             @Qualifier("pyroscopeClient") RestClient pyroscopeClient,
             @Qualifier("githubClient") RestClient githubClient,
+            @Qualifier("kafkaConnectClient") RestClient kafkaConnectClient,
             ActionApprovalService approvalService,
+            SlackNotificationService slackService,
             @Value("${github.owner}") String githubOwner,
             @Value("${github.repo}") String githubRepo) {
         this.lokiClient = lokiClient;
@@ -42,7 +50,9 @@ public class ObservabilityTools {
         this.prometheusClient = prometheusClient;
         this.pyroscopeClient = pyroscopeClient;
         this.githubClient = githubClient;
+        this.kafkaConnectClient = kafkaConnectClient;
         this.approvalService = approvalService;
+        this.slackService = slackService;
         this.githubOwner = githubOwner;
         this.githubRepo = githubRepo;
     }
@@ -234,6 +244,62 @@ public class ObservabilityTools {
     }
 
     @Tool(description = """
+            Debezium(Kafka Connect) 커넥터의 상태와 태스크별 실행 상태를 조회합니다. (읽기 전용)
+            언제 호출: CDC 동기화 지연이 의심될 때 — DB 부하 증가와 함께 Kafka 메시지 유입이 멈췄거나
+            outbox 토픽 consumer lag가 비정상적으로 누적되는 경우.
+            반환: 커넥터별 전체 상태(RUNNING/FAILED/PAUSED)와 태스크별 상태·실패 원인(trace) 요약.
+            실패 시: Kafka Connect 장애이므로 스킵하고 Kafka lag·로그만으로 분석을 계속하세요.
+            """)
+    public String queryDebeziumConnectorStatus() {
+        try {
+            String connectorsJson = kafkaConnectClient.get()
+                                                       .uri("/connectors")
+                                                       .retrieve()
+                                                       .body(String.class);
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode connectors = mapper.readTree(connectorsJson);
+            if (!connectors.isArray() || connectors.isEmpty()) {
+                return "등록된 Debezium 커넥터가 없습니다.";
+            }
+
+            StringBuilder result = new StringBuilder();
+            for (JsonNode connectorNameNode : connectors) {
+                String name = connectorNameNode.asText();
+                String statusJson = kafkaConnectClient.get()
+                                                       .uri("/connectors/{name}/status", name)
+                                                       .retrieve()
+                                                       .body(String.class);
+                result.append(summarizeConnectorStatus(name, statusJson)).append("\n\n");
+            }
+            log.info("[Tool] Debezium 커넥터 상태 조회 성공: {}개", connectors.size());
+            return result.toString().trim();
+        } catch (Exception e) {
+            log.warn("[Tool] Debezium 커넥터 상태 조회 실패: {}", e.getMessage());
+            return "Debezium 커넥터 상태 조회 실패 (Kafka Connect 장애 가능성): " + e.getMessage() + " — 스킵하고 분석을 계속하세요.";
+        }
+    }
+
+    @Tool(description = """
+            CDC 동기화 지연의 원인이 커넥터·태스크 실패로 확인된 경우에만 호출. Debezium 커넥터 재시작을 Slack에 승인 요청합니다.
+            언제 호출: queryDebeziumConnectorStatus 결과 커넥터 또는 태스크 상태가 FAILED인 경우.
+            효과: 실패한 태스크만 마지막 커밋 offset(binlog position)부터 재개 — 데이터 유실·중복 없이 복구.
+            반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
+            """)
+    public String proposeDebeziumConnectorRestart(
+            @ToolParam(description = "재시작할 커넥터 이름 (queryDebeziumConnectorStatus 결과의 커넥터명)") String connectorName,
+            @ToolParam(description = "재시작이 필요한 이유. 실패한 태스크명·에러 내용을 포함한 1문장.") String reason) {
+        String params = String.format("{\"connector\":\"%s\"}", connectorName);
+        String id = approvalService.propose("DEBEZIUM_CONNECTOR_RESTART", params, reason);
+
+        slackService.sendBlockKit(
+                "Debezium 커넥터 재시작 승인 요청: " + connectorName,
+                buildDebeziumRestartBlocks(id, connectorName, reason));
+
+        log.info("[Tool] Debezium 커넥터 재시작 제안 등록 및 Slack 발송: id={}, connector={}", id, connectorName);
+        return "Debezium 커넥터 재시작 제안 등록됨 [" + id + "]: " + connectorName + "\n사유: " + reason;
+    }
+
+    @Tool(description = """
             데이터로 뒷받침된 원인이 특정된 경우에만 호출. 엔지니어 승인이 필요한 조치를 제안하고 승인 대기열에 등록합니다.
             언제 호출: 확실한 원인이 밝혀졌고 실행 가능한 구체적 조치가 있을 때만. 추측 기반 제안 금지.
             반환: 승인 명령어 (curl). 이 명령어를 보고서 권장 조치 섹션에 포함해 엔지니어가 직접 실행하도록 안내하세요.
@@ -330,5 +396,65 @@ public class ObservabilityTools {
             return data.substring(0, maxLength) + "\n...[데이터가 너무 길어 시스템 보호를 위해 절삭되었습니다]...";
         }
         return data;
+    }
+
+    private String summarizeConnectorStatus(String connectorName, String statusJson) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode status = mapper.readTree(statusJson);
+            String connectorState = status.path("connector").path("state").asText("UNKNOWN");
+            StringBuilder sb = new StringBuilder();
+            sb.append("[커넥터: ").append(connectorName).append("] 상태=").append(connectorState);
+
+            for (JsonNode task : status.path("tasks")) {
+                String taskState = task.path("state").asText("UNKNOWN");
+                int taskId = task.path("id").asInt();
+                sb.append("\n  - task[").append(taskId).append("] 상태=").append(taskState);
+                if ("FAILED".equals(taskState)) {
+                    String trace = task.path("trace").asText("");
+                    String firstLine = trace.isBlank() ? "원인 정보 없음" : trace.lines().findFirst().orElse(trace);
+                    sb.append(" 원인=").append(firstLine);
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "[커넥터: " + connectorName + "] 상태 파싱 실패: " + e.getMessage();
+        }
+    }
+
+    private List<Map<String, Object>> buildDebeziumRestartBlocks(String id, String connectorName, String reason) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("type", "header");
+        header.put("text", Map.of("type", "plain_text", "text", "🔄 Debezium 커넥터 재시작 승인 요청"));
+        blocks.add(header);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("type", "section");
+        section.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*대상 커넥터:* `%s`\n*이유:* %s", connectorName, reason)));
+        blocks.add(section);
+
+        Map<String, Object> approveBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "✅ 승인"),
+                "style", "primary",
+                "action_id", "approve_debezium_restart",
+                "value", id);
+
+        Map<String, Object> rejectBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "❌ 거절"),
+                "style", "danger",
+                "action_id", "reject_debezium_restart",
+                "value", id);
+
+        Map<String, Object> actions = new LinkedHashMap<>();
+        actions.put("type", "actions");
+        actions.put("elements", List.of(approveBtn, rejectBtn));
+        blocks.add(actions);
+
+        return blocks;
     }
 }
