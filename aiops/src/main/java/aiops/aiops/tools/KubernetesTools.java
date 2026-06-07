@@ -36,16 +36,17 @@ public class KubernetesTools {
     @Tool(description = """
             K8s 클러스터의 Pod, Deployment, HPA 상태를 조회합니다.
             언제 호출: JVM 메모리 포화, CPU 과부하, HPA 최대 복제본 도달, Pod 재시작 알람 등 K8s 인프라 이상이 의심될 때.
-            반환: Pod 목록 (이름, 상태, 재시작 횟수), Deployment 목록 (원하는/준비된 replica), HPA 목록 (MINPODS/MAXPODS/REPLICAS).
+            반환: Node 목록 (이름, Ready 여부, 역할, 버전), Pod 목록 (이름, 상태, 재시작 횟수), Deployment 목록 (원하는/준비된 replica), HPA 목록 (MINPODS/MAXPODS/REPLICAS).
             실패 시: kubectl 실행 불가 환경이므로 스킵하고 메트릭만으로 분석을 계속하세요.
             """)
     public String getClusterStatus() {
         try {
+            String nodes = runKubectl("get", "nodes", "--no-headers");
             String pods = runKubectl("get", "pods", "-n", namespace, "--no-headers");
             String deployments = runKubectl("get", "deployments", "-n", namespace, "--no-headers");
             String hpa = runKubectl("get", "hpa", "-n", namespace, "--no-headers");
             log.info("[K8s] 클러스터 상태 조회 완료: namespace={}", namespace);
-            return "[Pods]\n" + pods + "\n\n[Deployments]\n" + deployments + "\n\n[HPA]\n" + hpa;
+            return "[Nodes]\n" + nodes + "\n\n[Pods]\n" + pods + "\n\n[Deployments]\n" + deployments + "\n\n[HPA]\n" + hpa;
         } catch (Exception e) {
             log.warn("[K8s] 클러스터 상태 조회 실패: {}", e.getMessage());
             return "K8s 클러스터 조회 실패 — kubectl 접근 불가 환경일 수 있습니다: " + e.getMessage();
