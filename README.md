@@ -16,7 +16,7 @@
 | AI / AIOps | Spring AI (ChatClient, Tool Calling) |
 | 서비스 메시 | Istio |
 | DB | MySQL (DB-per-service) |
-| 모니터링 | Prometheus, Grafana, Tempo, Loki, Alertmanager, OpenTelemetry Collector, Vector |
+| 모니터링 | Prometheus, Grafana, Tempo, Loki, Pyroscope, Alertmanager, OpenTelemetry Collector, Vector |
 | 부하 테스트 | k6 |
 | 로컬 인프라 | Docker Compose |
 | 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress, Karpenter (노드 자동 프로비저닝) |
@@ -227,6 +227,7 @@ flowchart LR
   subgraph Store["Storage"]
     tempo["Tempo\n:3200"]
     loki["Loki\n:3100"]
+    pyroscope["Pyroscope\n:4040"]
     prometheus["Prometheus\n:9090"]
   end
 
@@ -239,6 +240,7 @@ flowchart LR
 
   apps -->|OTLP traces| otel
   apps -.->|"local: shared-logs vol\nk8s: stdout→/var/log/pods/"| vector
+  apps -.->|"Java agent (initContainer)"| pyroscope
   infraSrc --> redisExp & redisBExp & kafkaExp & mysqlAExp & mysqlCExp
   apps & infraSrc -.->|host cgroups| cadvisor
 
@@ -322,6 +324,7 @@ Alertmanager webhook → AIOps(8085)
      - queryDatabaseHealth     : HikariCP 대기·슬로우 쿼리·Redis 메모리
      - queryLokiLogs           : 대상 서비스 최근 5분 ERROR 로그
      - queryTempoTrace         : traceId 추출 시 분산 트레이스 조회
+     - queryProfilerHotspots   : 트레이스 지연 원인 불분명·CPU 포화 알람 시 Pyroscope에서 자체 CPU 시간 기준 상위 핫스팟 메서드 조회
      - queryRecentCommits(60)  : 최근 1시간 배포 이력 (장애 시각 10분 이내 커밋 → 롤백 권장)
      - queryKafkaLag           : Kafka consumergroup·topic별 consumer lag 조회 (KafkaConsumerLagHigh 알람 전용)
      [KubernetesTools]

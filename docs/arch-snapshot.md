@@ -249,7 +249,7 @@ sequenceDiagram
 helm/
   promotion-app/        # server-a/b/c, aiops, gateway, ALB Ingress, HPA, VirtualService, DestinationRule
   promotion-infra/      # Kafka StatefulSet+PVC, Kafka Connect, Debezium Job
-  promotion-monitoring/ # Prometheus, Grafana, Tempo, Loki, Vector, exporters
+  promotion-monitoring/ # Prometheus, Grafana, Tempo, Loki, Pyroscope, Vector, exporters
   promotion-istio/      # Istio Ambient (istiod, ztunnel, waypoint proxy, namespace 레이블)
 ```
 

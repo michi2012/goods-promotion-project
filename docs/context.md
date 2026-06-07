@@ -57,3 +57,71 @@
 - Pyroscope 공식 문서 (Java agent 연동, HTTP 쿼리 API) — 구현 단계에서 정확한
   엔드포인트·파라미터 확인 필요
 - Grafana Pyroscope 데이터소스 플러그인 호환성 — Grafana 10.0.3 기준 확인 필요
+
+---
+
+# [진행 중] 맥락 노트: aiops 알람→프로파일러→Slack E2E 라이브 테스트 (Docker Desktop K8s)
+
+## 왜 이 방식을 선택했는가
+- 처음에는 promotion-app 전체를 Helm으로 K8s에 올려서 검증하는 방향을 검토했으나,
+  사용자가 "이미 docker-compose(infra/monitoring/msa)로 Pyroscope+server-a
+  프로파일러가 동작하는 로컬 스택이 있는데 왜 새로 복잡하게 구성하냐"고 지적함.
+  → 기존에 검증된 docker-compose 스택(aiops 포함)을 그대로 재사용하고,
+    "Helm 배포가 실제로 동작하는가"는 Pyroscope+server-a만 K8s에 띄워 확인하는
+    것으로 범위를 좁힘.
+- 두 검증 목표(① aiops E2E, ② Helm 배포 동작 확인)를 하나의 시나리오로 통합:
+  docker-compose의 aiops가 Helm으로 K8s에 배포한 Pyroscope를 실제로 조회하도록
+  연결하면, "Helm 배포물이 정상 동작하는가"와 "aiops가 그 데이터를 활용해
+  보고서를 쓰는가"를 한 번의 E2E로 같이 검증할 수 있음. 사용자가 이 통합
+  시나리오에 동의함.
+- `docker-compose.override.yml`에 이미 `.kube` 디렉터리 마운트 +
+  `host.docker.internal` 패턴(PROMETHEUS_URL/LOKI_URL/TEMPO_URL)이 구성되어 있음을
+  발견 — 사용자가 사전에 "docker-compose의 aiops가 로컬 K8s를 kubectl로 조작하게
+  하려고" 준비해둔 것. 이 기존 설정 패턴을 그대로 따라 PYROSCOPE_URL도
+  `host.docker.internal` 경유로 연결하는 것이 일관성 있는 선택.
+- 알람 트리거는 Prometheus 알람 규칙의 실제 임계치 발동을 기다리는 대신
+  Alertmanager 포맷 JSON을 aiops `/webhook/prometheus`에 직접 curl POST하는
+  방식 채택 — 검증 대상은 "aiops가 알람을 받아 도구를 호출하고 보고서를
+  작성·발송하는 파이프라인"이지 "Prometheus 규칙이 맞게 설정됐는가"가 아니므로,
+  synthetic payload로도 목적 달성 가능 (Simplicity First).
+
+## 검토했으나 채택하지 않은 대안
+### 대안 A: promotion-app 전체를 Helm으로 K8s에 배포 (Istio 포함)
+- 무엇: gateway/user-service/server-a/b/c 전체 메시 + Istio + 의존 인프라를
+  Docker Desktop K8s에 모두 배포해서 검증
+- 왜 안 썼나: 로컬 자원 부담이 매우 크고, Istio가 로컬에 미설치 상태(사용자 확인).
+  이번 검증 목적(알람→프로파일러→Slack 흐름, Helm 배포 정상 동작)에는 과한 범위.
+
+### 대안 B: aiops도 K8s에 Helm으로 배포해서 완전한 K8s 환경에서 검증
+- 무엇: docker-compose 대신 aiops까지 K8s에 올려서 "운영과 동일한 환경"으로 검증
+- 왜 안 썼나: 이미 docker-compose의 aiops가 Pyroscope 연동·Slack·Gemini 키
+  주입까지 검증된 상태(이전 [완료] 작업)이고, override.yml에 K8s 조작용 설정까지
+  준비되어 있음. 굳이 다시 K8s에 올려 처음부터 디버깅할 이유가 없음 (사용자 지적).
+
+### 대안 C: Prometheus 알람 규칙을 실제로 발동시켜 알람 전파 경로 전체를 검증
+- 무엇: 부하를 걸어 실제 임계치를 넘기고 Prometheus → Alertmanager → aiops
+  전체 경로를 통째로 검증
+- 왜 안 썼나: 이번 검증의 핵심은 "aiops가 알람을 받은 *이후*"의 흐름(도구 호출,
+  프로파일러 조회, Slack 발송)이지 알람 규칙 자체의 정확성이 아님. synthetic
+  POST로 동일한 입력을 만들어 핵심 경로만 빠르게 검증 (Simplicity First).
+
+## 기존 코드베이스 컨벤션
+- `docker-compose.override.yml`: 로컬 전용 시크릿/엔드포인트 오버라이드,
+  `.gitignore` 처리됨 (line 48). `host.docker.internal` 패턴으로 호스트에 노출된
+  서비스를 컨테이너에서 참조하는 기존 컨벤션 확인.
+- aiops 알람 수신: `aiops/src/main/java/aiops/aiops/webhook/PrometheusWebhookController.java`
+  — `POST /webhook/prometheus`에서 Alertmanager 포맷 JSON 수신.
+- Alertmanager → aiops 라우팅: `helm/promotion-monitoring/files/alertmanager.yml`
+  — receiver `aiops-agent`가 `http://aiops:8085/webhook/prometheus`로 전달.
+
+## 관련 파일/위치
+- docker-compose.override.yml — 시크릿 주입 + host.docker.internal 연동 설정 위치
+  (이번 세션에서 Gemini API 키 교체 완료, Slack webhook은 기존 값과 동일하여 유지)
+- aiops/src/main/java/aiops/aiops/webhook/PrometheusWebhookController.java —
+  알람 payload 수신 엔드포인트 (synthetic curl POST 대상)
+- helm/promotion-app/templates/{discovery,server-a}/ — Helm 배포 대상
+  (server-a는 profiler 연동 완료 상태, MySQL/Redis/Kafka 의존)
+- helm/promotion-monitoring/templates/traces/pyroscope.yaml — Helm 배포 대상
+
+## 외부 참조
+- (해당 없음 — 기존 검증된 패턴/코드 재사용 위주)

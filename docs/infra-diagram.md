@@ -164,6 +164,7 @@ flowchart LR
     subgraph Store["Storage"]
         Tempo["tempo\n:3200"]
         Loki["loki\n:3100"]
+        Pyroscope["pyroscope\n:4040"]
     end
 
     subgraph Vis["Visualization & Alerting"]
@@ -174,6 +175,9 @@ flowchart LR
     %% Traces: 앱 → otel-collector → tempo
     SA & SB & SC & GW & DS & AIO & US -->|"OTLP"| OTEL
     OTEL -->|"OTLP/gRPC"| Tempo
+
+    %% Profiling: Java agent (initContainer로 jar 주입) → pyroscope
+    SA & SB & SC & GW & US -.->|"Java agent"| Pyroscope
 
     %% Logs: local=shared-logs 파일, k8s=stdout→/var/log/pods/ DaemonSet
     Logs -.->|"file tail"| VEC
@@ -187,6 +191,7 @@ flowchart LR
     PROM --> Grafana
     Tempo --> Grafana
     Loki --> Grafana
+    Pyroscope --> Grafana
     AM --> Grafana
 
     %% Alerting
