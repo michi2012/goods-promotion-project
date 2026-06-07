@@ -34,5 +34,4 @@ spec:
     cpu: {{ .Values.nodePool.limits.cpu | quote }}
     memory: {{ .Values.nodePool.limits.memory | quote }}
   disruption:
-    consolidationPolicy: WhenEmptyOrUnderutilized  # 유휴 노드 자동 반납
-    consolidateAfter: 1m
+    consolidationPolicy: WhenUnderutilized  # 유휴 노드 지속 평가 후 자동 반납 (consolidateAfter 없음 — v1 스펙)

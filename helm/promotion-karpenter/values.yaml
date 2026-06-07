@@ -24,8 +24,8 @@ nodeRole: ""       # --set nodeRole=KarpenterNodeRole-my-cluster
 # NodePool 리소스 상한 — 클러스터 전체 Karpenter 프로비저닝 최대치
 nodePool:
   limits:
-    cpu: "10"
-    memory: "40Gi"
+    cpu: "100"      # 스케일링 시연용 — 충분한 여유
+    memory: "400Gi"
 
 # Karpenter controller subchart values
 # 전체 값 목록: https://github.com/aws/karpenter-provider-aws/blob/main/charts/karpenter/values.yaml
@@ -37,7 +37,7 @@ karpenter:
   settings:
     clusterName: ""       # --set karpenter.settings.clusterName=my-cluster
     clusterEndpoint: ""   # --set karpenter.settings.clusterEndpoint=https://...
-    interruptionQueue: "" # Spot 인터럽션 SQS 큐 이름 (선택 — 미설정 시 인터럽션 처리 비활성화)
+    interruptionQueue: "" # Spot 인터럽션 SQS 큐 이름 — Spot 사용 시 필수 (미설정 시 인터럽션 2분 전 드레인 안됨)
 
   controller:
     resources:
