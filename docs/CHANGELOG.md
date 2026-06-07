@@ -4,6 +4,19 @@
 
 ---
 
+## v1.6.0 — 2026-06-07
+
+> Pyroscope 연속 프로파일러 도입으로 핫스팟 분석 및 성능 진단 기능 추가
+
+### ✨ New Features
+- aiops에 Pyroscope 핫스팟 조회 도구 추가 및 로컬 검증 환경 구성 (e72b8e7)
+- Pyroscope continuous profiler Helm 차트 추가 및 서비스 연동 (eed1e9e)
+
+### 🔧 Chore / Docs
+- Pyroscope profiler 도입 및 E2E 검증 결과 문서 반영 (ea04141)
+
+---
+
 ## v1.5.0 — 2026-06-07
 
 > Karpenter Helm 차트 통합 및 AIOps 관측성 도구 확장
