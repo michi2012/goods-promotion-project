@@ -19,7 +19,7 @@
 | 모니터링 | Prometheus, Grafana, Tempo, Loki, Alertmanager, OpenTelemetry Collector, Vector |
 | 부하 테스트 | k6 |
 | 로컬 인프라 | Docker Compose |
-| 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress |
+| 운영 배포 | Kubernetes / Helm (AWS EKS), ALB Ingress, Karpenter (노드 자동 프로비저닝) |
 | 보안 | Cloudflare WAF |
 
 ---
@@ -47,7 +47,7 @@ docker compose up -d
 
 ### Kubernetes (Helm)
 
-3개 독립 차트 구성: `promotion-app` / `promotion-infra` / `promotion-monitoring`
+5개 독립 차트 구성: `promotion-app` / `promotion-infra` / `promotion-monitoring` / `promotion-istio` / `promotion-karpenter`
 
 민감값(`datasource.password`, `ingress.certificateArn` 등)은 `helm install --set`으로 주입.  
 로컬 테스트용 오버라이드는 `values-local.yaml` 참고.
@@ -325,7 +325,7 @@ Alertmanager webhook → AIOps(8085)
      - queryRecentCommits(60)  : 최근 1시간 배포 이력 (장애 시각 10분 이내 커밋 → 롤백 권장)
      - queryKafkaLag           : Kafka consumergroup·topic별 consumer lag 조회 (KafkaConsumerLagHigh 알람 전용)
      [KubernetesTools]
-     - getClusterStatus              : K8s 파드·디플로이먼트·HPA 상태 조회
+     - getClusterStatus              : K8s 노드·파드·디플로이먼트·HPA 상태 조회 (Karpenter 프로비저닝 현황 포함)
      - getIstioMeshStatus            : Istio VirtualService·DestinationRule 현재 설정 조회 (v1/v2 가중치 파악)
      - proposeHpaPatch               : HPA maxReplicas 조정 Slack 승인 요청
      - proposeHelmRollback           : Helm 릴리즈 롤백 Slack 승인 요청
