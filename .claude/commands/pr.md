@@ -28,10 +28,10 @@ git log main..HEAD --oneline
 
 ```
 ## Summary
-- {변경 요약 1-3줄}
+- {무엇이 바뀌었는지 — 파일/명령어/구조 단위로 구체적으로 1-3줄}
 
-## Test plan
-- [ ] {검증 체크리스트}
+## How this was tested
+- {어떻게 검증했는지 — 실행한 시나리오/명령어를 서술형으로}
 
 Closes MIC-{n}
 ```
