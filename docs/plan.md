@@ -1,72 +1,45 @@
-# 계획서: Linear MCP 기반 개발 워크플로우 자동화 (명령어 5종 통합)
+# 계획서: 결제 흐름 종단 간 p95 지연 알림 규칙 구현 (MIC-8)
 
 - 작성일: 2026-06-08
-- 관련 이슈/티켓: (없음 — 이번 작업의 산출물로 향후 티켓 생성 가능)
+- 관련 이슈/티켓: MIC-8 / https://linear.app/michi2012/issue/MIC-8
 
 ## 목표
-Claude Code 슬래시 커맨드에 Linear MCP를 연동해, "명세서 작성 → 티켓 생성 → 개발 착수 → 인시던트 후속조치 → 릴리즈 동기화"로 이어지는 트래커 통합 파이프라인을 구축한다.
+결제 사가(서버 A 진입 → B/C 비동기 처리 → 서버 A의 PAID 최종 확정 + DB 업데이트)의 종단 간 소요 시간을 Micrometer 타이머로 계측하고, p95가 2초를 초과하면 발화하는 Prometheus 알림 규칙(`PaymentE2ELatencyHigh`)을 추가한다.
 
 ## 성공 기준
-- [ ] `/spec-draft`에 부실한 요구사항 메모를 입력하면 User Story + Given-When-Then 구조의 정식 명세서 `.md`가 생성된다
-- [ ] `/spec-to-tickets`에 정식 명세서를 입력하면 실제 Linear MIC 팀에 이슈가 생성된다 (Title/Description/AC/assignee=본인)
-- [ ] `/plan` 실행 시 Linear 이슈 ID를 입력하면 description/AC가 plan.md 초안에 반영되고, 승인 시 이슈 상태가 "In Progress"로 전환된다
-- [ ] `/incident`에 aiops 초안 텍스트를 붙여넣으면 Step 1이 이를 인식해 빠진 항목만 질문하고, RCA 완료 후 "재발 방지" 항목이 Linear 서브태스크로 생성된다
-- [ ] `/release-notes`가 커밋 메시지에서 `MIC-숫자` 형식 이슈 ID를 추출해 "포함된 이슈" 섹션을 만들고, 발행 시 해당 이슈 상태를 "Done"으로 전환한다
+- [ ] `business_payment_e2e_duration_seconds` 타이머가 `tryCompleteSaga()`의 PAID 확정 성공 경로에서 기록된다 — `./gradlew :serverA:test --tests SagaOrchestratorServiceTest`로 검증
+- [ ] `helm/promotion-monitoring/files/alert-rules.yml`과 `monitoring/prometheus/alert-rules.yml`에 `PaymentE2ELatencyHigh` 규칙이 추가된다
+- [ ] `helm template` 렌더링이 오류 없이 통과한다 (컴파일 검증)
+- [ ] `./gradlew :serverA:test` 전체 통과
+- [ ] 변경 사항이 아래 "비범위"를 침범하지 않는다 (`git diff --stat`로 최종 확인)
 
 ## 비범위 (Out of Scope)
-- aiops 백엔드의 자동 RCA 초안 생성·Slack 연동(Phase 1·2 자동화) — 코드베이스와 작업 성격이 달라 별도 plan으로 분리
-- Linear 워크스페이스의 워크플로우 상태(status) 커스터마이징 — 기존 기본 상태(Todo/In Progress/Done 등) 그대로 사용
-- 다인 팀 라우팅/할당 로직 — 현재 솔로 워크스페이스이므로 항상 본인에게 할당
+- 실패·타임아웃된 사가의 지연 측정 — 성공(PAID 확정) 경로에서만 계측한다. 실패율은 기존 `SagaExpired`/`PaymentBusinessErrorRate*` 알림이 이미 담당
+- 임계치(2초)의 동적/자동 조정
+- 실 클러스터 배포 후 알림 실제 발화 여부 검증 — `helm template` 렌더링 통과까지만 진행 (EKS 배포 후 별도 검증 권장)
+- Grafana/SRE 대시보드에 새 패널 추가
+- 구간별(A→B, B→C 등) 개별 알림 규칙 신설
 
 ## 단계별 작업 계획
 
-### 단계 1: `/spec-draft` 신규 명령어 작성
-- 변경 파일: `.claude/commands/spec-draft.md` (신규)
-- 변경 내용 요약: 부실한 요구사항 초안 `.md`를 입력받아, User Story(As a/I want/So that) + Given-When-Then 수용 기준 형식의 정식 명세서로 재작성하는 가이드를 작성한다. 결과물은 새 `.md` 파일로 저장 제안 후 사용자 승인을 받는다.
-- 검증 방법: 임의의 짧은 요구사항 메모(2~3줄)를 입력해 `/spec-draft` 실행 → 결과물이 User Story + GWT 구조를 갖추는지 육안 확인
-- 롤백 방법: 신규 파일이므로 파일 삭제
+### 단계 1: 종단 간 지연 타이머 계측 추가
+- 변경 파일: `serverA/src/main/java/promotion/serverA/service/SagaOrchestratorService.java`, `serverA/src/test/java/promotion/serverA/service/SagaOrchestratorServiceTest.java`
+- 변경 내용 요약: `MeterRegistry`를 주입받아 `@PostConstruct`에서 `Timer.builder("business_payment_e2e_duration_seconds").description(...).register(meterRegistry)`로 초기화 (기존 `serverC/PaymentService`의 `Counter` 초기화 패턴과 동일하게). `tryCompleteSaga()`에서 `orderRepository.updateStatusIfPending(...)`이 성공(`updated > 0`)한 직후, `sagaStateService.getCreatedAt(orderId)`로 시작 시각(epoch millis)을 가져와 `System.currentTimeMillis() - createdAt`을 타이머에 기록한다 (`createdAt > 0`일 때만). 기존 테스트에 타이머 등록·기록 호출을 검증하는 케이스를 추가한다.
+- 검증 방법: `./gradlew :serverA:test --tests SagaOrchestratorServiceTest`
+- 롤백 방법: 추가한 필드 선언·`@PostConstruct` 초기화·`record()` 호출부를 git revert로 제거
 - 예상 소요: 보통
 
-### 단계 2: `/spec-to-tickets` 신규 명령어 작성
-- 변경 파일: `.claude/commands/spec-to-tickets.md` (신규)
-- 변경 내용 요약: 정식 명세서 `.md`를 입력받아 User Story 단위로 파싱하고, 각 Story를 Linear 이슈(Title/Description/AC/assignee=me/team=MIC)로 변환해 미리보기 출력 → 사용자 승인 후 Linear MCP로 실제 생성, 결과 URL 목록을 출력한다.
-- 검증 방법: 단계 1의 산출물(또는 샘플 명세서)을 입력해 `/spec-to-tickets` 실행 → Linear MCP로 MIC 팀을 재조회해 이슈가 실제 생성되었는지 확인
-- 롤백 방법: 신규 파일 삭제 + 테스트 중 생성된 이슈는 Linear에서 아카이브
-- 예상 소요: 보통
-
-### 단계 3: `/plan`에 Linear 연동 추가
-- 변경 파일: `.claude/commands/plan.md`
-- 변경 내용 요약: Step 1에 "Linear 이슈 ID 입력 시 이슈의 description/AC를 조회해 plan.md 목표·성공기준 초안에 반영" 절차를 추가한다. Step 5(승인) 통과 직후 해당 이슈 상태를 "In Progress"로 전환하고 plan.md 경로를 코멘트로 첨부하는 절차를 추가한다.
-- 검증 방법: MIC 팀에 테스트 이슈를 하나 만들고 그 ID로 `/plan` 실행 → plan.md에 이슈 내용이 반영되는지, 승인 후 상태가 전환되는지 확인
-- 롤백 방법: 추가한 섹션을 `git checkout -- .claude/commands/plan.md`로 되돌림
-- 예상 소요: 보통
-
-### 단계 4: `/incident`에 aiops 초안 입력 처리 + Linear 서브태스크 생성 추가
-- 변경 파일: `.claude/commands/incident.md`
-- 변경 내용 요약: Step 1 안내에 "aiops 초안 텍스트를 붙여넣으면 기존 '이미 제공된 정보는 건너뛰는' 규칙을 그대로 적용해 빠진 항목만 질문" 문구를 추가한다. Step 4(파일 저장) 뒤에 신규 Step 5(Linear 연동)를 추가해, "재발 방지" 표의 각 행을 Linear 서브태스크로 생성할지 묻고 승인 시 생성한다.
-- 검증 방법: 가상의 장애 시나리오로 `/incident` 실행 → "재발 방지" 항목이 실제 Linear 서브태스크로 생성되는지 확인
-- 롤백 방법: 추가 섹션 git checkout + 테스트 중 생성된 서브태스크 Linear에서 아카이브
-- 예상 소요: 보통
-
-### 단계 5: `/release-notes`에 이슈 ID 추출 + 상태 전환 추가
-- 변경 파일: `.claude/commands/release-notes.md`
-- 변경 내용 요약: Step 1의 PowerShell 분류 로직에 커밋 메시지에서 `MIC-\d+` 패턴을 추출하는 로직을 추가하고 `ISSUE_IDS` 출력을 더한다. Step 3 포맷에 "포함된 이슈" 섹션을 추가한다. Step 4(발행) 뒤에 추출된 이슈들을 일괄 "Done" 상태로 전환하는 절차를 추가한다.
-- 검증 방법: 커밋 메시지에 `MIC-1` 같은 ID를 포함한 테스트 커밋으로 `/release-notes` 실행 → 이슈 ID 추출 및 섹션 생성 확인 (실제 상태 전환은 테스트 이슈로 검증)
-- 롤백 방법: 추가한 PowerShell 로직과 섹션을 git checkout
-- 예상 소요: 짧음~보통
-
-### 단계 6: 전체 파이프라인 E2E 통합 검증
-- 변경 파일: 없음 (검증 전용)
-- 변경 내용 요약: `/spec-draft` → `/spec-to-tickets` → `/plan` → (가상 인시던트) `/incident` → `/release-notes` 순으로 실제 실행해 데이터가 자연스럽게 이어지는지 확인하고, 테스트 중 생성된 모든 Linear 이슈·서브태스크를 정리(아카이브)한다.
-- 검증 방법: 각 단계 출력 캡처 + Linear MCP로 최종 워크스페이스 상태 재조회해 더미 데이터 잔존 여부 확인
-- 롤백 방법: 해당 없음 (검증 전용 단계)
-- 예상 소요: 보통
+### 단계 2: PaymentE2ELatencyHigh 알림 규칙 추가
+- 변경 파일: `helm/promotion-monitoring/files/alert-rules.yml`, `monitoring/prometheus/alert-rules.yml`
+- 변경 내용 요약: 기존 `PaymentHighLatency`(Tier2-Application-Performance, `helm/.../alert-rules.yml:86`)와 동일한 패턴으로 `PaymentE2ELatencyHigh` 규칙을 추가한다. `expr`은 `histogram_quantile(0.95, sum(rate(business_payment_e2e_duration_seconds_bucket[5m])) by (le)) > 2`와 최소 요청 수 조건(`sum(rate(business_payment_e2e_duration_seconds_count[5m])) > 0`)의 `and` 결합으로 구성하고, `severity: warning`, `tier: P2`로 분류한다. 두 알림 규칙 파일(helm 배포용/docker-compose 로컬용)이 서로 동기화된 상태로 유지되고 있어 동일하게 반영한다.
+- 검증 방법: `helm template helm/promotion-monitoring | Select-String "PaymentE2ELatencyHigh"` (렌더링 확인) — `monitoring/prometheus/alert-rules.yml`은 YAML 문법 육안 확인
+- 롤백 방법: 추가한 alert 블록 제거 (git revert)
+- 예상 소요: 짧음
 
 ## 리스크 및 대응
-- 리스크 1: Linear MCP 도구(`save_issue`, `get_issue`, `save_comment` 등)의 정확한 입력 스키마를 사전에 모름 → 대응: 각 단계 구현 직전 `ToolSearch`로 스키마를 로드해 정확한 필드명·필수값을 확인 후 작성
-- 리스크 2: 테스트 중 실제 Linear 워크스페이스에 더미 이슈·서브태스크가 누적됨 → 대응: 각 단계 검증 직후 즉시 아카이브, 단계 6에서 최종 정리 재확인
-- 리스크 3: 5개 명령어를 한 plan에서 다루어 단계가 김 → 대응: 절대 한 번에 한 단계만 실행, 매 단계 검증 통과 후에만 다음으로 진행
+- 리스크 1: `getCreatedAt`이 `0L`을 반환하는 비정상 케이스(Redis 키 만료 등)에서 잘못된(매우 큰) duration이 기록될 수 있음 → 대응: `createdAt > 0`일 때만 기록하도록 가드 조건 추가
+- 리스크 2: 새 메트릭이 실제로 트래픽을 받기 전까지는 알림이 발화하지 않아 "죽은 규칙"처럼 보일 수 있음 → 대응: 코멘트로 "신규 메트릭 — 배포 후 데이터 누적 필요"를 명시. 실측 데이터 기반 임계치 재검토는 MIC-9(이미 생성된 후속 티켓)에서 다룸
 
 ## 의존성
-- Linear MCP 연결 (완료 — `Michi2012` 팀, key `MIC` 확인됨)
-- `mcp__linear__save_issue`, `get_issue`, `save_comment`, `list_issue_statuses` 등 도구 — 구현 단계 직전에 `ToolSearch`로 스키마 로드 필요
+- `SagaStateService.getCreatedAt(orderId)` — Redis에 저장된 사가 시작 시각(이미 구현되어 있음, `SagaStateService.java:30,80`)
+- `MeterRegistry` — Spring Boot Actuator/Micrometer 자동 구성 (기존 `serverC/PaymentService`에서 동일하게 사용 중)

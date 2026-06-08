@@ -96,6 +96,20 @@
           summary: "⚠️ [P2] 결제 p95 지연 (현재: {{ printf \"%.2f\" $value }}s)"
           description: "결제 API의 p95 응답 시간이 500ms 임계치를 초과하여 외부 PG사 지연 또는 내부 DB 병목이 의심되는 상태."
 
+      # 30. [P2] 결제 사가 종단 간 p95 지연 (서버 A 진입 ~ PAID 최종 확정) — 신규 메트릭, 배포 후 데이터 누적 필요
+      - alert: PaymentE2ELatencyHigh
+        expr: |
+          (histogram_quantile(0.95, sum(rate(business_payment_e2e_duration_seconds_bucket[5m])) by (le)) > 2)
+          and
+          (sum(rate(business_payment_e2e_duration_seconds_count[5m])) > 0)
+        for: 10s
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] 결제 종단 간 p95 지연 (현재: {{ printf \"%.2f\" $value }}s)"
+          description: "결제 사가(서버 A 진입 → B/C 비동기 처리 → A의 PAID 최종 확정)의 종단 간 p95 소요 시간이 2초 임계치를 초과. 비동기 처리 구간(서버 B/C, Kafka) 지연이 의심되는 상태."
+
       # 8. [P2] 비정상적인 트래픽 스파이크
       - alert: TrafficSpikeDetected
         expr: |

@@ -181,9 +181,10 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 
 ### Linear 연동 후속 처리 (1-0에서 이슈를 찾은 경우에만)
 
-승인을 받으면, Step 6(코드 작성)을 시작하기 전에 다음을 수행한다:
-1. `save_issue`로 해당 이슈의 `state`를 `"In Progress"`로 전환한다.
-2. `save_comment`로 해당 이슈에 `docs/plan.md` 경로를 코멘트로 남긴다 (예: "계획서 작성 완료: docs\\plan.md").
+상태 전환(`In Progress` 등)은 GitHub-Linear 자동 연동(브랜치/PR 생성 시 트리거)에 맡긴다 — 수동 전환은 자동화와 중복되므로 하지 않는다.
+
+승인을 받으면, Step 6(코드 작성)을 시작하기 전에 다음만 수행한다:
+1. `save_comment`로 해당 이슈에 `docs/plan.md` 경로를 코멘트로 남긴다 (예: "계획서 작성 완료: docs\\plan.md").
 
 ---
 

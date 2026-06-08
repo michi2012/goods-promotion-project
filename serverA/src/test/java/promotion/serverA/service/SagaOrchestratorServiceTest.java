@@ -1,10 +1,14 @@
 package promotion.serverA.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import promotion.serverA.dto.SagaStateData;
 import promotion.serverA.entity.OrderStatus;
@@ -12,6 +16,7 @@ import promotion.serverA.outbox.OutboxEventService;
 import promotion.serverA.repository.GoodsRepository;
 import promotion.serverA.repository.OrderRepository;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -39,12 +44,20 @@ class SagaOrchestratorServiceTest {
     @Mock
     private OutboxEventService outboxEventService;
 
+    @Spy
+    private MeterRegistry meterRegistry = new SimpleMeterRegistry();
+
     private final String orderId = "trace-123";
     private final Long dbOrderId = 1L;
     private final Long userId = 10L;
     private final Long goodsId = 100L;
     private final int quantity = 2;
     private final SagaStateData stateData = new SagaStateData(dbOrderId, userId, goodsId, quantity);
+
+    @BeforeEach
+    void setUp() {
+        sagaOrchestratorService.initMetrics();
+    }
 
     @Test
     @DisplayName("정상적으로 Saga 완료 로직을 수행하고 Outbox 이벤트를 저장한다")
@@ -53,6 +66,7 @@ class SagaOrchestratorServiceTest {
         given(sagaStateService.getSagaState(orderId)).willReturn(stateData);
         given(sagaStateService.isFailed(orderId)).willReturn(false);
         given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(1);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(System.currentTimeMillis() - 500L);
 
         // when
         sagaOrchestratorService.tryCompleteSaga(orderId);
@@ -62,6 +76,24 @@ class SagaOrchestratorServiceTest {
         verify(outboxEventService).save(eq(orderId), eq("order-status-update"), any());
         verify(outboxEventService).save(eq(orderId), eq("order-completed"), any());
         verify(sagaStateService).deleteSagaState(orderId);
+        assertThat(meterRegistry.timer("business_payment_e2e_duration_seconds").count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Saga 시작 시각(createdAt)을 알 수 없으면 종단 간 지연을 기록하지 않는다")
+    void tryCompleteSaga_skips_e2e_metric_when_createdAt_missing() {
+        // given
+        given(sagaStateService.getSagaState(orderId)).willReturn(stateData);
+        given(sagaStateService.isFailed(orderId)).willReturn(false);
+        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(1);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(0L);
+
+        // when
+        sagaOrchestratorService.tryCompleteSaga(orderId);
+
+        // then
+        verify(sagaStateService).deleteSagaState(orderId);
+        assertThat(meterRegistry.timer("business_payment_e2e_duration_seconds").count()).isEqualTo(0);
     }
 
     @Test
