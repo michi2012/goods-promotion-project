@@ -1,5 +1,8 @@
 package promotion.serverA.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,6 +17,8 @@ import promotion.serverA.outbox.OutboxEventService;
 import promotion.serverA.repository.GoodsRepository;
 import promotion.serverA.repository.OrderRepository;
 
+import java.util.concurrent.TimeUnit;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -24,11 +29,21 @@ public class SagaOrchestratorService {
     private final GoodsRepository goodsRepository;
     private final RedisStockService redisStockService;
     private final OutboxEventService outboxEventService;
+    private final MeterRegistry meterRegistry;
 
     private static final String ORDER_STATUS_TOPIC = "order-status-update";
     private static final String ORDER_COMPLETED_TOPIC = "order-completed";
     private static final String STOCK_SNAPSHOT_TOPIC = "stock-snapshot";
     private static final String PAYMENT_CANCEL_TOPIC = "payment-cancel";
+
+    private Timer e2eDurationTimer;
+
+    @PostConstruct
+    void initMetrics() {
+        e2eDurationTimer = Timer.builder("business_payment_e2e_duration_seconds")
+                .description("결제 사가 종단 간 소요 시간 (서버 A 진입 ~ PAID 최종 확정)")
+                .register(meterRegistry);
+    }
 
     @Transactional
     public void tryCompleteSaga(String orderId) {
@@ -48,6 +63,12 @@ public class SagaOrchestratorService {
             log.warn("[Saga] Order 상태 변경 실패 (이미 처리됨): orderId={}", orderId);
             sagaStateService.deleteSagaState(orderId);
             return;
+        }
+
+        // 종단 간 지연 계측: 사가 시작 시각(Redis) ~ PAID 확정 시점
+        long createdAt = sagaStateService.getCreatedAt(orderId);
+        if (createdAt > 0) {
+            e2eDurationTimer.record(System.currentTimeMillis() - createdAt, TimeUnit.MILLISECONDS);
         }
 
         // 서버B: PAID 상태 알림, 서버C: 최종 저장 명령 — 동일 트랜잭션 내 Outbox 저장
