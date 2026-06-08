@@ -4,6 +4,26 @@
 
 ---
 
+## v1.7.0 — 2026-06-08
+
+> 결제 종단 간 p95 지연 모니터링·알림 체계 구축 및 Linear MCP 워크플로우 연동 정비
+
+### ✨ New Features
+- 결제 종단 간 p95 지연 알림 추가 및 Linear 워크플로우 정비 (MIC-8) (818d997)
+- plan/incident/release-notes에 Linear MCP 연동 추가 (29386d0)
+- 요구사항 명세 작성 및 티켓 생성 명령어 추가 (spec-draft, spec-to-tickets) (9ad6207)
+
+### 🔧 Chore / Docs
+- 결제 종단 간 p95 지연 패널을 SRE 대시보드에 추가 (#3) (edb97ba)
+- Linear MCP 워크플로우 통합 작업 계획/맥락/체크리스트 (f98694b)
+- 사용하지 않는 스케줄러 lock 파일 삭제 (9362aad)
+- test: 테스트 실행을 위한 필수 환경변수 추가 (fdbc866)
+
+### 🔗 포함된 이슈
+- [MIC-8](https://linear.app/michi2012/issue/MIC-8/결제-흐름-종단-간-p95-지연-알림-규칙-정의-임계치-2초) — 결제 흐름 종단 간 p95 지연 알림 규칙 정의 (임계치 2초)
+
+---
+
 ## v1.6.0 — 2026-06-07
 
 > Pyroscope 연속 프로파일러 도입으로 핫스팟 분석 및 성능 진단 기능 추가
