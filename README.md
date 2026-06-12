@@ -374,13 +374,17 @@ P1 이상 알람은 Alertmanager → AIOps 서버 웹훅을 통해 [AIOps 자동
 
 ## AI 개발 워크플로우
 
-CLAUDE.md 4원칙(`Think Before Coding` · `Simplicity First` · `Surgical Changes` · `Goal-Driven Execution`)과 도메인별 Skills(`kafka`/`jpa`/`api`/`exception`/`testing`/`k8s`)를 결합해, LLM의 환각·컨벤션 위반·과잉 설계를 억제하고 코드 작성 전 설계 문서(`docs/plan.md`/`context.md`/`checklist.md`)로 의도를 고정하는 자동화 환경을 구축했다.
+CLAUDE.md 4원칙(`Think Before Coding` · `Simplicity First` · `Surgical Changes` · `Goal-Driven Execution`)과 도메인별 Skills(`kafka`/`jpa`/`api`/`exception`/`testing`/`k8s`/`frontend`/`frontend-testing`/`frontend-design-feedback`)를 결합해, LLM의 환각·컨벤션 위반·과잉 설계를 억제하고 코드 작성 전 설계 문서(`docs/plan.md`/`context.md`/`checklist.md`)로 의도를 고정하는 자동화 환경을 구축했다.
 
 | 명령어 | 역할 |
 |------|------|
+| `/system-design` | 요구사항 → 엔티티/서비스 경계/ERD 뼈대/경계 간 API·이벤트 계약 초안 → `docs/system-design.md` |
+| `/project-plan` | 요구사항을 기능 단위로 분해 → Milestone 배치 → 우선순위·의존관계 포함 Linear 이슈 생성 |
+| `/spec-draft` → `/spec-design`(선택) → `/spec-to-tickets` | 부실한 요구사항 초안을 User Story + Given-When-Then 명세로 다듬고, 필요 시 엔티티/API 계약을 설계한 뒤 Linear 구현 티켓 자동 생성 |
 | `/plan` | 다파일 작업 착수 전 가정 표면화 → plan/context/checklist 3종 문서 생성 → 승인 게이트 |
 | `/pr` | 변경 이력 분석 → PR 제목/본문 초안 작성 → Linear 이슈 연결(`Closes`) |
-| `/spec-draft` → `/spec-to-tickets` | 부실한 요구사항 초안을 User Story + Given-When-Then 명세로 다듬은 뒤 Linear 티켓 자동 생성 |
+| `/project-status` | Linear Milestone별 진행률·막힌 이슈·다음 우선순위 후보 보고 → `/plan`으로 반복 |
+| `/k6-test` | 대상 엔드포인트 k6 스크립트 작성 + 로컬 스모크 실행 |
 | `/incident` | 장애 사실 수집 → 관련 커밋 조회 → RCA 문서 생성 → 재발 방지 항목 Linear 서브태스크화 |
 | `/release-notes` | git log 기반 Conventional Commits 분류 → 버전별 릴리즈 노트 자동 생성 |
 | `arch-snapshot` / `infra-diagram` / `codex-review` / `db-migration` / `coverage` | 코드베이스 스냅샷·인프라 토폴로지 자동 생성, 멀티 에이전트 교차 검증, DDL 위험도 분석, 커버리지 등급 자동 분류 |

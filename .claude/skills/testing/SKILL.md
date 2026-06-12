@@ -14,28 +14,38 @@ description: 테스트 코드 작성 시에만 활성화. @WebMvcTest, @DataJpaT
 | Repository | 슬라이스 | `@DataJpaTest` | JPA만, 실제 DB 권장 |
 | 통합 | 통합 | `@SpringBootTest` | 전체 컨텍스트 |
 
-## 2. Repository 테스트 (Testcontainers + MySQL)
+## 2. Repository 테스트 (Testcontainers + MySQL, Singleton Container 패턴)
 
 H2는 MySQL과 방언이 달라 함정 발생. **Testcontainers로 실제 MySQL 사용**.
 
-```java
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Testcontainers
-class UserRepositoryTest {
+클래스마다 컨테이너를 새로 띄우면(`@Container` + `@Testcontainers`) 테스트 클래스 수만큼 기동 비용(수 초)이 누적된다. **Singleton Container 패턴**으로 모듈 내 모든 Repository 테스트가 컨테이너 1개를 공유한다 — 추상 베이스 클래스에 `static` 필드로 컨테이너를 선언하고 정적 초기화 블록에서 `.start()`만 호출한다(`@Container`/`@Testcontainers` 미사용). 컨테이너 정리는 Testcontainers의 Ryuk 리소스 리퍼가 JVM 종료 시 자동 처리한다.
 
-    @Container
-    static MySQLContainer mysql = new MySQLContainer<>("mysql:8.0")
+```java
+// {module}/src/test/java/.../support/AbstractRepositoryTest.java
+public abstract class AbstractRepositoryTest {
+
+    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
             .withDatabaseName("test")
             .withUsername("test")
             .withPassword("test");
 
+    static {
+        MYSQL.start();
+    }
+
     @DynamicPropertySource
     static void registerProps(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
+        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
+        registry.add("spring.datasource.username", MYSQL::getUsername);
+        registry.add("spring.datasource.password", MYSQL::getPassword);
     }
+}
+```
+
+```java
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+class UserRepositoryTest extends AbstractRepositoryTest {
 
     @Autowired
     private UserRepository userRepository;
@@ -48,7 +58,7 @@ class UserRepositoryTest {
         userRepository.save(user);
 
         // when
-        Optional found = userRepository.findByEmail("test@example.com");
+        Optional<User> found = userRepository.findByEmail("test@example.com");
 
         // then
         assertThat(found).isPresent();
@@ -56,6 +66,8 @@ class UserRepositoryTest {
     }
 }
 ```
+
+> `@SpringBootTest` 기반 통합 테스트(Kafka/Redis 포함)는 이미 동일한 패턴을 적용한 `AbstractSpringBootTest`를 사용한다. `AbstractRepositoryTest`는 `@DataJpaTest`/`@JdbcTest` 슬라이스 테스트 전용 — MySQL 컨테이너만 포함한다.
 
 ## 3. Service 단위 테스트
 

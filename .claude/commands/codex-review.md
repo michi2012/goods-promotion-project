@@ -35,14 +35,14 @@ git diff main...HEAD --name-only
 # 3순위: 둘 다 없으면 → 사용자에게 알리고 중단
 ```
 
-결정된 범위에 따라 diff 수집 (Java/설정 파일만):
+결정된 범위에 따라 diff 수집 (Java/설정/프론트엔드 파일만):
 
 ```powershell
 # 1순위일 때
-git diff --cached -- "*.java" "*.yml" "*.yaml" "*.xml" "*.sql" "*.gradle" "*.properties"
+git diff --cached -- "*.java" "*.yml" "*.yaml" "*.xml" "*.sql" "*.gradle" "*.properties" "*.ts" "*.tsx" "*.css"
 
 # 2순위일 때
-git diff main...HEAD -- "*.java" "*.yml" "*.yaml" "*.xml" "*.sql" "*.gradle" "*.properties"
+git diff main...HEAD -- "*.java" "*.yml" "*.yaml" "*.xml" "*.sql" "*.gradle" "*.properties" "*.ts" "*.tsx" "*.css"
 ```
 
 ### 1-2. 사전 검증
@@ -80,6 +80,8 @@ prompt:            <아래 PROMPT_TEMPLATE에 Step 1 결과를 채워 넣은 것
     - @Transactional 범위 안에서 외부 HTTP 호출 유무
     - Self-invocation (클래스 내부에서 @Transactional 메서드 직접 호출 여부)
     - @Enumerated(ORDINAL) 사용 등 데이터 오염 리스크
+    - 새로 던진 예외가 `GlobalExceptionHandler`에서 처리되지 않거나, `catch (Exception e)`로 스택 트레이스/DB 에러 메시지를 클라이언트 응답에 그대로 노출하는가?
+    - 신규/변경된 Repository 테스트(`@DataJpaTest`)가 H2 등 인메모리 DB 대신 Testcontainers MySQL을 사용하는가? (testing skill 컨벤션 위반)
 
 3. 보안 및 정확성
     - SQL 인젝션, XSS, IDOR, 경로 탐색 가능성
@@ -98,6 +100,18 @@ sequenceDiagram
     ...
 \`\`\`
 ```
+
+5. Frontend 특화 점검 (diff에 `frontend/src/**` 변경이 포함된 경우에만 적용)
+    - `api/generated/**`, `components/ui/**` 생성물을 직접 수정했는가? (orval/shadcn 재생성 시 덮어써짐 — `className` 합성이나 wrapper로 처리해야 함)
+    - 페이지 컴포넌트 최상단에 시맨틱 `<h1>`이 있는가? (없으면 접근성 위반)
+    - TanStack Query 훅의 로딩(`isFetching`)/에러(`isError`) 상태 처리가 누락되었는가?
+    - 테스트 파일(MSW 핸들러) 응답이 `api/generated/model/` 타입과 불일치하는가?
+
+6. Helm/K8s 특화 점검 (diff에 `helm/**` 변경이 포함된 경우에만 적용)
+    - `autoscaling.enabled: true`(HPA)인 Deployment에 `resources.requests.cpu`가 정의되어 있는가? (없으면 HPA가 동작하지 않음)
+    - RBAC Role/ClusterRole에 `delete`/`create`/와일드카드(`*`) 권한이 사유 설명 없이 부여되었는가? (최소 권한 원칙 위반)
+    - `values.yaml`에 민감값(password/token/apiKey 등)이 평문으로 기입되었는가? (`--set` 주입 + 빈 문자열 컨벤션 위반)
+    - `readinessProbe`/`livenessProbe`가 누락되었거나 `initialDelaySeconds`가 Spring Boot 기동 시간(약 20~30s)보다 짧은가?
 
 출력 형식 — 이 마크다운 형식을 정확히 따른다:
 
