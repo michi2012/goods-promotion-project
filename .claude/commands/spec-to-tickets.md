@@ -14,6 +14,8 @@
 파일 경로가 주어지면 해당 파일을 읽는다. 그렇지 않으면 사용자가 붙여넣은 내용을 명세서로 사용한다.
 명세서가 없으면 사용자에게 요청한다.
 
+파일 경로가 주어진 경우, 같은 디렉토리에 `{파일명}-design.md`가 있으면 함께 읽는다 (`/spec-design` 결과물 — 엔티티/API 계약 초안).
+
 ---
 
 ## Step 2. 작업 단위 파싱
@@ -32,7 +34,7 @@
 | Linear 필드 | 매핑 규칙 |
 |---|---|
 | title | User Story를 한 문장으로 압축한 제목 |
-| description | 배경 + 해당 Story의 Given-When-Then 시나리오 + 관련 수용 기준을 markdown으로 정리 |
+| description | 배경 + 해당 Story의 Given-When-Then 시나리오 + 관련 수용 기준을 markdown으로 정리 (`-design.md`가 있으면 마지막에 "관련 설계: {경로}" 한 줄 추가) |
 | team | `MIC` (Michi2012) |
 | assignee | `me` |
 
