@@ -6,6 +6,7 @@
 **사용법**
 - `/spec-to-tickets {파일 경로}` — 해당 명세서로 티켓을 생성한다
 - `/spec-to-tickets` — 대화 중 붙여넣은 명세서 내용으로 생성한다
+- `/spec-to-tickets {파일 경로} {관련 기능 이슈 식별자}` — 생성되는 구현 이슈를 해당 기능 이슈(`/project-plan` 결과물)의 sub-issue로 연결한다
 
 ---
 
@@ -16,6 +17,8 @@
 
 파일 경로가 주어진 경우, 같은 디렉토리에 `{파일명}-design.md`가 있으면 함께 읽는다 (`/spec-design` 결과물 — 엔티티/API 계약 초안).
 
+관련 기능 이슈 식별자(`/project-plan` 결과물, 예: MIC-10)가 함께 주어지면 기록해둔다 — Step 4에서 생성하는 구현 이슈들의 parent(`parentId`)로 사용한다.
+
 ---
 
 ## Step 2. 작업 단위 파싱
@@ -24,6 +27,7 @@
 
 - User Story가 1개 → 명세서 전체가 티켓 1개로 매핑된다.
 - User Story가 여러 개 → 각각 별도 티켓으로 매핑되며, 각 Story와 직접 관련된 시나리오·수용 기준만 묶는다.
+- DB 스키마 설계, CDC/메시지 브로커 연동 등 무거운 선행 작업이 포함되면, 해당 API 작업과 묶지 않고 별도 티켓으로 분리한다 — 진행률 추적의 정확도를 높이기 위함.
 
 ---
 
@@ -34,9 +38,20 @@
 | Linear 필드 | 매핑 규칙 |
 |---|---|
 | title | User Story를 한 문장으로 압축한 제목 |
-| description | 배경 + 해당 Story의 Given-When-Then 시나리오 + 관련 수용 기준을 markdown으로 정리 (`-design.md`가 있으면 마지막에 "관련 설계: {경로}" 한 줄 추가) |
+| description | 배경 + 해당 Story의 Given-When-Then 시나리오 + 관련 수용 기준을 markdown으로 정리 (`-design.md`가 있으면 "관련 설계: {경로}" 한 줄 추가), 마지막에 PR 전 체크리스트 섹션을 고정으로 추가 |
 | team | `MIC` (Michi2012) |
 | assignee | `me` |
+| parentId | Step 1에서 관련 기능 이슈 식별자가 주어졌으면 그 식별자 (없으면 생략) |
+| labels | 도메인 Label 1개(주문/결제/프로모션/유저 중 해당) + 직무 Label 1개(백엔드/프론트엔드/인프라 중 해당) |
+
+description 마지막에는 다음 체크리스트를 고정으로 포함한다 — `/plan` 실행 시 Step 1-0에서 이 항목들을 `docs/checklist.md`의 "최종 검증"에 그대로 포함한다.
+
+```markdown
+## PR 전 체크리스트
+- [ ] 테스트 작성 및 통과 확인
+- [ ] API/인터페이스 변경 시 관련 문서 갱신
+- [ ] 민감 정보(비밀번호, 토큰 등) 로그/응답 노출 여부 확인
+```
 
 ```
 ## 생성될 티켓 미리보기
@@ -44,8 +59,10 @@
 ### 티켓 1
 **Title**: {제목}
 **Description**:
-{markdown 본문 — 배경 / 시나리오 / 수용 기준}
+{markdown 본문 — 배경 / 시나리오 / 수용 기준 / PR 전 체크리스트}
 **Team**: MIC / **Assignee**: me
+**Labels**: {도메인 Label, 직무 Label}
+**Parent**: {관련 기능 이슈 식별자 또는 "-"}
 
 ### 티켓 2 (User Story가 여러 개일 때만)
 ...
@@ -60,6 +77,8 @@
 사용자가 승인하면 `mcp__linear__save_issue`를 작업 단위마다 순서대로 호출한다.
 - `title`, `description`, `team: "MIC"`, `assignee: "me"` 를 전달한다 (생성이므로 `id`는 전달하지 않는다).
 - `description`은 마크다운 원문 그대로 전달한다 (이스케이프 문자 사용 금지 — 실제 줄바꿈 사용).
+- 관련 기능 이슈 식별자가 있으면 `parentId`로 전달한다.
+- Step 3에서 정한 도메인+직무 Label을 `labels`로 전달한다.
 
 생성이 끝나면 결과를 표로 정리해 출력한다.
 

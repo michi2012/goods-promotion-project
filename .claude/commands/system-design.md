@@ -106,3 +106,5 @@ Step 2~5의 결과를 합친다.
 저장할까요? (y/n)
 
 저장 후, `/spec-draft` 또는 `/spec-design`으로 개별 기능 설계를 이어갈 수 있음을 안내한다 — `/spec-design`은 `docs/system-design.md`가 있으면 자동으로 참고해 정의된 엔티티/서비스 경계와의 일치 여부를 확인한다.
+
+전체 요구사항을 기능 단위 백로그로 쪼개 Milestone에 배치하고 우선순위를 정하려면 `/project-plan`을 실행할 수 있음도 안내한다.

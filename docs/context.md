@@ -1,85 +1,67 @@
-# 맥락 노트: 프론트엔드 통합 기반 작업
+# 맥락 노트: PM 커맨드 신설 (`/project-plan`, `/project-status`)
 
 ## 왜 이 방식을 선택했는가
-기존 promotion 프로젝트는 Spring Boot 멀티모듈 백엔드(serverA/B/C, gateway, discovery, user-service, aiops)로 구성되어 있고, "기획(spec-draft/spec-to-tickets) → 개발 → 테스트"가 CLAUDE.md 규칙(테스트 동시 작성, 커밋 단위 원칙 등)으로 한 흐름에 묶여 운영되고 있다. 사용자가 1인 풀스택 운영을 목표로 프론트엔드를 추가하고 싶어했고, 대화를 통해 다음 결론에 도달했다:
-
-- "PM/디자이너/프론트엔드 별도 팀 + 중앙 관리자" 구조는 채택하지 않는다 — 작업이 레이어를 가로지르므로 핸드오프 비용만 늘어난다. 대신 기존 한 사이클을 양 끝(기획 앞, 프론트 뒤)으로 넓힌다.
-- "디자인"은 별도 역할/단계가 아니라 **컴포넌트 라이브러리(shadcn/ui) 적용**으로 프론트 구현에 흡수한다 — 클로드는 시각적 디자인 창작을 할 수 없으므로, 이미 디자이너가 검증해 놓은 시스템을 쓰는 게 맞다.
-- 프론트-백엔드를 "한 사이클"로 만드는 핵심은 **연동 규약의 이중 안전망**이다: (a) 수동 문서로 API 계약의 의미·동작을 명시하고, (b) springdoc-openapi + orval로 타입/훅을 자동 생성해 모양(shape) 불일치를 빌드 단계에서 차단한다.
-- 검증 대상 서버는 serverB — `OrderQueryController`가 순수 조회(Query) 전용이고 응답이 단순(`OrderStatusResponse`, `Long`)해서 파이프라인 전체를 검증하기에 가장 적합하다 (serverA는 GET 엔드포인트가 없고, serverC는 결제 데이터라 검증용 노출에 부적합).
+- 기존 커맨드 파이프라인(`/spec-draft → /system-design(1회) → /spec-design(선택) → /spec-to-tickets → /plan`)은 전부 "기능 1개" 단위로 동작한다. "전체 프로젝트가 무엇을, 어떤 순서로, 얼마나 진행됐는지"를 보는 도구가 없었다.
+- `/system-design`(시스템 구조: 엔티티/서비스 경계/ERD 뼈대)과 `/project-plan`(백로그: 기능 목록 + Milestone 배치 + 우선순위)을 분리했다. 둘은 같은 "전체 요구사항"을 입력으로 받지만 책임이 다르다(구조 vs 일정·우선순위) — 하나로 합치면 책임이 섞인다.
+- Milestone(M1 핵심 트랜잭션 플랫폼 / M2 운영 가시성·신뢰성 / M3 프론트엔드 통합 / M4 성능 검증·스케일링)은 이 프로젝트의 현재 아키텍처(서버A/B/C Saga+CQRS, K8s/Istio, 모니터링/AIOps, 막 시작한 프론트엔드)를 기준으로 "capability 영역" 단위로 정했다. SDLC 단계(설계→구현→배포)가 아닌 영역별 분류를 택한 이유는 각 영역이 동시에/반복적으로 진행되기 때문이다.
+- Milestone 정의를 `/project-plan` 커맨드 로직에 하드코딩하지 않고 Linear에 1회 생성 후 "기존 Milestone 조회 → 배치"로 설계했다 — 커맨드가 이 프로젝트에 종속되지 않게 유지하기 위함.
+- `/project-plan` 출력을 "문서 초안 → 승인 → Linear 반영" 2단계로 했다 — Linear에 대량 이슈/마일스톤 배치를 만드는 것은 archive 외에는 되돌리기 어려운 외부 시스템 변경이라 검토 단계를 둔다.
+- `/spec-to-tickets`가 만드는 구현 이슈를 `/project-plan`이 만든 기능 이슈의 sub-issue(parentId)로 연결하기로 했다 — 기존 워크스페이스에 이미 MIC-8(부모)→MIC-9(자식) 같은 parent-child 패턴이 있어 일관성을 유지한다.
 
 ## 검토했으나 채택하지 않은 대안
 
-### 대안 A: openapi-typescript (타입만 생성)
-- 무엇: 순수 TS 타입만 자동 생성, API 호출 함수는 직접 작성
-- 왜 안 썼나: 이미 TanStack Query를 채택하기로 한 상태에서, orval은 쿼리 훅까지 자동 생성해 1인 개발자의 진짜 병목(API 호출 보일러플레이트 작성 시간)을 줄여준다. 가벼운 시작보다 leverage가 큰 쪽을 선택했다.
+### 대안 A: `/project-plan`을 `/system-design`에 통합
+- 무엇: 시스템 구조 설계와 백로그/우선순위 산출을 한 커맨드에서 처리
+- 왜 안 썼나: 책임이 다르다(구조 vs 일정). 분리해야 재사용성과 가독성이 좋다.
 
-### 대안 B: 게이트웨이에 OpenAPI 스펙 통합 (aggregation)
-- 무엇: gateway-service에서 여러 서비스의 스펙을 한 문서로 모아 노출
-- 왜 안 썼나: 여러 팀의 API를 한 문서로 통합 제공하기 위한 기능인데, 1인 개발에는 불필요한 복잡도다. 프론트가 실제로 호출하는 계약은 각 서비스 레벨에 있으므로, 타입 생성도 서비스 단위로 하는 게 맞다.
+### 대안 B: Milestone(M1~M4)을 `/project-plan` 내부 로직에 하드코딩
+- 무엇: 커맨드 실행 시마다 M1~M4를 코드에 명시된 값으로 사용
+- 왜 안 썼나: 다른 프로젝트나 새 도메인 추가 시 재사용 불가. Linear의 실제 Milestone을 조회하는 방식이 더 범용적이다.
 
-### 대안 C: 별도 레포로 프론트엔드 분리
-- 무엇: frontend를 promotion-project와 별개의 레포로 관리
-- 왜 안 썼나: "API 계약 변경 ↔ 프론트 반영"을 한 커밋/PR 흐름으로 추적해야 "한 사이클" 목표가 성립한다. 별도 레포는 1인 운영에 동기화 오버헤드만 늘린다.
+### 대안 C: `/project-plan` 결과를 Linear에 즉시 반영(1단계)
+- 무엇: 문서 초안 없이 바로 Project에 기능 Issue 생성
+- 왜 안 썼나: 대량 생성/배치가 잘못되면 되돌리기 번거롭다. 검토 단계가 안전하다.
 
-### 대안 D: Figma MCP로 클로드가 직접 디자인
-- 무엇: Figma MCP를 이용해 클로드가 디자인을 새로 생성하게 하는 방안
-- 왜 안 썼나: Figma MCP는 기존 디자인을 코드로 변환하는 "읽기" 용도지 "그리기" 용도가 아니며, 클로드는 시각적 미적 판단 능력이 본질적으로 부족해 컴포넌트 라이브러리보다 못한 결과를 낳는다.
+### 대안 D: Linear Cycle(스프린트) 도입
+- 무엇: Milestone 내부 일정을 Cycle로 타임박싱
+- 왜 안 썼나: Milestone에 속한 이슈의 priority/dueDate로 충분하다. Cycle은 실제로 타임박싱이 필요해지면 추후 도입.
 
 ## 기존 코드베이스 컨벤션
-- 멀티모듈 Gradle 구조: `settings.gradle`에 serverA/B/C, aiops, gateway-service, discovery-service, user-service 포함
-- 컨트롤러 패턴: `@RestController` + `@RequestMapping`, 응답은 `ResponseEntity<DTO>`로 래핑 (예: `serverB/.../controller/OrderQueryController.java`)
-- 빌드: `gradlew.bat`이 루트에 위치, Windows+PowerShell 환경, bash 명령 사용 금지
-- 커밋 단위: 전체 구현 → 테스트 통과 → 기능별 커밋 (중간 커밋 금지)
-- 테스트 분업: 코드 작성은 Claude, `gradlew test`/`npm test` 등 실행은 사용자
+- 커맨드 파일 위치/형식: `.claude/commands/*.md`, frontmatter `description:` + `# /명령어 — 한줄설명` + `## Step N. ...` 구조 (참고: `system-design.md`, `spec-to-tickets.md`, `k6-test.md`)
+- "저장할까요? (y/n)" 패턴으로 사용자 승인 후 파일 생성 (참고: `spec-design.md` Step 5, `spec-draft.md` Step 4)
+- "다음 단계 안내" 패턴: 각 커맨드 마지막에 다음으로 실행 가능한 커맨드를 한 줄로 안내 (참고: `spec-draft.md` Step 4 마지막 줄, `system-design.md` Step 6 마지막 줄)
 
 ## 관련 파일/위치
-- `serverB/src/main/java/promotion/serverB/controller/OrderQueryController.java` — 검증 대상 API (`GET /api/v1/orders/{orderId}/status`)
-- `serverB/src/main/java/promotion/serverB/dto/OrderStatusResponse.java` — 검증 대상 응답 DTO
-- `serverB/build.gradle` — springdoc-openapi 의존성 추가 위치
-- `.claude/skills/jpa/SKILL.md`, `.claude/skills/testing/SKILL.md` — 새 frontend/frontend-testing skill 작성 시 참고할 기존 패턴
+- `.claude/commands/system-design.md` — 시스템 전체 엔티티/서비스 경계 뼈대(1회), Step 6에 `/project-plan` 안내 추가
+- `.claude/commands/spec-draft.md` — 명세서 다듬기, Step 1에 Linear 이슈 입력 지원 추가
+- `.claude/commands/spec-to-tickets.md` — 구현 이슈 생성, sub-issue 연결 안내 추가
+- `.claude/commands/spec-design.md`, `.claude/commands/plan.md`, `.claude/commands/k6-test.md` — 참고용 기존 패턴 (변경 없음)
 
 ## 외부 참조
-- shadcn/ui: https://ui.shadcn.com
-- orval: https://orval.dev
-- springdoc-openapi: https://springdoc.org
+- Linear 워크스페이스: 팀 "Michi2012" (teamId: `aab03cf6-0c6c-4a56-a551-225fca2542cf`), 현재 Project 0개, 이슈 9개(MIC-1~9). 기존 parent-child 패턴: MIC-8(완료)→MIC-9(후속), MIC-5(취소)→MIC-6/7(취소)
 
 ---
 
-## [진행 중] 디자인 다듬기 루프 (브라우저 MCP 기반 시각 피드백)
+## [추가] Label 시스템 구축 + Milestone 재정의 (2026-06-12)
 
 ### 왜 이 방식을 선택했는가
-프론트엔드 통합 기반 작업의 plan.md에서 "디자인 다듬기 루프"를 의도적으로 비범위로 분류했었다 — "파이프라인이 갖춰진 후 별도 작업"으로 미뤄둔 것. 파이프라인(화면 구현 + 테스트)이 완료된 지금, 사용자가 이를 별도 작업으로 진행하자고 요청했다.
-
-사용자는 프론트엔드 디자인 개념에 확신이 없다고 밝혔고("나도 확신없어. 난 프론트 쪽 개념이 많이없어서"), Claude에게 추천을 요청했다. 이에 따라 다음 방향을 추천했고 승인받았다:
-- **MCP 선택**: Playwright MCP — 이미 `frontend-testing`에서 Playwright를 채택했으므로 도구 생태계가 일관되고, 공식 지원되는 MCP 서버라 안정성이 높다.
-- **루프 범위**: 스크린샷 확인뿐 아니라 코드 수정까지 포함하는 전체 루프 — "스크린샷 → 설명 → 사용자가 평범한 말로 피드백 → Claude가 코드 수정 → 재확인". 1인 개발 환경에서 디자인 어휘를 몰라도 "이 버튼이 너무 커 보여요" 같은 직관적 피드백만으로 개선이 가능하도록 한다.
-- **저장 위치**: 프로젝트 전용 skill (`.claude/skills/`) — 이번이 첫 시도라 절차가 다듬어질 여지가 많고, 검증되지 않은 가정을 일반화된 문서에 박아두지 않기 위함.
+- 기존 M1~M4(핵심 트랜잭션 플랫폼 / 운영 가시성·신뢰성 / 프론트엔드 통합 / 성능 검증·스케일링)는 "capability 영역" 또는 "직무" 기준으로 정했는데, 사용자와의 논의 결과 이는 실무 안티패턴으로 확인됨 — 특히 M3("프론트엔드 통합")는 직무 단위 분리 그 자체이고, M2/M4는 "완료" 시점이 없는 영속적 영역이라 진행률(progress)이 의미를 갖기 어렵다.
+- 현업 기준(사용자와 합의된 일반 규칙, 다른 프로젝트에도 적용 가능): Project = 독립적으로 배포·평가 가능한 결과물 단위. Milestone = 그 Project 목표를 향한 시간/완성도 체크포인트(버전, 배포 시점, 핵심 기능 완성 단계). 양쪽 모두 기준은 "도메인"이 아니라 "결과/시간"이다. 도메인(주문/결제/프로모션/유저)과 직무(백엔드/프론트엔드/인프라)는 어느 레벨에서도 1차 축이 아니라 Label(직교 축)로 부여한다. 예외: 그 "도메인"이 실질적으로 독립 배포 단위(별도 제품/서비스)라면 도메인=Project도 가능 — 핵심 판단 기준은 "독립 배포/평가 단위인가".
+- 위 규칙에 따라 M1~M4를 "결과/배포" 기준으로 재정의한다: M1=핵심 기능 종단 간 연동(MVP, 백+프론트 전체 동작) / M2=운영 안정화(k6 임계치+알림/오토스케일링) / M3=베타 오픈·기능 확장 / M4=정식 출시 준비.
+- Label을 "도메인"/"직무" 두 개의 독립된 그룹(`isGroup: true` + `parent`)으로 만들어, 마일스톤 진척도·병목 직무·도메인별 안정성을 필터 조합으로 진단할 수 있게 한다 (예: "M1 + 백엔드"로 백엔드 잔여 작업만 보기, "결제 + 전체 마일스톤"으로 결제 도메인 누적 작업량 보기).
+- `/spec-to-tickets`가 만드는 구현 이슈(예: "프로모션 대상자 자격 검증 API")에는 도메인+직무 Label을 모두 부여한다 — 구현 이슈는 보통 하나의 도메인·하나의 직무에 속한다. `/project-plan`이 만드는 기능/Epic 이슈에는 도메인 Label만 부여한다 — 기능 단위는 보통 여러 직무(백+프론트)에 걸치므로 직무 Label을 강제하지 않는다.
+- 이슈 분해 기준을 추가한다: DB 스키마 설계, CDC/메시지 브로커 연동 같은 무거운 선행 작업은 해당 API 이슈에 묶지 않고 별도 이슈로 분리한다 — 진행률 추적의 정확도를 높이기 위함.
 
 ### 검토했으나 채택하지 않은 대안
 
-#### 대안 A: Chrome DevTools MCP
-- 무엇: Chrome DevTools 프로토콜 기반 MCP 서버로 브라우저 제어/스크린샷
-- 왜 안 썼나: 이미 Playwright를 테스트 스택으로 채택했으므로, 같은 도구 생태계를 MCP에서도 쓰는 것이 도구 중복을 피하고 학습/유지보수 비용을 줄인다.
+### 대안 E: 도메인을 Project로, 기능을 Milestone으로
+- 무엇: Project를 "주문 도메인"/"결제 도메인" 등으로 나누고, 그 안에 기능 단위 Milestone을 둔다.
+- 왜 안 썼나: 이 프로젝트는 하나의 사용자 대면 서비스이고 도메인이 독립 배포 단위가 아니다. 이렇게 나누면 "이 제품이 전체적으로 동작하는가"를 보여줄 Project 레벨이 사라지고, 직무별 Milestone과 동일한 문제(부분 완료가 "끝"으로 보이는 문제)가 한 레벨 위에서 재발한다.
 
-#### 대안 B: 스크린샷만 확인하고 코드 수정은 별도 요청으로 분리
-- 무엇: Claude가 스크린샷으로 현재 상태만 보여주고, 수정은 사용자가 별도로 다시 요청해야 하는 좁은 루프
-- 왜 안 썼나: 핸드오프 단계가 늘어나 1인 개발의 효율을 떨어뜨린다. 사용자가 디자인 어휘에 익숙하지 않으므로, "평범한 말 → 코드 수정"까지 Claude가 한 번에 연결하는 편이 마찰이 적다.
+## 관련 파일/위치 (추가)
+- `.claude/commands/project-plan.md` — Step 6 매핑 표에 도메인 Label 부여 가이드 추가
+- `.claude/commands/spec-to-tickets.md` — Step 2에 이슈 분해 기준, Step 3/4에 도메인+직무 Label 부여 가이드 추가
 
-#### 대안 C: 범용 skill로 일반화해서 문서화
-- 무엇: 다른 프로젝트에서도 쓸 수 있도록 일반화된 디자인 피드백 루프 skill 작성
-- 왜 안 썼나: 첫 시도이고 절차가 검증되지 않았다. 일반화는 실제로 여러 차례 사용해 패턴이 안정된 후에 하는 것이 맞다 (사용자가 이전 대화에서 밝힌 "프로젝트별로 적응시킨다"는 철학과도 일치).
-
-### 기존 코드베이스 컨벤션
-- MCP 서버는 `.mcp.json`에 등록하고 `.claude/settings.json`의 `enabledMcpServers`로 활성화 (예: `codex`, `mysql`, `linear`)
-- skill 작성 패턴: frontmatter(`name`/`description`) + 트리거 조건 명시 + "자가 점검" 섹션 — `frontend`, `frontend-testing` SKILL.md 참고
-- 프론트 화면 검증은 Playwright로 수행 (`frontend-testing` skill 3절)
-
-### 관련 파일/위치
-- `.mcp.json` — MCP 서버 등록 위치 (⚠️ `OPENAI_API_KEY` 평문 포함 — 열람/수정 시 노출 주의, 절대 값을 출력하지 않을 것)
-- `.claude/settings.json` — `enabledMcpServers` 활성화 목록
-- `frontend/src/pages/OrderStatusPage.tsx` — 루프 시연 대상 화면
-- `.claude/skills/frontend/SKILL.md`, `.claude/skills/frontend-testing/SKILL.md` — 새 skill이 참조/연계할 기존 문서
-
-### 외부 참조
-- Playwright MCP: https://github.com/microsoft/playwright-mcp
+## 외부 참조 (추가)
+- Linear Label 그룹(신설 예정): "도메인"(하위: 주문/결제/프로모션/유저), "직무"(하위: 백엔드/프론트엔드/인프라) — `create_issue_label`의 `isGroup`/`parent` 파라미터로 그룹화. 기존 라벨(Improvement/Feature/Bug)과 이름 충돌 없음 (`list_issue_labels(team: "MIC")`로 확인).
+- 기존 Milestone(변경 전, id로 update 예정): M1 핵심 트랜잭션 플랫폼(`2519bee9-80f8-4f2c-a4b5-b6bb65309501`) / M2 운영 가시성·신뢰성(`aea299b9-6ba3-4ba0-bb58-de7a8f12b533`) / M3 프론트엔드 통합(`c139c886-d8a5-4998-a3ad-f6b3628040c4`) / M4 성능 검증·스케일링(`6da2760b-c1b8-4bf3-9a73-6ee3373ee278`)
