@@ -81,6 +81,7 @@ prompt:            <아래 PROMPT_TEMPLATE에 Step 1 결과를 채워 넣은 것
     - Self-invocation (클래스 내부에서 @Transactional 메서드 직접 호출 여부)
     - @Enumerated(ORDINAL) 사용 등 데이터 오염 리스크
     - 새로 던진 예외가 `GlobalExceptionHandler`에서 처리되지 않거나, `catch (Exception e)`로 스택 트레이스/DB 에러 메시지를 클라이언트 응답에 그대로 노출하는가?
+    - 신규/변경된 Repository 테스트(`@DataJpaTest`)가 H2 등 인메모리 DB 대신 Testcontainers MySQL을 사용하는가? (testing skill 컨벤션 위반)
 
 3. 보안 및 정확성
     - SQL 인젝션, XSS, IDOR, 경로 탐색 가능성
