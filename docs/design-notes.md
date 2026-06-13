@@ -141,3 +141,21 @@ SagaOrchestratorService.handleSagaFailure()
   - 자동 재처리 없음, 수동 정산 필요
 
 **이유:** 재시도를 모두 소진한 메시지는 시스템 오류가 아닌 데이터·비즈니스 이상일 가능성이 높아 사람이 확인 후 판단해야 함
+
+---
+
+## codebot PR 자동화: 결정적 브랜치명 (Find-or-Create)
+
+**결정:** `PullRequestTools.createFixPullRequest`의 브랜치명은 `feature/{issueIdentifier 소문자}-codebot-fix`로 고정 (예: `feature/mic-12-codebot-fix`). LLM이 자유롭게 브랜치명을 생성하지 않는다.
+
+**동작:**
+- `GET /git/refs/heads/{branch}`로 브랜치 존재 여부 확인 → 없으면 main 기반으로 신규 생성 + PR 생성, 있으면 같은 브랜치에 Contents API로 추가 커밋 후 `GET /pulls?head=...&state=open`으로 기존 PR을 찾아 반환.
+- 같은 이슈에 대해 "고쳐서 PR 올려줘"를 여러 번 호출해도 새 브랜치/PR이 늘어나지 않고 같은 브랜치/PR에 커밋이 누적된다.
+
+**제약/불변식:**
+- 동일 `issueIdentifier`는 항상 동일 브랜치를 가리킨다 — ChatMemory에 "이전에 만든 PR" 상태를 별도로 저장하지 않는다 (GitHub이 source of truth).
+- 브랜치는 있지만 open PR이 없는 경우(이전 PR이 머지/닫힘)는 안내 메시지만 반환하고 새 브랜치를 만들지 않는다 — "처음부터 다시" 시나리오는 비범위.
+
+**채택하지 않은 대안:**
+- 타임스탬프/해시 슬러그로 매번 새 브랜치/PR 생성 → 재요청마다 PR이 누적되어 레포 관리 비용 증가
+- git clone/checkout 기반 진짜 상태관리(V2) → 단일 파일 + 명시적 트리거 범위에서는 과한 복잡도
