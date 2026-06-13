@@ -86,6 +86,11 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 이전 작업이 **커밋 완료**됐으면 → 다음 /plan 시 파일을 새로 작성한다.
 - 섹션 제목 형식: `## [완료] 작업명` / `## [진행 중] 작업명`
 
+## 대형 설계 문서 관리 원칙
+`docs/system-design.md`, `docs/arch-snapshot.md` 등 설계/아키텍처 문서가 일정 규모(약 500줄) 이상으로 커지면, 매 작업마다 전체를 읽지 않는다.
+- 비대해진 문서는 도메인별로 분할한다 (예: `docs/domains/{도메인}/arch.md`).
+- 분할 전이라도, 작업과 관련된 키워드(도메인명, 기능명)로 필요한 부분만 발췌해서 읽는다.
+
 ## 작업 시작 시
 - 기존에 진행 중이던 `/plan` 기반 대규모 작업을 이어서 할 때는, 코딩 시작 전 반드시 `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 세 파일을 모두 읽고 제약 조건과 다음 진행할 단계를 스스로 파악할 것. 단순 확인/수정에는 불필요.
 - 변경 파일이 2개 이상인 작업은 반드시 `/plan` 명령어부터 실행할 것. 곧바로 코딩 시작 금지.
@@ -97,6 +102,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
 - Kafka 컨슈머/프로듀서/토픽/DLT/Debezium 작업 시 `.claude/skills/kafka` 매뉴얼을 활용할 것.
 - Kubernetes/Helm/kubectl/HPA/RBAC/values.yaml/Deployment 작업 시 `.claude/skills/k8s` 매뉴얼을 활용할 것.
+
+## 디버깅 루프 탈출 조건
+같은 이슈(테스트 실패, 빌드 오류 등)를 해결하기 위한 첫 수정을 시도하기 전, 현재 작업 트리 상태를 체크포인트로 기록한다 (예: `git stash` 후 즉시 재적용, 또는 변경 파일 목록 기록).
+동일한 이슈를 해결하기 위해 3회 연속 수정을 시도했음에도 실패하면, 추가 수정을 시도하지 말고 즉시 중단한다. 수정 시도로 변경된 파일을 체크포인트 상태로 되돌리고, 지금까지 시도한 방법과 마지막 에러를 정리해 사용자에게 보고하고 다음 방향을 확인한다.
+
+## 단계 실행 묶음 허용 기준 (리스크 등급)
+`/plan` Step 6은 기본적으로 한 단계씩 실행하고 검증한다. 다만 아래 기준에 따라 연속된 단계를 묶어 실행할 수 있다.
+- **묶음 실행 가능 (낮은 리스크)**: 테스트 코드 작성, 문서 업데이트, 단순 CRUD/DTO 추가 등 git으로 쉽게 되돌릴 수 있는 변경.
+- **단계별 승인 유지 (높은 리스크)**: DB 마이그레이션, 인프라(Helm/k8s/Kafka 등) 변경, 새 의존성 추가, 브랜치/커밋/푸시.
+- 묶음 실행 시에도 각 단계 완료 후 검증과 `docs/checklist.md` 업데이트는 동일하게 수행한다.
 
 ## 장기 실행 명령 처리 원칙
 
@@ -121,6 +136,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 새 메서드 추가 시 → 테스트 코드도 함께 생성할 것.
 - 테스트를 실행하지 않더라도 "이 테스트를 실행해보세요"라고 명시할 것.
 
+## 프론트엔드 테스트 강도 원칙
+프론트엔드 변경 시 테스트 강도를 변경 범위에 따라 차등 적용한다.
+- 핵심 퍼널(P0) 기능 변경: E2E + 시각 회귀 테스트(`frontend-testing`)까지 수행.
+- 단순 컴포넌트 추가/수정: 단위 테스트(Vitest + RTL)로 충분, E2E/시각 회귀는 생략 가능.
+- P0 여부가 불명확하면 임의로 판단하지 말고 사용자에게 확인한다.
+
 ## Spring Boot 공통 규칙
 - Controller → Service → Repository 레이어 분리. Controller에 비즈니스 로직 금지.
 - Entity를 Controller에서 직접 반환 금지. 반드시 DTO 변환.
@@ -128,6 +149,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Entity에 @Data/@Setter 금지. @Getter + 도메인 행위 메서드.
 - open-in-view: false 필수. findAll() 후 in-memory 필터링 금지.
 - 민감 정보(비밀번호, 토큰) 로그/응답 노출 금지.
+
+## DB 마이그레이션 작성 원칙
+엔티티의 컬럼명/타입 변경을 컬럼 삭제 후 재추가(DROP + ADD)로 처리하지 않는다 — `ALTER`/`MODIFY`/`RENAME COLUMN` 구문으로 작성한다 (`/db-migration` 활용).
+마이그레이션 SQL은 파일 생성까지만 하고, 실제 DB 적용(실행)은 사용자가 한다.
 
 ## 절대 금지 사항
 - `.env` 파일은 절대 읽거나 수정하지 말 것.
