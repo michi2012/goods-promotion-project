@@ -4,6 +4,20 @@
 
 ---
 
+## v1.8.0 — 2026-06-13
+
+> 프론트엔드(React+TS+Vite) 기반 구축 및 AI 워크플로우 PM 커맨드 파이프라인 정비
+
+### ✨ New Features
+- 프론트엔드 기반 구축: React+TS+Vite 주문 상태 조회 화면, orval(OpenAPI codegen), shadcn/ui, Vitest+RTL+Playwright 테스트 환경 및 PM 커맨드 파이프라인(`/system-design`, `/project-plan`, `/spec-design`, `/project-status`, `/k6-test`) 신설, `serverB` springdoc-openapi 연동 (#4) (6673709)
+- [aiops] 알람 진단 보고서에 구조적 개선 제안 섹션 추가 (462bd48)
+
+### 🔧 Chore / Docs
+- AI 워크플로우 운영 규칙 보완 (문서 비대화, 디버깅 루프, DB 마이그레이션 등) (d0195aa)
+- v1.7.0 변경 내용을 README에 반영 및 AI 워크플로우 섹션 추가 (c06946e)
+
+---
+
 ## v1.7.0 — 2026-06-08
 
 > 결제 종단 간 p95 지연 모니터링·알림 체계 구축 및 Linear MCP 워크플로우 연동 정비
