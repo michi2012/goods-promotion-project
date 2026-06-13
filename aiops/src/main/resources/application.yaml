@@ -40,6 +40,10 @@ github:
   owner: ${GITHUB_OWNER:michi2012}
   repo: ${GITHUB_REPO:goods-promotion-project}
 
+linear:
+  api-key: ${LINEAR_API_KEY:}
+  team-id: ${LINEAR_TEAM_ID:}
+
 slack:
   webhook-url: ${SLACK_WEBHOOK_URL}
   bot-token: ${SLACK_BOT_TOKEN:}

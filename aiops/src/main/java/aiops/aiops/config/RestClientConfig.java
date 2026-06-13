@@ -60,6 +60,15 @@ public class RestClientConfig {
     }
 
     @Bean
+    public RestClient linearClient(@Value("${linear.api-key}") String linearApiKey) {
+        return RestClient.builder()
+                .baseUrl("https://api.linear.app/graphql")
+                .defaultHeader("Authorization", linearApiKey)
+                .defaultHeader("Content-Type", "application/json")
+                .build();
+    }
+
+    @Bean
     public RestClient.Builder internalServiceClientBuilder() {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(3))
