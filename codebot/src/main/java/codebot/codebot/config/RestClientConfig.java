@@ -1,4 +1,4 @@
-package aiops.aiops.config;
+package codebot.codebot.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -37,49 +37,28 @@ public class RestClientConfig {
     }
 
     @Bean
-    public RestClient pyroscopeClient(@Value("${observability.pyroscope.url}") String pyroscopeUrl) {
-        return buildWithTimeout(pyroscopeUrl);
-    }
-
-    @Bean
-    public RestClient kafkaConnectClient(@Value("${observability.kafka-connect.url}") String kafkaConnectUrl) {
-        return buildWithTimeout(kafkaConnectUrl);
-    }
-
-    @Bean
-    public RestClient slackClient() {
-        return RestClient.builder().build();
-    }
-
-    @Bean
-    public RestClient slackBotApiClient(@Value("${slack.bot-token}") String slackBotToken) {
+    public RestClient linearClient(@Value("${linear.api-key}") String linearApiKey) {
         return RestClient.builder()
-                .baseUrl("https://slack.com/api")
-                .defaultHeader("Authorization", "Bearer " + slackBotToken)
+                .baseUrl("https://api.linear.app/graphql")
+                .defaultHeader("Authorization", linearApiKey)
+                .defaultHeader("Content-Type", "application/json")
                 .build();
     }
 
     @Bean
-    public RestClient.Builder internalServiceClientBuilder() {
-        HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(3))
-                .build();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
-        factory.setReadTimeout(Duration.ofSeconds(60));
-        return RestClient.builder().requestFactory(factory);
-    }
-
-    @Bean
-    public RestClient githubClient() {
+    public RestClient githubClient(@Value("${github.token:}") String githubToken) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(Duration.ofSeconds(5));
-        return RestClient.builder()
+        RestClient.Builder builder = RestClient.builder()
                 .baseUrl("https://api.github.com")
                 .defaultHeader("Accept", "application/vnd.github.v3+json")
-                .requestFactory(factory)
-                .build();
+                .requestFactory(factory);
+        if (!githubToken.isBlank()) {
+            builder.defaultHeader("Authorization", "Bearer " + githubToken);
+        }
+        return builder.build();
     }
 }
