@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.codebot.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.codebot.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  replicas: {{ .Values.codebot.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.codebot.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.codebot.name }}
+        app.kubernetes.io/name: {{ .Values.codebot.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.codebot.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: codebot
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.codebot.name }}
+          image: {{ .Values.codebot.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.codebot.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.codebot.springProfilesActive | quote }}
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: GITHUB_OWNER
+              value: {{ .Values.codebot.githubOwner | quote }}
+            - name: GITHUB_REPO
+              value: {{ .Values.codebot.githubRepo | quote }}
+            - name: GITHUB_TOKEN
+              value: {{ .Values.codebot.githubToken | quote }}
+            - name: AI_API_KEY
+              value: {{ .Values.codebot.aiApiKey | quote }}
+            - name: LINEAR_API_KEY
+              value: {{ .Values.codebot.linearApiKey | quote }}
+            - name: LINEAR_TEAM_ID
+              value: {{ .Values.codebot.linearTeamId | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.codebot.eurekaDefaultZone | quote }}
+          resources:
+            requests:
+              cpu: {{ .Values.codebot.resources.requests.cpu | quote }}
+              memory: {{ .Values.codebot.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.codebot.resources.limits.cpu | quote }}
+              memory: {{ .Values.codebot.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.codebot.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.codebot.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3

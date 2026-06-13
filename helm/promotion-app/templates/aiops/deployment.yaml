@@ -54,6 +54,8 @@ spec:
               value: {{ .Values.aiops.googleGenaiApiKey | quote }}
             - name: SLACK_WEBHOOK_URL
               value: {{ .Values.aiops.slackWebhookUrl | quote }}
+            - name: SLACK_BOT_TOKEN
+              value: {{ .Values.aiops.slackBotToken | quote }}
             - name: EUREKA_DEFAULT_ZONE
               value: {{ .Values.aiops.eurekaDefaultZone | quote }}
             {{- if .Values.aiops.otlpEndpoint }}

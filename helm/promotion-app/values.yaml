@@ -261,8 +261,30 @@ aiops:
   githubRepo: ""         # --set aiops.githubRepo=<repo>
   googleGenaiApiKey: ""  # --set aiops.googleGenaiApiKey=<key>
   slackWebhookUrl: ""    # --set aiops.slackWebhookUrl=<url>
+  slackBotToken: ""      # --set aiops.slackBotToken=<token>
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+codebot:
+  name: codebot
+  replicas: 1
+  port: 8087
+  image: ""  # --set codebot.image=<ECR_URL>/codebot:tag
+  springProfilesActive: "k8s"
+  githubOwner: ""        # --set codebot.githubOwner=<owner>
+  githubRepo: ""         # --set codebot.githubRepo=<repo>
+  githubToken: ""        # --set codebot.githubToken=<PAT>
+  aiApiKey: ""           # --set codebot.aiApiKey=<key>
+  linearApiKey: ""       # --set codebot.linearApiKey=<key>
+  linearTeamId: ""       # --set codebot.linearTeamId=<team-id>
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   resources:
     requests:
       cpu: "100m"
