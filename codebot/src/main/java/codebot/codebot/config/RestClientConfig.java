@@ -37,6 +37,11 @@ public class RestClientConfig {
     }
 
     @Bean
+    public RestClient pyroscopeClient(@Value("${observability.pyroscope.url}") String pyroscopeUrl) {
+        return buildWithTimeout(pyroscopeUrl);
+    }
+
+    @Bean
     public RestClient linearClient(@Value("${linear.api-key}") String linearApiKey) {
         return RestClient.builder()
                 .baseUrl("https://api.linear.app/graphql")

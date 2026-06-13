@@ -14,6 +14,8 @@ observability:
     url: http://localhost:3200
   prometheus:
     url: http://localhost:9090
+  pyroscope:
+    url: http://localhost:4040
 
 github:
   owner: test-owner

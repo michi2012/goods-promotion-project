@@ -19,6 +19,7 @@ class ObservabilityToolsTest {
     private MockRestServiceServer lokiServer;
     private MockRestServiceServer tempoServer;
     private MockRestServiceServer prometheusServer;
+    private MockRestServiceServer pyroscopeServer;
     private ObservabilityTools observabilityTools;
 
     @BeforeEach
@@ -26,13 +27,15 @@ class ObservabilityToolsTest {
         RestClient.Builder lokiBuilder = RestClient.builder().baseUrl("http://loki:3100");
         RestClient.Builder tempoBuilder = RestClient.builder().baseUrl("http://tempo:3200");
         RestClient.Builder prometheusBuilder = RestClient.builder().baseUrl("http://prometheus:9090");
+        RestClient.Builder pyroscopeBuilder = RestClient.builder().baseUrl("http://pyroscope:4040");
 
         lokiServer = MockRestServiceServer.bindTo(lokiBuilder).build();
         tempoServer = MockRestServiceServer.bindTo(tempoBuilder).build();
         prometheusServer = MockRestServiceServer.bindTo(prometheusBuilder).build();
+        pyroscopeServer = MockRestServiceServer.bindTo(pyroscopeBuilder).build();
 
         observabilityTools = new ObservabilityTools(
-                lokiBuilder.build(), tempoBuilder.build(), prometheusBuilder.build());
+                lokiBuilder.build(), tempoBuilder.build(), prometheusBuilder.build(), pyroscopeBuilder.build());
     }
 
     @Test
@@ -106,6 +109,55 @@ class ObservabilityToolsTest {
 
         // then
         assertThat(result).startsWith("Tempo 조회 실패:");
+    }
+
+    @Test
+    @DisplayName("Pyroscope 핫스팟 조회 성공 시 자체 CPU 시간 기준 상위 메서드를 반환한다")
+    void queryProfilerHotspots_성공() {
+        // given
+        String responseJson = """
+                {
+                  "flamebearer": {
+                    "names": ["total", "com.example.OrderService.calculate"],
+                    "levels": [
+                      [0, 100, 0, 0],
+                      [0, 100, 100, 1]
+                    ],
+                    "numTicks": 100
+                  }
+                }
+                """;
+        pyroscopeServer.expect(request -> {
+                    assertThat(request.getURI().getPath()).isEqualTo("/pyroscope/render");
+                    assertThat(request.getURI().getQuery())
+                            .contains("service_name=\"server-a\"")
+                            .contains("format=json");
+                })
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(responseJson, MediaType.APPLICATION_JSON));
+
+        // when
+        String result = observabilityTools.queryProfilerHotspots("server-a", 10, 1);
+
+        // then
+        assertThat(result)
+                .contains("프로파일 핫스팟 Top 1")
+                .contains("100.00% | com.example.OrderService.calculate");
+    }
+
+    @Test
+    @DisplayName("Pyroscope 조회가 실패하면 스킵 안내 메시지를 반환한다")
+    void queryProfilerHotspots_실패() {
+        // given
+        pyroscopeServer.expect(request -> {})
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withServerError());
+
+        // when
+        String result = observabilityTools.queryProfilerHotspots("server-a", 10, 5);
+
+        // then
+        assertThat(result).startsWith("Pyroscope 핫스팟 조회 실패");
     }
 
     @Test
