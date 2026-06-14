@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 
 @Slf4j
@@ -46,6 +47,10 @@ public class CodeSearchTools {
             String summary = extractSearchResults(rawJson);
             log.info("[Tool] GitHub 코드 검색 성공: query={}", query);
             return summary;
+        } catch (HttpStatusCodeException e) {
+            String errorMsg = e.getResponseBodyAsString();
+            log.warn("[Tool] GitHub 코드 검색 실패: status={}, body={}", e.getStatusCode(), errorMsg);
+            return "GitHub 코드 검색 실패: " + e.getStatusCode() + " - " + errorMsg;
         } catch (Exception e) {
             log.warn("[Tool] GitHub 코드 검색 실패: {}", e.getMessage());
             return "GitHub 코드 검색 실패: " + e.getMessage();
@@ -69,6 +74,10 @@ public class CodeSearchTools {
 
             log.info("[Tool] GitHub 파일 조회 성공: path={}", path);
             return truncate(content);
+        } catch (HttpStatusCodeException e) {
+            String errorMsg = e.getResponseBodyAsString();
+            log.warn("[Tool] GitHub 파일 조회 실패: path={}, status={}, body={}", path, e.getStatusCode(), errorMsg);
+            return "GitHub 파일 조회 실패: " + e.getStatusCode() + " - " + errorMsg;
         } catch (Exception e) {
             log.warn("[Tool] GitHub 파일 조회 실패: path={}, error={}", path, e.getMessage());
             return "GitHub 파일 조회 실패: " + e.getMessage();
