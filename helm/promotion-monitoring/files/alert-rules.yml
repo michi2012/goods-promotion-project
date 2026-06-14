@@ -166,6 +166,25 @@
           summary: "⚠️ [P2] HTTP 5xx 에러율 상승 추세 (현재: {{ printf \"%.1f\" $value }}%)"
           description: "HTTP 5xx 에러율이 1%를 3분간 지속. 일시적 장애 전조 가능성을 사전 포착."
 
+      # 11. [P1] 카나리(v2) HTTP 5xx 에러율 급증 (min 0.05 req/s 미만 시 비발화)
+      - alert: CanaryV2ErrorRateHigh
+        expr: |
+          (
+            sum(rate(istio_requests_total{destination_version="v2", response_code=~"5.."}[5m]))
+            /
+            sum(rate(istio_requests_total{destination_version="v2"}[5m]))
+            * 100
+          ) > 5
+          and
+          sum(rate(istio_requests_total{destination_version="v2"}[5m])) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] 카나리(v2) HTTP 5xx 에러율 급증 (현재: {{ printf \"%.1f\" $value }}%)"
+          description: "카나리(v2) 파드의 5xx 에러율이 5%를 1분간 초과. v1로의 트래픽 격리(v2Weight=0) 검토가 필요한 상태."
+
   - name: Tier3-System-Saturation
     rules:
       # 11. [P1] JVM Heap 메모리 포화
