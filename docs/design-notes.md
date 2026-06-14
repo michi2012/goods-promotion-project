@@ -184,3 +184,18 @@ SagaOrchestratorService.handleSagaFailure()
 **채택하지 않은 대안:**
 - v1 Deployment selector를 `{app: server-X, version: v1}`로 직접 변경(표준 카나리 패턴) → `spec.selector` immutable로 인해 무중단 적용 불가.
 - Micrometer common-tags로 앱 메트릭에 `version` 라벨 추가 → 앱 재배포 필요, Istio Ambient(앱 코드 비수정)의 취지와 불일치. waypoint Envoy 메트릭(`istio_requests_total{destination_version=...}`)으로 동일 정보를 코드 변경 없이 획득 가능.
+
+## 카나리(v2) 점진적 자동 승급: 스케줄러와 알람의 역할 분리
+
+**결정:** "비정상 시 즉시 격리"는 `CanaryV2ErrorRateHigh` 알람 → `AiOpsAgentService.analyze()` → 시나리오10의 `proposeTrafficShift(v1=100,v2=0)` 경로로, "정상 지속 시 단계적 승급"은 신규 `CanaryRolloutScheduler`(`@Scheduled`, 기본 5분 주기)로 역할을 분리했다. 두 경로 모두 최종 트래픽 변경은 기존 `proposeTrafficShift` Slack 승인을 그대로 통과한다.
+
+**이유:**
+- 기존 `analyze()`는 Alertmanager의 firing 알람으로만 트리거되는데, "v2가 계속 정상"이라는 사실 자체는 알람화하기 어렵다(한 번도 firing하지 않으면 resolved 알림도 발생하지 않음) — 그래서 점진 승급만 별도 스케줄러로 분리했다.
+- `CanaryRolloutScheduler`에 자체 롤백(에러율 급증 시 v2=0 격리) 로직을 추가하면 `CanaryV2ErrorRateHigh` → `analyze()` 경로와 동일 상황에서 Slack에 중복 제안이 발생한다. 그래서 "비정상 시 격리"는 알람 경로 하나로만 처리하고, 스케줄러는 에러율 초과 시 연속 정상 카운터만 리셋한다(별도 조치 없음).
+
+**연속 정상 카운터(시간 기반 대신) 채택:**
+- "v2가 N분간 정상"을 `Instant`/`Duration`으로 추적하는 대신 "스케줄러 틱마다 연속 정상 횟수"로 구현했다. 스케줄러 interval × `healthy-checks-required`가 사실상 동일한 시간 의미를 가지면서, 단위 테스트에서 시간 모킹 없이 `checkService()`를 N번 호출하는 것만으로 검증 가능하다.
+
+**제약/불변식:**
+- `CanaryRolloutScheduler`의 PromQL은 `istio_requests_total{destination_service_name="<service>", destination_version="v2"}` 라벨 조합을 사용한다. `destination_service_name`의 실제 값(예: `server-a` vs `server-a.promotion.svc.cluster.local`)은 waypoint 메트릭 배포 후 EKS Prometheus에서 직접 확인이 필요하다 — 실제 값이 다르면 `canary.rollout.services`를 그 형식에 맞게 설정해야 한다.
+- `getCanaryWeight`가 -1(조회 실패)을 반환하는 경우도 weight 0/100과 동일하게 "스킵 + 상태 초기화"로 처리한다. 일시적 kubectl 실패 시 진행 카운터가 리셋될 수 있지만, 다음 정상 틱부터 다시 누적되므로 별도 재시도/구분 로직 없이 단순성을 우선했다.

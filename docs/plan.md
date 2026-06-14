@@ -1,82 +1,85 @@
-# 계획서: Istio 카나리(v1/v2) 에러율 기반 트래픽 격리 — 인프라 기반 마련
+# 계획서: 카나리 에러 격리 고도화 — v2 전용 알람 + 통계적 유의성 체크 + 점진적 자동 승급
 
-- 작성일: 2026-06-13
-- 관련 이슈/티켓: 없음 (외부 리뷰 피드백 3번)
+- 작성일: 2026-06-14
+- 관련 이슈/티켓: 없음 (직전 작업 "카나리 v1/v2 격리 인프라"의 현업 갭 보완 3건)
 
 ## 목표
-server-a/b/c에 v1/v2 카나리 파드가 공존할 수 있는 구조(기본 비활성 토글)를 만들고, Prometheus가 Istio waypoint의 버전별(v1/v2) 요청 메트릭을 수집하도록 하여, aiops가 이미 보유한 카나리 트래픽 제어 로직(`AiOpsAgentService` 10번 단계, `proposeTrafficShift`/`proposeOutlierDetectionUpdate`)을 실제로 활용할 수 있게 한다.
+카나리(v1/v2) 에러율 격리 인프라(직전 커밋 aaa8efa~306b9ac)의 운영 갭 3가지를 보완한다: (1) v2 트래픽 비중이 작아 전체 집계 알람이 안 뜨는 사각지대를 메우는 v2 전용 에러율 알람, (2) 통계적으로 무의미한 샘플로 잘못된 격리 판단을 막는 최소 요청 수 가드, (3) v2가 정상이면 트래픽 비중을 단계적으로 자동 승급(Slack 승인 기반)하는 스케줄러.
 
 ## 성공 기준
-- [ ] `helm template helm/promotion-app` (canary 기본값, 비활성) 렌더링 성공 — v1 Deployment/Service만 생성, v2 리소스 없음
-- [ ] `helm template helm/promotion-app --set serverA.canary.enabled=true --set serverB.canary.enabled=true --set serverC.canary.enabled=true` 렌더링 성공 — v1/v2 Deployment의 selector가 서로 겹치지 않음 (matchLabels 직접 대조)
-- [ ] `helm template helm/promotion-monitoring` 렌더링 성공 — istio-waypoint 스크랩 job이 prometheus.yml에 포함
-- [ ] `.\gradlew.bat :aiops:test` 통과 (시스템 프롬프트 수정 후 컴파일 + 기존 테스트)
-- [ ] `git diff`로 "비범위" 침범 없음 확인
+- [ ] `helm template helm/promotion-monitoring`이 신규 `CanaryV2ErrorRateHigh` 알람을 포함해 정상 렌더링됨
+- [ ] AiOpsAgentService 시스템 프롬프트 시나리오 10에 최소 요청 수 가드(유의성 체크) 문구 추가됨
+- [ ] `CanaryRolloutScheduler` 단위 테스트: v2 weight 0/100 스킵, 정상 N회 후 다음 단계 `proposeTrafficShift` 1회 호출, 비정상/샘플부족 시 카운터 미증가, 동일 weight 재제안 안 함(쿨다운)을 모두 검증
+- [ ] `.\gradlew.bat :aiops:test` 통과
+- [ ] `git diff --stat`로 비범위 침범 없음 확인
 
 ## 비범위 (Out of Scope)
-- 에러율 급증을 인위적으로 재현하는 E2E 트리거 메커니즘 (디버그 엔드포인트 등) — 별도 작업
-- Micrometer 앱 레벨 `version` 공통 태그 추가 — waypoint 메트릭으로 대체
-- alert-rules.yml 신규 알람 추가 — 기존 알람(`SystemErrorRateCritical` 등)으로 `analyze()` 트리거 충분
-- aiops 신규 Java 도구/클래스 추가 — `queryPrometheusMetrics(promql)`로 충분
-- v2(canary) Deployment의 HPA 적용 — 고정 replica
-- 실제 다른 빌드의 v2 이미지 제작/배포 — 기본값은 v1과 동일 이미지, 별도 태그 입력 구조만 제공
-- HPA Max + 클러스터 여유자원 컨텍스트 (2번 항목, 별도 합의로 스킵)
+- 카나리 최초 시작(v2 weight 0% → 10%) — 기존 `proposeTrafficShift` 수동 트리거로 충분
+- 스케줄러 자체의 롤백 로직 — v2 에러율 급증은 신규 `CanaryV2ErrorRateHigh` 알람 → `analyze()` → 기존 시나리오10의 `proposeTrafficShift(v1=100,v2=0)` 경로로 이미 커버, 중복 구현 안 함
+- v1/v2 외 3-way 카나리, p99/latency 기반 분석, Alertmanager resolved 파이프라인 재설계, HPA 상호작용 — 직전 작업과 동일하게 비범위 유지
+- server-a/b/c 외 다른 VirtualService(gateway-service, aiops 등)로의 확장
 
 ## 단계별 작업 계획
 
-### 단계 1: server-a/b/c Service·Deployment에 카나리 공통 라벨 적용
-- 변경 파일:
-  - helm/promotion-app/templates/server-a/{deployment.yaml, service.yaml}
-  - helm/promotion-app/templates/server-b/{deployment.yaml, service.yaml}
-  - helm/promotion-app/templates/server-c/{deployment.yaml, service.yaml}
-- 변경 내용 요약: 각 v1 Deployment의 pod template에 공통 라벨 `istio-canary-group: {{ .Values.serverX.name }}`을 추가한다 (mutable, selector 불변). 각 Service의 `spec.selector`를 `app: {{ .Values.serverX.name }}` → `istio-canary-group: {{ .Values.serverX.name }}`로 변경한다 (mutable). v1 Deployment의 `selector.matchLabels`(immutable, `app: server-X`)는 그대로 유지하면서, v2 파드를 같은 Service의 엔드포인트로 포함시킬 수 있게 된다.
-- 검증 방법: `helm template helm/promotion-app`로 렌더링한 Service의 `spec.selector` 값과, v1 Deployment의 `spec.selector.matchLabels`가 기존(`app: server-X`)과 동일한지 확인
-- 롤백 방법: git checkout으로 6개 파일 되돌림
+### 단계 1: alert-rules.yml — CanaryV2ErrorRateHigh 알람 추가
+- 변경 파일: `helm/promotion-monitoring/files/alert-rules.yml`
+- 변경 내용 요약: `Tier1-Business-Impact-SLO` 그룹에 `SystemErrorRateCritical`(132행)과 동일한 절대 임계값(5xx 비율 > 5%, `[5m]` 윈도우)을 `destination_version="v2"` 기준으로 적용하는 신규 알람 추가. min request rate guard로 `sum(rate(istio_requests_total{destination_version="v2"}[5m])) > 0.05`를 추가(2번 요건 — v2는 트래픽이 적으므로 기존 가드(>10)보다 낮은 값 사용).
+- 검증 방법: `helm template helm/promotion-monitoring` 렌더링 성공 + 출력에 `CanaryV2ErrorRateHigh` 포함 확인
+- 롤백 방법: 신규 alert 블록만 git revert
+- 예상 소요: 짧음
+
+### 단계 2: AiOpsAgentService — 시나리오 10에 유의성 체크 가이드 추가
+- 변경 파일: `aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java`
+- 변경 내용 요약: 76-85행 시나리오 10에 "v2 요청률(`sum(rate(istio_requests_total{destination_version="v2"}[5m]))`)이 0.05 req/s 미만이면 에러율 수치가 통계적으로 무의미하므로 판단을 보류하고 추가 관찰" 문구 추가. 1번 알람과 동일한 가드 수치(0.05)로 일관성 유지.
+- 검증 방법: `.\gradlew.bat :aiops:compileJava`
+- 롤백 방법: 추가한 문구만 git revert
+- 예상 소요: 짧음
+
+### 단계 3: KubernetesTools — getCanaryWeight(serviceName) 헬퍼 추가
+- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
+- 변경 내용 요약: `kubectl get virtualservice <name> -n <ns> -o jsonpath={.spec.http[0].route[?(@.destination.subset=='v2')].weight}`로 현재 v2 가중치(0~100)를 조회하는 내부 헬퍼 메서드 추가. AI용 `@Tool`이 아닌 `CanaryRolloutScheduler` 전용 내부 메서드. 결과 없음/파싱 실패 시 -1 반환.
+- 검증 방법: `KubernetesToolsTest`에 파싱/예외 처리 단위 테스트 추가
+- 롤백 방법: 메서드만 git revert
+- 예상 소요: 짧음
+
+### 단계 4: CanaryRolloutScheduler 신규 추가 (점진적 자동 승급)
+- 변경 파일(신규): `aiops/src/main/java/aiops/aiops/scheduler/CanaryRolloutScheduler.java`
+- 변경 파일(수정): `aiops/src/main/java/aiops/aiops/AiopsApplication.java` (`@EnableScheduling` 추가), `aiops/src/main/resources/application.yaml` (`canary.rollout.*` 설정 추가)
+- 변경 내용 요약:
+  - `@Scheduled(fixedRateString)`로 주기 실행 (기본 5분, `canary.rollout.interval-ms`).
+  - 대상 서비스(기본 server-a/b/c, `canary.rollout.services`) 각각에 대해 `getCanaryWeight` 조회 → 0 또는 100이면 스킵 + 상태 초기화.
+  - `prometheusClient`로 v2 요청률과 v2 5xx 비율(`destination_version="v2"`, `destination_service_name="<svc>"`)을 조회.
+  - 요청률 < 0.05(가드) → 판단 보류(카운터 유지). 5xx 비율 > 5% → 비정상(카운터 리셋). 정상이면 연속 정상 카운터 증가.
+  - 연속 정상 카운터 >= `healthy-checks-required`(기본 2, 즉 10분) → steps(10→25→50→100) 중 다음 단계로 `kubernetesTools.proposeTrafficShift(service, 100-next, next, reason)` 호출(기존 Slack 승인 경로 재사용) 후 카운터 리셋 + 동일 weight 재제안 방지(쿨다운).
+  - 관찰된 v2 weight가 이전 관찰값과 다르면(외부에서 변경됨) 상태 전체 리셋.
+- 검증 방법: `.\gradlew.bat :aiops:compileJava`
+- 롤백 방법: 신규 파일 삭제 + AiopsApplication/application.yaml 변경 revert
 - 예상 소요: 보통
 
-### 단계 2: values.yaml에 카나리(v2) 옵션 추가
-- 변경 파일: helm/promotion-app/values.yaml
-- 변경 내용 요약: serverA/B/C 각각에 `canary: {enabled: false, replicas: 1, image: ""}` 섹션을 추가한다. `image`가 빈 문자열이면 v1과 동일 이미지를 사용한다.
-- 검증 방법: `helm template helm/promotion-app` 기본값으로 렌더링 시 오류 없음 (canary 비활성 상태에서 미참조 값으로 인한 템플릿 오류 없는지 확인)
-- 롤백 방법: git checkout values.yaml
-- 예상 소요: 짧음
-
-### 단계 3: server-a/b/c에 v2(canary) Deployment 템플릿 추가
-- 변경 파일 (신규):
-  - helm/promotion-app/templates/server-a/deployment-canary.yaml
-  - helm/promotion-app/templates/server-b/deployment-canary.yaml
-  - helm/promotion-app/templates/server-c/deployment-canary.yaml
-- 변경 내용 요약: `{{- if .Values.serverX.canary.enabled }}`로 감싼 Deployment. `selector.matchLabels: {app: {{ .Values.serverX.name }}-canary}` (v1 selector `{app: server-X}`와 겹치지 않음). pod template 라벨: `app: server-X-canary`, `version: v2`, `istio-canary-group: server-X` (Service가 v2를 엔드포인트로 포함하도록). 이미지는 `.Values.serverX.canary.image`가 있으면 사용, 없으면 `.Values.serverX.image`. replicas는 `.Values.serverX.canary.replicas`, HPA 없음. 기존 deployment.yaml의 env/resources/probe 구조를 따른다 (Pyroscope initContainer는 v2에서는 생략 — 단순화).
-- 검증 방법: `helm template helm/promotion-app --set serverA.canary.enabled=true --set serverB.canary.enabled=true --set serverC.canary.enabled=true`로 렌더링, v1/v2 Deployment의 `spec.selector.matchLabels`가 서로 다른지(`app: server-a` vs `app: server-a-canary`) 확인, pod label에 `version: v2`/`istio-canary-group: server-a` 포함 확인
-- 롤백 방법: 3개 신규 파일 삭제
+### 단계 5: 단위 테스트 작성
+- 변경 파일: `aiops/src/test/java/aiops/aiops/scheduler/CanaryRolloutSchedulerTest.java`(신규), `aiops/src/test/java/aiops/aiops/tools/KubernetesToolsTest.java`(getCanaryWeight 케이스 추가)
+- 변경 내용 요약:
+  - v2Weight=0/100 → 스킵, 상태 미생성/초기화
+  - 요청률 부족 → `proposeTrafficShift` 미호출, 카운터 불변
+  - 5xx 비율 초과 → `proposeTrafficShift` 미호출, 카운터 리셋
+  - 정상 N회 반복 → `proposeTrafficShift(v1=75,v2=25)` 1회 호출, 같은 weight로 추가 호출 시 재호출 안 됨(쿨다운)
+  - weight 외부 변경 감지 → 상태 리셋
+- 검증 방법: `.\gradlew.bat :aiops:test --tests "*CanaryRolloutScheduler*" --tests "*KubernetesTools*"`
+- 롤백 방법: 테스트 파일만 git revert
 - 예상 소요: 보통
 
-### 단계 4: Prometheus에 Istio waypoint 메트릭 스크랩 job 추가
-- 변경 파일: helm/promotion-monitoring/files/prometheus.yml
-- 변경 내용 요약: `kubernetes_sd_configs: role: pod`로 `promotion` 네임스페이스의 waypoint pod(라벨 `gateway.networking.k8s.io/gateway-name: waypoint` 추정)를 디스커버리하고, 포트 15020 `/stats/prometheus`에서 `istio_requests_total` 등 메트릭을 수집한다. RBAC은 기존 prometheus ClusterRole(pods/services/endpoints get/list/watch)로 충분.
-- 검증 방법: `helm template helm/promotion-monitoring`으로 ConfigMap에 포함된 prometheus.yml의 YAML 유효성(파싱 성공) 확인
-- 롤백 방법: git checkout prometheus.yml
-- 예상 소요: 짧음
-
-### 단계 5: aiops 시스템 프롬프트에 버전별 에러율 비교 가이드 추가
-- 변경 파일: aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java
-- 변경 내용 요약: SYSTEM_PROMPT 10번 단계("Istio 트래픽 제어 시나리오")에 "v1/v2 에러율 비교는 `sum(rate(istio_requests_total{destination_version="v2", response_code=~"5.."}[5m])) / sum(rate(istio_requests_total{destination_version="v2"}[5m])) * 100`(v1도 동일 패턴)을 queryPrometheusMetrics로 조회하여 비교하라"는 가이드 1~2문장을 추가한다.
-- 검증 방법: `.\gradlew.bat :aiops:test` (컴파일 + 기존 테스트 통과 확인 — 문자열 변경이므로 회귀 영향 없음)
-- 롤백 방법: git checkout AiOpsAgentService.java
-- 예상 소요: 짧음
-
-### 단계 6: 최종 통합 검증 및 문서화
-- 변경 파일: docs/design-notes.md (조건 충족 시), docs/checklist.md
-- 변경 내용 요약: `helm template` 전체(canary on/off 양쪽, promotion-app + promotion-monitoring)를 최종 렌더링하고 `git diff --stat`로 비범위 침범 여부를 확인한다. design-notes.md에는 "selector 충돌 회피를 위해 공통 라벨+Service selector 전환 방식을 선택한 이유"와 "EKS 적용 순서(라벨 롤아웃 → Service selector 전환)"를 기록한다.
-- 검증 방법: `helm template helm/promotion-app --set serverA.canary.enabled=true --set serverB.canary.enabled=true --set serverC.canary.enabled=true` + `helm template helm/promotion-monitoring` 모두 성공, `git diff --stat`
-- 롤백 방법: 해당 없음 (검증/문서화 단계)
+### 단계 6: 최종 검증
+- 변경 파일: 없음 (검증만)
+- 변경 내용 요약: `.\gradlew.bat :aiops:build`, `helm template helm/promotion-monitoring`, `git diff --stat`로 비범위 침범 여부 확인. design-notes.md에 "점진 승급 트리거를 알람이 아닌 자체 스케줄러로 둔 이유", "연속 정상 카운터(시간 기반 대신) 채택 이유", "`destination_service_name` 라벨은 EKS 실제 메트릭과 다를 수 있어 배포 후 확인 필요"를 기록.
+- 검증 방법: `.\gradlew.bat :aiops:build`, `helm template helm/promotion-monitoring`
+- 롤백 방법: 해당 없음
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- 리스크 1: EKS에 server-a/b/c가 이미 배포되어 있는 경우, Service selector 변경(`app:` → `istio-canary-group:`) 적용 순서가 잘못되면 일시적으로 엔드포인트가 비어 트래픽이 끊길 수 있다 → 대응: "v1 pod template에 새 라벨 추가 후 rollout 완료 → Service selector 전환" 순서를 design-notes.md에 명시한다. 이번 작업은 Helm 템플릿 작성까지만 하고, 실제 적용 순서는 사용자가 EKS에서 수행한다.
-- 리스크 2: waypoint pod의 실제 라벨/포트(15020, /stats/prometheus)가 추정과 다를 수 있다 → 로컬은 `helm template` 렌더링까지만 검증하고, 실제 동작은 EKS 배포 후 Prometheus targets 페이지로 확인 필요 (커밋 메시지에 명시).
-- 리스크 3: v1/v2 Deployment selector 중복으로 인한 ReplicaSet 충돌 → `helm template` 결과에서 두 selector(`app: server-X` vs `app: server-X-canary`)가 다름을 직접 대조해 검증한다.
+- 리스크 1: `istio_requests_total`의 실제 라벨명(`destination_service_name` 등)이 추정과 다를 수 있음 → 로컬에서는 PromQL 문법/로직만 검증, 실제 라벨은 EKS 배포 후 Prometheus에서 확인(design-notes.md에 기록).
+- 리스크 2: 스케줄러가 주기적으로 Slack에 중복 제안을 보낼 위험 → "제안 쿨다운"(동일 weight에서 재제안 안 함) 로직으로 방지.
+- 리스크 3: `getCanaryWeight`의 jsonpath가 v2 subset route를 못 찾을 경우(-1) → 스케줄러는 "조회 불가, 스킵"으로 처리.
 
 ## 의존성
-- Istio Ambient(`helm/promotion-istio`)와 waypoint(`helm/promotion-istio/templates/waypoint.yaml`)가 클러스터에 이미 적용되어 있어야 waypoint 메트릭이 존재한다.
-- Prometheus RBAC(`helm/promotion-monitoring/templates/metrics/prometheus.yaml`)은 변경 불필요 (이미 pods/services/endpoints get/list/watch 보유).
+- 직전 작업(커밋 aaa8efa~306b9ac)의 istio-waypoint Prometheus 스크랩 잡, v1/v2 selector/VirtualService 구조에 의존.
+- 신규 Gradle 의존성 없음 (Jackson ObjectMapper, `prometheusClient` RestClient, `@Scheduled` 모두 기존 의존성으로 충족).
