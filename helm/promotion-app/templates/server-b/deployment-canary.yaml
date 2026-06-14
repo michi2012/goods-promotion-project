@@ -1,7 +1,8 @@
-﻿apiVersion: apps/v1
+{{- if .Values.serverB.canary.enabled }}
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.serverB.name }}
+  name: {{ .Values.serverB.name }}-canary
   namespace: {{ .Values.namespace }}
   labels:
     app.kubernetes.io/name: {{ .Values.serverB.name }}
@@ -9,19 +10,17 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     helm.sh/chart: {{ include "promotion-app.chart" . }}
 spec:
-  {{- if not .Values.serverB.autoscaling.enabled }}
-  replicas: {{ .Values.serverB.replicas }}
-  {{- end }}
+  replicas: {{ .Values.serverB.canary.replicas }}
   selector:
     matchLabels:
-      app: {{ .Values.serverB.name }}
+      app: {{ .Values.serverB.name }}-canary
   template:
     metadata:
       labels:
-        app: {{ .Values.serverB.name }}
+        app: {{ .Values.serverB.name }}-canary
         app.kubernetes.io/name: {{ .Values.serverB.name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
-        version: v1
+        version: v2
         istio-canary-group: {{ .Values.serverB.name }}
       annotations:
         prometheus.io/scrape: "true"
@@ -32,18 +31,9 @@ spec:
       terminationGracePeriodSeconds: 60
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
-      {{- if .Values.serverB.profiler.enabled }}
-      initContainers:
-        - name: pyroscope-agent-init
-          image: curlimages/curl:latest
-          command: ["sh", "-c", "curl -sL https://github.com/grafana/pyroscope-java/releases/latest/download/pyroscope.jar -o /agent/pyroscope.jar"]
-          volumeMounts:
-            - name: pyroscope-agent
-              mountPath: /agent
-      {{- end }}
       containers:
-        - name: {{ .Values.serverB.name }}
-          image: {{ .Values.serverB.image }}
+        - name: {{ .Values.serverB.name }}-canary
+          image: {{ .Values.serverB.canary.image | default .Values.serverB.image }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           lifecycle:
             preStop:
@@ -66,21 +56,6 @@ spec:
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.serverB.otlpEndpoint | quote }}
             {{- end }}
-            {{- if .Values.serverB.profiler.enabled }}
-            - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/agent/pyroscope.jar"
-            - name: PYROSCOPE_APPLICATION_NAME
-              value: {{ .Values.serverB.name | quote }}
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: "http://pyroscope:4040"
-            - name: PYROSCOPE_FORMAT
-              value: "jfr"
-            {{- end }}
-          {{- if .Values.serverB.profiler.enabled }}
-          volumeMounts:
-            - name: pyroscope-agent
-              mountPath: /agent
-          {{- end }}
           resources:
             requests:
               cpu: {{ .Values.serverB.resources.requests.cpu | quote }}
@@ -102,11 +77,4 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
-      {{- if .Values.serverB.profiler.enabled }}
-      volumes:
-        - name: pyroscope-agent
-          emptyDir: {}
-      {{- end }}
-
-
-
+{{- end }}

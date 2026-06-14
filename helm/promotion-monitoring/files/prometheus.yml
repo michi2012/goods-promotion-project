@@ -71,3 +71,24 @@ scrape_configs:
         regex: (.+)
         target_label: __metrics_path__
         replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+
+  - job_name: 'istio-waypoint'
+    metrics_path: /stats/prometheus
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - promotion
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_gateway_networking_k8s_io_gateway_name]
+        action: keep
+        regex: waypoint
+      - source_labels: [__address__]
+        action: replace
+        regex: (.+?)(:\d+)?
+        replacement: $1:15020
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod

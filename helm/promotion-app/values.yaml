@@ -105,6 +105,10 @@ serverA:
           - type: Pods
             value: 1
             periodSeconds: 60
+  canary:
+    enabled: false  # true로 설정하면 v2 카나리 Deployment(1개) 생성
+    replicas: 1
+    image: ""  # 비어있으면 serverA.image와 동일한 이미지 사용
 
 serverB:
   name: server-b
@@ -150,6 +154,10 @@ serverB:
           - type: Pods
             value: 1
             periodSeconds: 60
+  canary:
+    enabled: false  # true로 설정하면 v2 카나리 Deployment(1개) 생성
+    replicas: 1
+    image: ""  # 비어있으면 serverB.image와 동일한 이미지 사용
 
 serverC:
   name: server-c
@@ -196,6 +204,10 @@ serverC:
           - type: Pods
             value: 1
             periodSeconds: 60
+  canary:
+    enabled: false  # true로 설정하면 v2 카나리 Deployment(1개) 생성
+    replicas: 1
+    image: ""  # 비어있으면 serverC.image와 동일한 이미지 사용
 
 userService:
   name: user-service
