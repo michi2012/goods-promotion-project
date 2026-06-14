@@ -24,3 +24,18 @@ github:
 linear:
   api-key: test-linear-key
   team-id: test-team-id
+
+data-query:
+  datasource:
+    order:
+      url: jdbc:mysql://localhost:3306/order
+      username: test
+      password: test
+    payment:
+      url: jdbc:mysql://localhost:3306/payment
+      username: test
+      password: test
+    user:
+      url: jdbc:mysql://localhost:3306/user
+      username: test
+      password: test

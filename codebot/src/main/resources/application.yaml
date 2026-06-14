@@ -46,6 +46,21 @@ linear:
 k8s:
   namespace: ${K8S_NAMESPACE:promotion}
 
+data-query:
+  datasource:
+    order:
+      url: "${CODEBOT_ORDER_DB_URL:jdbc:mysql://mysql:3306/order?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}"
+      username: ${CODEBOT_ORDER_DB_USERNAME:codebot_ro}
+      password: ${CODEBOT_ORDER_DB_PASSWORD:}
+    payment:
+      url: "${CODEBOT_PAYMENT_DB_URL:jdbc:mysql://mysql-c:3306/payment?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}"
+      username: ${CODEBOT_PAYMENT_DB_USERNAME:codebot_ro}
+      password: ${CODEBOT_PAYMENT_DB_PASSWORD:}
+    user:
+      url: "${CODEBOT_USER_DB_URL:jdbc:mysql://mysql-user:3306/user?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}"
+      username: ${CODEBOT_USER_DB_USERNAME:codebot_ro}
+      password: ${CODEBOT_USER_DB_PASSWORD:}
+
 management:
   observations:
     enable:

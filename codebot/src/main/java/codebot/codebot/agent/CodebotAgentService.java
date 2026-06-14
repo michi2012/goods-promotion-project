@@ -1,6 +1,7 @@
 package codebot.codebot.agent;
 
 import codebot.codebot.tools.CodeSearchTools;
+import codebot.codebot.tools.DataQueryTools;
 import codebot.codebot.tools.KubernetesTools;
 import codebot.codebot.tools.LinearTools;
 import codebot.codebot.tools.ObservabilityTools;
@@ -42,6 +43,11 @@ public class CodebotAgentService {
             - prBody: 변경 요약, 테스트 방법, 영향도 및 주의사항을 마크다운으로 작성한다.
             - 결과(PR URL 또는 안내 메시지)는 반드시 사용자에게 그대로 안내한다.
 
+            ## 데이터 조회 (executeQuery)
+            - PO/기획이 주문/결제/사용자 관련 데이터나 통계를 질문하면 executeQuery로 order/payment/user DB를 조회한다.
+            - 조회 결과(코드블럭 표)는 그대로 보여주고, 필요하면 합계/비율/특이사항 등 간단한 분석을 덧붙인다.
+            - 화이트리스트에 없는 테이블/컬럼은 조회할 수 없다. 실패 시 도구가 반환한 사유를 사용자에게 안내한다.
+
             ## 응답 형식
             - 한국어로, Slack 스레드에 그대로 게시될 자연스러운 문장으로 답한다.
             """;
@@ -53,6 +59,7 @@ public class CodebotAgentService {
     private final KubernetesTools kubernetesTools;
     private final LinearTools linearTools;
     private final PullRequestTools pullRequestTools;
+    private final DataQueryTools dataQueryTools;
 
     public String investigate(String conversationId, String message) {
         try {
@@ -62,7 +69,8 @@ public class CodebotAgentService {
                     .user(message)
                     .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                     .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
-                    .tools(codeSearchTools, observabilityTools, kubernetesTools, linearTools, pullRequestTools)
+                    .tools(codeSearchTools, observabilityTools, kubernetesTools, linearTools, pullRequestTools,
+                            dataQueryTools)
                     .call()
                     .content();
         } catch (Exception e) {

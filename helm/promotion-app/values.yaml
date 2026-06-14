@@ -296,6 +296,19 @@ codebot:
   aiApiKey: ""           # --set codebot.aiApiKey=<key>
   linearApiKey: ""       # --set codebot.linearApiKey=<key>
   linearTeamId: ""       # --set codebot.linearTeamId=<team-id>
+  datasource:
+    order:
+      url: ""       # --set codebot.datasource.order.url=jdbc:mysql://<RDS_ENDPOINT>:3306/order?...
+      username: ""  # --set codebot.datasource.order.username=codebot_ro
+      password: ""  # --set codebot.datasource.order.password=<password>
+    payment:
+      url: ""       # --set codebot.datasource.payment.url=jdbc:mysql://<RDS_C_ENDPOINT>:3306/payment?...
+      username: ""  # --set codebot.datasource.payment.username=codebot_ro
+      password: ""  # --set codebot.datasource.payment.password=<password>
+    user:
+      url: ""       # --set codebot.datasource.user.url=jdbc:mysql://<RDS_USER_ENDPOINT>:3306/user?...
+      username: ""  # --set codebot.datasource.user.username=codebot_ro
+      password: ""  # --set codebot.datasource.user.password=<password>
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   resources:
     requests:
