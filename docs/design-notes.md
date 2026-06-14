@@ -159,3 +159,28 @@ SagaOrchestratorService.handleSagaFailure()
 **채택하지 않은 대안:**
 - 타임스탬프/해시 슬러그로 매번 새 브랜치/PR 생성 → 재요청마다 PR이 누적되어 레포 관리 비용 증가
 - git clone/checkout 기반 진짜 상태관리(V2) → 단일 파일 + 명시적 트리거 범위에서는 과한 복잡도
+
+---
+
+## Istio 카나리(v1/v2) 격리: Service selector를 `istio-canary-group` 라벨로 전환
+
+**결정:** server-a/b/c의 `spec.selector`(Deployment, immutable)는 그대로 두고, 대신 (1) v1 pod template에 신규 라벨 `istio-canary-group: server-X`를 추가하고 (2) Service의 `spec.selector`를 `app: server-X` → `istio-canary-group: server-X`로 전환했다. v2(canary) Deployment는 `selector.matchLabels: {app: server-X-canary}`로 v1과 겹치지 않게 분리하고, pod 라벨에 `version: v2`, `istio-canary-group: server-X`를 부여해 동일 Service의 엔드포인트로 합류시킨다.
+
+**이유:**
+- K8s Deployment의 `spec.selector`는 immutable이라 v1 selector를 `{app: server-X, version: v1}`처럼 표준 카나리 패턴으로 직접 바꾸면 기존 클러스터에서 `helm upgrade`가 "field is immutable" 에러로 실패하고 재생성 시 다운타임이 발생한다.
+- `istio-canary-group` 공통 라벨 + Service selector 전환 방식은 v1 Deployment의 selector를 건드리지 않으면서, Service가 v1/v2 파드를 모두 엔드포인트로 포함하게 만든다. DestinationRule의 v1/v2 subset(`version` 라벨 기준)은 이미 존재하므로 변경 불필요.
+
+**EKS 적용 순서 (무중단 전제):**
+1. v1 Deployment에 `istio-canary-group` 라벨 추가 → rollout 완료 대기 (모든 v1 파드가 새 라벨을 가짐)
+2. Service의 `spec.selector`를 `istio-canary-group: server-X`로 전환 (Service selector는 즉시 적용, mutable)
+3. (선택) `serverX.canary.enabled=true`로 v2 Deployment 배포
+
+1→2 순서를 지키지 않으면, 라벨이 아직 없는 v1 파드가 일시적으로 Service 엔드포인트에서 빠질 수 있다.
+
+**제약/불변식:**
+- Prometheus `istio-waypoint` job은 waypoint pod 라벨이 `gateway.networking.k8s.io/gateway-name: waypoint`이고 15020 포트에서 `/stats/prometheus`를 노출한다고 가정한다 — EKS 배포 후 Prometheus Targets 페이지에서 실제 라벨/포트를 확인 필요.
+- v2(canary) Deployment는 고정 replica이며 HPA를 적용하지 않는다.
+
+**채택하지 않은 대안:**
+- v1 Deployment selector를 `{app: server-X, version: v1}`로 직접 변경(표준 카나리 패턴) → `spec.selector` immutable로 인해 무중단 적용 불가.
+- Micrometer common-tags로 앱 메트릭에 `version` 라벨 추가 → 앱 재배포 필요, Istio Ambient(앱 코드 비수정)의 취지와 불일치. waypoint Envoy 메트릭(`istio_requests_total{destination_version=...}`)으로 동일 정보를 코드 변경 없이 획득 가능.

@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-06-06 (user-service 통합, Gateway JWT 인증 필터 추가)_
+_생성일: 2026-05-28 / 업데이트: 2026-06-14 (Istio 카나리 v1/v2 격리 인프라 + istio-cni 의존성 추가)_
 
 ---
 
@@ -250,7 +250,7 @@ helm/
   promotion-app/        # server-a/b/c, aiops, gateway, ALB Ingress, HPA, VirtualService, DestinationRule
   promotion-infra/      # Kafka StatefulSet+PVC, Kafka Connect, Debezium Job
   promotion-monitoring/ # Prometheus, Grafana, Tempo, Loki, Pyroscope, Vector, exporters
-  promotion-istio/      # Istio Ambient (istiod, ztunnel, waypoint proxy, namespace 레이블)
+  promotion-istio/      # Istio Ambient (istiod, istio-cni, ztunnel, waypoint proxy, namespace 레이블)
 ```
 
 ### 네트워크 레이어 (EKS)
@@ -271,10 +271,17 @@ server-a / server-b / server-c / aiops
 - Cloudflare 사용 시 WAF ARN 미설정 — DNS 위임으로 대체
 - Istio Ambient: 사이드카 없음. ztunnel DaemonSet(L4) + waypoint Gateway(L7). VirtualService로 카나리 트래픽 가중치 제어, DestinationRule로 Outlier Detection 자동 장애 격리
 
+### 카나리(v1/v2) 배포 구조
+
+- server-a/b/c의 Deployment/Service selector를 `app: {name}` → `istio-canary-group: {name}`으로 통일 — 기존 v1 Deployment(`deployment.yaml`, `version: v1`)와 신규 v2 카나리 Deployment(`deployment-canary.yaml`, `version: v2`)가 동일 Service 아래 공존 가능.
+- v2 카나리는 `values.yaml`의 `serverX.canary.enabled`(기본 false)로 토글. 활성화 시 `version: v2` 라벨의 Deployment가 추가 생성됨.
+- Istio VirtualService(subset v1/v2 weight 라우팅)·DestinationRule(subset v1/v2, outlierDetection)이 `version` 라벨 기준으로 트래픽을 분리해 카나리 분석에 사용된다.
+
 ### K8s 전용 메트릭 수집
 
 | 항목 | 방식 |
 |------|------|
+| Istio mesh 메트릭 (waypoint Envoy) | Prometheus `kubernetes_sd_configs`(role: pod, namespace=promotion) → `gateway-name=waypoint` 라벨 파드의 `:15020/stats/prometheus` (`istio_requests_total` 등 destination_version 라벨 포함) |
 | 컨테이너 메트릭 (cAdvisor) | kubelet `/metrics/cadvisor` 엔드포인트 (Prometheus RBAC + API Server 프록시) |
 | 로그 수집 | Vector DaemonSet → `/var/log/pods/` hostPath → Loki |
 | 트레이스 | apps → OTel Collector (4318) → Tempo (4317 gRPC) |
