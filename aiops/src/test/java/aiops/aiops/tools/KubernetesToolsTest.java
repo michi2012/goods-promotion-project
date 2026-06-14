@@ -94,4 +94,28 @@ class KubernetesToolsTest {
         assertThat(result).endsWith("... (이하 생략)");
         assertThat(result.length()).isEqualTo(2500 + "\n... (이하 생략)".length());
     }
+
+    @Test
+    @DisplayName("parseCanaryWeight: 정상 숫자 문자열은 정수로 변환한다")
+    void parseCanaryWeight_정상값() {
+        assertThat(kubernetesTools.parseCanaryWeight("25")).isEqualTo(25);
+        assertThat(kubernetesTools.parseCanaryWeight(" 100 ")).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("parseCanaryWeight: 빈 값/비숫자 문자열은 -1을 반환한다")
+    void parseCanaryWeight_파싱실패시_minus1() {
+        assertThat(kubernetesTools.parseCanaryWeight("")).isEqualTo(-1);
+        assertThat(kubernetesTools.parseCanaryWeight("(결과 없음)")).isEqualTo(-1);
+    }
+
+    @Test
+    @DisplayName("getCanaryWeight: kubectl 조회 실패 시 -1을 반환한다")
+    void getCanaryWeight_kubectl실패시_minus1() {
+        // when: 존재하지 않는 VirtualService 또는 kubectl 접근 불가 환경
+        int result = kubernetesTools.getCanaryWeight("nonexistent-service");
+
+        // then
+        assertThat(result).isEqualTo(-1);
+    }
 }

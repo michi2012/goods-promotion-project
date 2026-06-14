@@ -143,6 +143,29 @@ public class KubernetesTools {
         }
     }
 
+    /**
+     * 카나리(v2) VirtualService 트래픽 가중치를 조회한다. (AI @Tool 아님 — CanaryRolloutScheduler 전용)
+     * @return v2 weight (0~100), 조회/파싱 실패 시 -1
+     */
+    public int getCanaryWeight(String serviceName) {
+        try {
+            String result = runKubectl("get", "virtualservice", serviceName, "-n", namespace,
+                    "-o", "jsonpath={.spec.http[0].route[?(@.destination.subset=='v2')].weight}");
+            return parseCanaryWeight(result);
+        } catch (Exception e) {
+            log.warn("[Istio] 카나리(v2) 가중치 조회 실패: service={}, error={}", serviceName, e.getMessage());
+            return -1;
+        }
+    }
+
+    int parseCanaryWeight(String raw) {
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     @Tool(description = """
             Istio VirtualService의 트래픽 가중치를 조정해 특정 버전(v2)으로 가는 트래픽을 격리합니다. Slack에 승인 요청합니다.
             언제 호출: 다음 중 하나라도 해당하면 즉시 호출하라.

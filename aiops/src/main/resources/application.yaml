@@ -51,6 +51,15 @@ slack:
 k8s:
   namespace: ${K8S_NAMESPACE:promotion}
 
+canary:
+  rollout:
+    interval-ms: ${CANARY_ROLLOUT_INTERVAL_MS:300000}
+    services: ${CANARY_ROLLOUT_SERVICES:server-a,server-b,server-c}
+    steps: ${CANARY_ROLLOUT_STEPS:10,25,50,100}
+    healthy-checks-required: ${CANARY_ROLLOUT_HEALTHY_CHECKS_REQUIRED:2}
+    max-error-rate-percent: ${CANARY_ROLLOUT_MAX_ERROR_RATE_PERCENT:5.0}
+    min-request-rate: ${CANARY_ROLLOUT_MIN_REQUEST_RATE:0.05}
+
 management:
   observations:
     enable:
