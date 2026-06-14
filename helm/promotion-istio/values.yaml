@@ -13,5 +13,9 @@ istiod:
   meshConfig:
     accessLogFile: /dev/stdout   # Envoy 접근 로그 stdout 출력
 
+# istio/cni — 노드별 트래픽 리다이렉트 설정 (DaemonSet, ztunnel의 in-pod 리다이렉션 전제조건)
+cni:
+  profile: ambient
+
 # istio/ztunnel — 노드별 L4 ambient 프록시 (DaemonSet)
 ztunnel: {}
