@@ -19,6 +19,14 @@ import java.util.Map;
 @Component
 public class PullRequestTools {
 
+    private static final String PR_CHECKLIST = """
+
+
+            ## PR 전 체크리스트
+            - [ ] 테스트 작성 및 통과 확인
+            - [ ] API/인터페이스 변경 시 관련 문서 갱신
+            - [ ] 민감 정보(비밀번호, 토큰 등) 로그/응답 노출 여부 확인""";
+
     private static final String PR_NOTICE = """
 
 
@@ -56,7 +64,18 @@ public class PullRequestTools {
             @ToolParam(description = "Linear 이슈 식별자 (예: \"MIC-12\") — 브랜치명 결정 및 PR의 Closes 연동에 사용") String issueIdentifier,
             @ToolParam(description = "커밋 메시지 (예: \"fix: OrderService 무한루프 수정\")") String commitMessage,
             @ToolParam(description = "PR 제목 (신규 PR 생성 시에만 사용)") String prTitle,
-            @ToolParam(description = "PR 본문 — 변경 요약/테스트 방법/영향도를 마크다운으로 작성 (신규 PR 생성 시에만 사용)") String prBody) {
+            @ToolParam(description = """
+                    PR 본문(마크다운, 신규 PR 생성 시에만 사용). 아래 형식을 그대로 따르세요 ("관련 이슈" 섹션은 자동으로 추가되므로 포함하지 마세요):
+
+                    ## 변경 요약
+                    {무엇을, 왜 변경했는지 1-3문장}
+
+                    ## 테스트 방법
+                    {어떻게 검증했는지}
+
+                    ## 영향도 및 주의사항
+                    {이번 변경으로 영향을 받는 다른 기능/API/이벤트, 주의할 점}
+                    """) String prBody) {
         if (isProtectedPath(filePath)) {
             return "보안상 \"" + filePath + "\" 경로는 codebot이 수정할 수 없습니다 (CI 설정/환경변수 파일 등). 직접 수정해주세요.";
         }
@@ -156,7 +175,7 @@ public class PullRequestTools {
                 "title", prTitle,
                 "head", branch,
                 "base", "main",
-                "body", prBody + "\n\nCloses " + issueIdentifier + PR_NOTICE);
+                "body", prBody + "\n\n## 관련 이슈\nCloses " + issueIdentifier + PR_CHECKLIST + PR_NOTICE);
 
         String responseJson = githubClient.post()
                 .uri("/repos/{owner}/{repo}/pulls", githubOwner, githubRepo)

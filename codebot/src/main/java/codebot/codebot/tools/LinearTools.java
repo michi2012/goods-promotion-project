@@ -53,8 +53,8 @@ public class LinearTools {
             @ToolParam(description = "직무 라벨 이름 (백엔드/프론트엔드/인프라 중 하나)") String roleLabel) {
         try {
             String assigneeId = resolveViewerId();
-            String domainLabelId = resolveLabelId(domainLabel);
-            String roleLabelId = resolveLabelId(roleLabel);
+            String domainLabelId = resolveLabelId(domainLabel, "도메인");
+            String roleLabelId = resolveLabelId(roleLabel, "직무");
 
             Map<String, Object> input = Map.of(
                     "title", title,
@@ -95,11 +95,11 @@ public class LinearTools {
         return result.path("data").path("viewer").path("id").asText();
     }
 
-    private String resolveLabelId(String labelName) throws Exception {
+    private String resolveLabelId(String labelName, String expectedGroup) throws Exception {
         String query = """
-                query($teamId: String!, $name: String!) {
+                query($teamId: ID!, $name: String!) {
                   issueLabels(filter: { team: { id: { eq: $teamId } }, name: { eq: $name } }) {
-                    nodes { id }
+                    nodes { id parent { name } }
                   }
                 }
                 """;
@@ -108,7 +108,14 @@ public class LinearTools {
         if (!nodes.isArray() || nodes.isEmpty()) {
             throw new IllegalStateException("라벨을 찾을 수 없습니다: " + labelName);
         }
-        return nodes.get(0).path("id").asText();
+        JsonNode label = nodes.get(0);
+        String actualGroup = label.path("parent").path("name").asText("");
+        if (!expectedGroup.equals(actualGroup)) {
+            throw new IllegalStateException(
+                    "'" + labelName + "'은 '" + expectedGroup + "' 라벨이 아닙니다 (실제 그룹: '" + actualGroup + "'). "
+                    + ("도메인".equals(expectedGroup) ? "주문/결제/프로모션/유저" : "백엔드/프론트엔드/인프라") + " 중에서 선택하세요.");
+        }
+        return label.path("id").asText();
     }
 
     private JsonNode execute(String query, Map<String, Object> variables) throws Exception {
