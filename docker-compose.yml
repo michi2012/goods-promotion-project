@@ -734,12 +734,66 @@ services:
       EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
       OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
-      - alertmanager
-      - prometheus
-      - loki
-      - tempo
-      - otel-collector
-      - discovery-service
+      alertmanager:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      discovery-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  codebot:
+    build:
+      context: ./codebot
+      dockerfile: Dockerfile
+    container_name: codebot
+    volumes:
+      - shared-logs:/logs
+    ports:
+      - "8087:8087"
+    networks:
+      - promotion-network
+    environment:
+      TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
+      GITHUB_OWNER: ${GITHUB_OWNER}
+      GITHUB_REPO: ${GITHUB_REPO}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      AI_API_KEY: ${AI_API_KEY}
+      LINEAR_API_KEY: ${LINEAR_API_KEY}
+      LINEAR_TEAM_ID: ${LINEAR_TEAM_ID}
+      EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+      CODEBOT_ORDER_DB_PASSWORD: codebot_ro_pw
+      CODEBOT_PAYMENT_DB_PASSWORD: codebot_ro_pw
+      CODEBOT_USER_DB_PASSWORD: codebot_ro_pw
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      discovery-service:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mysql-c:
+        condition: service_healthy
+      mysql-user:
+        condition: service_healthy
     deploy:
       resources:
         limits:
