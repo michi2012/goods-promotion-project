@@ -4,6 +4,18 @@
 
 ---
 
+## v1.9.0 — 2026-06-14
+
+> Router-Worker 챗봇 아키텍처 도입과 Istio 카나리(v1/v2) 트래픽 격리·자동 점진 승급(에러율+latency) 인프라를 추가했습니다.
+
+### ✨ New Features
+- [router] aiops(Router)/codebot(Worker) 분리 — Slack 이벤트 의도 분류 후 라우팅, codebot은 Pyroscope 핫스팟 분석·단일파일 PR 자동 생성 담당 (#5) (cb269ab)
+- [istio] server-a/b/c v2(canary) Deployment 추가 및 DestinationRule/VirtualService 가중치 라우팅 인프라 구성 (#5) (cb269ab)
+- [aiops] `CanaryV2ErrorRateHigh`/`CanaryV2LatencyHigh` 알람 및 `CanaryRolloutScheduler` 추가 — v2 정상 상태 연속 확인 시 점진 승급 제안, 비정상 시 카운터 리셋(격리는 알람 경로 전담) (#5) (cb269ab)
+- [aiops] 데드락 의심 시 스레드 덤프 확보 후 롤링 재시작, 자동조치 완료 후 Linear 감사 티켓 자동 생성 (#5) (cb269ab)
+
+---
+
 ## v1.8.0 — 2026-06-13
 
 > 프론트엔드(React+TS+Vite) 기반 구축 및 AI 워크플로우 PM 커맨드 파이프라인 정비
