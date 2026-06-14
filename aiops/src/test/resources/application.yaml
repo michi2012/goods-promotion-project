@@ -23,5 +23,10 @@ github:
   owner: test-owner
   repo: test-repo
 
+linear:
+  api-key: test-linear-key
+  team-id: test-team-id
+
 slack:
   webhook-url: http://localhost/slack-test
+  bot-token: test-bot-token

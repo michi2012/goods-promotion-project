@@ -52,6 +52,33 @@ public class RestClientConfig {
     }
 
     @Bean
+    public RestClient slackBotApiClient(@Value("${slack.bot-token}") String slackBotToken) {
+        return RestClient.builder()
+                .baseUrl("https://slack.com/api")
+                .defaultHeader("Authorization", "Bearer " + slackBotToken)
+                .build();
+    }
+
+    @Bean
+    public RestClient linearClient(@Value("${linear.api-key}") String linearApiKey) {
+        return RestClient.builder()
+                .baseUrl("https://api.linear.app/graphql")
+                .defaultHeader("Authorization", linearApiKey)
+                .defaultHeader("Content-Type", "application/json")
+                .build();
+    }
+
+    @Bean
+    public RestClient.Builder internalServiceClientBuilder() {
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(Duration.ofSeconds(60));
+        return RestClient.builder().requestFactory(factory);
+    }
+
+    @Bean
     public RestClient githubClient() {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))

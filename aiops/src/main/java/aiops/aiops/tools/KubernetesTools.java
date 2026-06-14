@@ -66,9 +66,11 @@ public class KubernetesTools {
                 "{\"deployment\":\"%s\",\"namespace\":\"%s\"}", deploymentName, namespace);
         String id = approvalService.propose("ROLLOUT_RESTART", params, reason);
 
+        String threadDumpSummary = extractThreadDumpSummary(deploymentName);
+
         slackService.sendBlockKit(
                 "K8s 롤링 재시작 승인 요청: " + deploymentName,
-                buildRestartBlocks(id, deploymentName, reason));
+                buildRestartBlocks(id, deploymentName, reason, threadDumpSummary));
 
         log.info("[K8s] 롤링 재시작 제안 등록 및 Slack 발송: id={}, deployment={}", id, deploymentName);
         return "롤링 재시작 제안 등록됨 [" + id + "]: " + deploymentName + "\n사유: " + reason;
@@ -141,6 +143,29 @@ public class KubernetesTools {
         }
     }
 
+    /**
+     * 카나리(v2) VirtualService 트래픽 가중치를 조회한다. (AI @Tool 아님 — CanaryRolloutScheduler 전용)
+     * @return v2 weight (0~100), 조회/파싱 실패 시 -1
+     */
+    public int getCanaryWeight(String serviceName) {
+        try {
+            String result = runKubectl("get", "virtualservice", serviceName, "-n", namespace,
+                    "-o", "jsonpath={.spec.http[0].route[?(@.destination.subset=='v2')].weight}");
+            return parseCanaryWeight(result);
+        } catch (Exception e) {
+            log.warn("[Istio] 카나리(v2) 가중치 조회 실패: service={}, error={}", serviceName, e.getMessage());
+            return -1;
+        }
+    }
+
+    int parseCanaryWeight(String raw) {
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     @Tool(description = """
             Istio VirtualService의 트래픽 가중치를 조정해 특정 버전(v2)으로 가는 트래픽을 격리합니다. Slack에 승인 요청합니다.
             언제 호출: 다음 중 하나라도 해당하면 즉시 호출하라.
@@ -197,7 +222,7 @@ public class KubernetesTools {
         return String.format("Outlier Detection 업데이트 제안 등록됨 [%s]: %s → consecutive5xxErrors=%d\n사유: %s", id, serviceName, consecutive5xxErrors, reason);
     }
 
-    private List<Map<String, Object>> buildRestartBlocks(String id, String deployment, String reason) {
+    private List<Map<String, Object>> buildRestartBlocks(String id, String deployment, String reason, String threadDumpSummary) {
         List<Map<String, Object>> blocks = new ArrayList<>();
 
         Map<String, Object> header = new LinkedHashMap<>();
@@ -210,6 +235,12 @@ public class KubernetesTools {
         section.put("text", Map.of("type", "mrkdwn", "text",
                 String.format("*대상 Deployment:* `%s`\n*이유:* %s", deployment, reason)));
         blocks.add(section);
+
+        Map<String, Object> threadDumpSection = new LinkedHashMap<>();
+        threadDumpSection.put("type", "section");
+        threadDumpSection.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*스레드 덤프 (BLOCKED 스레드):*\n```%s```", threadDumpSummary)));
+        blocks.add(threadDumpSection);
 
         Map<String, Object> approveBtn = Map.of(
                 "type", "button",
@@ -231,6 +262,62 @@ public class KubernetesTools {
         blocks.add(actions);
 
         return blocks;
+    }
+
+    private String extractThreadDumpSummary(String deploymentName) {
+        try {
+            String podName = runKubectl("get", "pods", "-n", namespace,
+                    "-l", "app=" + deploymentName,
+                    "-o", "jsonpath={.items[0].metadata.name}").trim();
+            if (podName.isBlank() || podName.equals("(결과 없음)")) {
+                return "스레드 덤프 추출 실패: 대상 파드를 찾을 수 없음";
+            }
+
+            runKubectl("exec", podName, "-n", namespace, "--", "kill", "-3", "1");
+            Thread.sleep(500);
+            String logs = runKubectl("logs", podName, "-n", namespace, "--tail=500");
+
+            return extractBlockedThreads(logs);
+        } catch (Exception e) {
+            log.warn("[K8s] 스레드 덤프 추출 실패: {}", e.getMessage());
+            return "스레드 덤프 추출 실패: " + e.getMessage();
+        }
+    }
+
+    String extractBlockedThreads(String dump) {
+        String[] lines = dump.split("\n");
+        List<String> blockedBlocks = new ArrayList<>();
+        StringBuilder current = null;
+        boolean currentBlocked = false;
+
+        for (String line : lines) {
+            if (line.startsWith("\"")) {
+                if (current != null && currentBlocked) {
+                    blockedBlocks.add(current.toString().stripTrailing());
+                }
+                current = new StringBuilder(line).append("\n");
+                currentBlocked = false;
+            } else if (current != null) {
+                current.append(line).append("\n");
+                if (line.contains("BLOCKED")) {
+                    currentBlocked = true;
+                }
+            }
+        }
+        if (current != null && currentBlocked) {
+            blockedBlocks.add(current.toString().stripTrailing());
+        }
+
+        if (blockedBlocks.isEmpty()) {
+            return "BLOCKED 상태 스레드 없음";
+        }
+
+        String result = String.join("\n\n", blockedBlocks);
+        int maxLength = 2500;
+        if (result.length() > maxLength) {
+            result = result.substring(0, maxLength) + "\n... (이하 생략)";
+        }
+        return result;
     }
 
     private List<Map<String, Object>> buildHpaPatchBlocks(String id, String hpaName, int maxReplicas, String reason) {

@@ -10,7 +10,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: {{ .Values.serverB.name }}
+    istio-canary-group: {{ .Values.serverB.name }}
   ports:
     - port: {{ .Values.serverB.port }}
       targetPort: {{ .Values.serverB.port }}

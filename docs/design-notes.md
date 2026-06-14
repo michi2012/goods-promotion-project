@@ -141,3 +141,61 @@ SagaOrchestratorService.handleSagaFailure()
   - 자동 재처리 없음, 수동 정산 필요
 
 **이유:** 재시도를 모두 소진한 메시지는 시스템 오류가 아닌 데이터·비즈니스 이상일 가능성이 높아 사람이 확인 후 판단해야 함
+
+---
+
+## codebot PR 자동화: 결정적 브랜치명 (Find-or-Create)
+
+**결정:** `PullRequestTools.createFixPullRequest`의 브랜치명은 `feature/{issueIdentifier 소문자}-codebot-fix`로 고정 (예: `feature/mic-12-codebot-fix`). LLM이 자유롭게 브랜치명을 생성하지 않는다.
+
+**동작:**
+- `GET /git/refs/heads/{branch}`로 브랜치 존재 여부 확인 → 없으면 main 기반으로 신규 생성 + PR 생성, 있으면 같은 브랜치에 Contents API로 추가 커밋 후 `GET /pulls?head=...&state=open`으로 기존 PR을 찾아 반환.
+- 같은 이슈에 대해 "고쳐서 PR 올려줘"를 여러 번 호출해도 새 브랜치/PR이 늘어나지 않고 같은 브랜치/PR에 커밋이 누적된다.
+
+**제약/불변식:**
+- 동일 `issueIdentifier`는 항상 동일 브랜치를 가리킨다 — ChatMemory에 "이전에 만든 PR" 상태를 별도로 저장하지 않는다 (GitHub이 source of truth).
+- 브랜치는 있지만 open PR이 없는 경우(이전 PR이 머지/닫힘)는 안내 메시지만 반환하고 새 브랜치를 만들지 않는다 — "처음부터 다시" 시나리오는 비범위.
+
+**채택하지 않은 대안:**
+- 타임스탬프/해시 슬러그로 매번 새 브랜치/PR 생성 → 재요청마다 PR이 누적되어 레포 관리 비용 증가
+- git clone/checkout 기반 진짜 상태관리(V2) → 단일 파일 + 명시적 트리거 범위에서는 과한 복잡도
+
+---
+
+## Istio 카나리(v1/v2) 격리: Service selector를 `istio-canary-group` 라벨로 전환
+
+**결정:** server-a/b/c의 `spec.selector`(Deployment, immutable)는 그대로 두고, 대신 (1) v1 pod template에 신규 라벨 `istio-canary-group: server-X`를 추가하고 (2) Service의 `spec.selector`를 `app: server-X` → `istio-canary-group: server-X`로 전환했다. v2(canary) Deployment는 `selector.matchLabels: {app: server-X-canary}`로 v1과 겹치지 않게 분리하고, pod 라벨에 `version: v2`, `istio-canary-group: server-X`를 부여해 동일 Service의 엔드포인트로 합류시킨다.
+
+**이유:**
+- K8s Deployment의 `spec.selector`는 immutable이라 v1 selector를 `{app: server-X, version: v1}`처럼 표준 카나리 패턴으로 직접 바꾸면 기존 클러스터에서 `helm upgrade`가 "field is immutable" 에러로 실패하고 재생성 시 다운타임이 발생한다.
+- `istio-canary-group` 공통 라벨 + Service selector 전환 방식은 v1 Deployment의 selector를 건드리지 않으면서, Service가 v1/v2 파드를 모두 엔드포인트로 포함하게 만든다. DestinationRule의 v1/v2 subset(`version` 라벨 기준)은 이미 존재하므로 변경 불필요.
+
+**EKS 적용 순서 (무중단 전제):**
+1. v1 Deployment에 `istio-canary-group` 라벨 추가 → rollout 완료 대기 (모든 v1 파드가 새 라벨을 가짐)
+2. Service의 `spec.selector`를 `istio-canary-group: server-X`로 전환 (Service selector는 즉시 적용, mutable)
+3. (선택) `serverX.canary.enabled=true`로 v2 Deployment 배포
+
+1→2 순서를 지키지 않으면, 라벨이 아직 없는 v1 파드가 일시적으로 Service 엔드포인트에서 빠질 수 있다.
+
+**제약/불변식:**
+- Prometheus `istio-waypoint` job은 waypoint pod 라벨이 `gateway.networking.k8s.io/gateway-name: waypoint`이고 15020 포트에서 `/stats/prometheus`를 노출한다고 가정한다 — EKS 배포 후 Prometheus Targets 페이지에서 실제 라벨/포트를 확인 필요.
+- v2(canary) Deployment는 고정 replica이며 HPA를 적용하지 않는다.
+
+**채택하지 않은 대안:**
+- v1 Deployment selector를 `{app: server-X, version: v1}`로 직접 변경(표준 카나리 패턴) → `spec.selector` immutable로 인해 무중단 적용 불가.
+- Micrometer common-tags로 앱 메트릭에 `version` 라벨 추가 → 앱 재배포 필요, Istio Ambient(앱 코드 비수정)의 취지와 불일치. waypoint Envoy 메트릭(`istio_requests_total{destination_version=...}`)으로 동일 정보를 코드 변경 없이 획득 가능.
+
+## 카나리(v2) 점진적 자동 승급: 스케줄러와 알람의 역할 분리
+
+**결정:** "비정상 시 즉시 격리"는 `CanaryV2ErrorRateHigh` 알람 → `AiOpsAgentService.analyze()` → 시나리오10의 `proposeTrafficShift(v1=100,v2=0)` 경로로, "정상 지속 시 단계적 승급"은 신규 `CanaryRolloutScheduler`(`@Scheduled`, 기본 5분 주기)로 역할을 분리했다. 두 경로 모두 최종 트래픽 변경은 기존 `proposeTrafficShift` Slack 승인을 그대로 통과한다.
+
+**이유:**
+- 기존 `analyze()`는 Alertmanager의 firing 알람으로만 트리거되는데, "v2가 계속 정상"이라는 사실 자체는 알람화하기 어렵다(한 번도 firing하지 않으면 resolved 알림도 발생하지 않음) — 그래서 점진 승급만 별도 스케줄러로 분리했다.
+- `CanaryRolloutScheduler`에 자체 롤백(에러율 급증 시 v2=0 격리) 로직을 추가하면 `CanaryV2ErrorRateHigh` → `analyze()` 경로와 동일 상황에서 Slack에 중복 제안이 발생한다. 그래서 "비정상 시 격리"는 알람 경로 하나로만 처리하고, 스케줄러는 에러율 초과 시 연속 정상 카운터만 리셋한다(별도 조치 없음).
+
+**연속 정상 카운터(시간 기반 대신) 채택:**
+- "v2가 N분간 정상"을 `Instant`/`Duration`으로 추적하는 대신 "스케줄러 틱마다 연속 정상 횟수"로 구현했다. 스케줄러 interval × `healthy-checks-required`가 사실상 동일한 시간 의미를 가지면서, 단위 테스트에서 시간 모킹 없이 `checkService()`를 N번 호출하는 것만으로 검증 가능하다.
+
+**제약/불변식:**
+- `CanaryRolloutScheduler`의 PromQL은 `istio_requests_total{destination_service_name="<service>", destination_version="v2"}` 라벨 조합을 사용한다. `destination_service_name`의 실제 값(예: `server-a` vs `server-a.promotion.svc.cluster.local`)은 waypoint 메트릭 배포 후 EKS Prometheus에서 직접 확인이 필요하다 — 실제 값이 다르면 `canary.rollout.services`를 그 형식에 맞게 설정해야 한다.
+- `getCanaryWeight`가 -1(조회 실패)을 반환하는 경우도 weight 0/100과 동일하게 "스킵 + 상태 초기화"로 처리한다. 일시적 kubectl 실패 시 진행 카운터가 리셋될 수 있지만, 다음 정상 틱부터 다시 누적되므로 별도 재시도/구분 로직 없이 단순성을 우선했다.

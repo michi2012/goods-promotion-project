@@ -105,6 +105,10 @@ serverA:
           - type: Pods
             value: 1
             periodSeconds: 60
+  canary:
+    enabled: false  # true로 설정하면 v2 카나리 Deployment(1개) 생성
+    replicas: 1
+    image: ""  # 비어있으면 serverA.image와 동일한 이미지 사용
 
 serverB:
   name: server-b
@@ -150,6 +154,10 @@ serverB:
           - type: Pods
             value: 1
             periodSeconds: 60
+  canary:
+    enabled: false  # true로 설정하면 v2 카나리 Deployment(1개) 생성
+    replicas: 1
+    image: ""  # 비어있으면 serverB.image와 동일한 이미지 사용
 
 serverC:
   name: server-c
@@ -196,6 +204,10 @@ serverC:
           - type: Pods
             value: 1
             periodSeconds: 60
+  canary:
+    enabled: false  # true로 설정하면 v2 카나리 Deployment(1개) 생성
+    replicas: 1
+    image: ""  # 비어있으면 serverC.image와 동일한 이미지 사용
 
 userService:
   name: user-service
@@ -261,8 +273,30 @@ aiops:
   githubRepo: ""         # --set aiops.githubRepo=<repo>
   googleGenaiApiKey: ""  # --set aiops.googleGenaiApiKey=<key>
   slackWebhookUrl: ""    # --set aiops.slackWebhookUrl=<url>
+  slackBotToken: ""      # --set aiops.slackBotToken=<token>
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+codebot:
+  name: codebot
+  replicas: 1
+  port: 8087
+  image: ""  # --set codebot.image=<ECR_URL>/codebot:tag
+  springProfilesActive: "k8s"
+  githubOwner: ""        # --set codebot.githubOwner=<owner>
+  githubRepo: ""         # --set codebot.githubRepo=<repo>
+  githubToken: ""        # --set codebot.githubToken=<PAT>
+  aiApiKey: ""           # --set codebot.aiApiKey=<key>
+  linearApiKey: ""       # --set codebot.linearApiKey=<key>
+  linearTeamId: ""       # --set codebot.linearTeamId=<team-id>
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   resources:
     requests:
       cpu: "100m"

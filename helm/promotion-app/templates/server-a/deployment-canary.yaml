@@ -1,0 +1,86 @@
+{{- if .Values.serverA.canary.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.serverA.name }}-canary
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.serverA.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  replicas: {{ .Values.serverA.canary.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.serverA.name }}-canary
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.serverA.name }}-canary
+        app.kubernetes.io/name: {{ .Values.serverA.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        version: v2
+        istio-canary-group: {{ .Values.serverA.name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.serverA.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+        rollme: {{ randAlphaNum 5 | quote }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.serverA.name }}-canary
+          image: {{ .Values.serverA.canary.image | default .Values.serverA.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.serverA.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.serverA.springProfilesActive | quote }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.serverA.datasource.url | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.serverA.datasource.username | quote }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: {{ .Values.serverA.datasource.password | quote }}
+            - name: SPRING_DATA_REDIS_HOST
+              value: {{ .Values.serverA.redis.host | quote }}
+            - name: SPRING_DATA_REDIS_PORT
+              value: {{ .Values.serverA.redis.port | quote }}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.serverA.kafka.bootstrapServers | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.serverA.eurekaDefaultZone | quote }}
+            {{- if .Values.serverA.otlpEndpoint }}
+            - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
+              value: {{ .Values.serverA.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.serverA.resources.requests.cpu | quote }}
+              memory: {{ .Values.serverA.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.serverA.resources.limits.cpu | quote }}
+              memory: {{ .Values.serverA.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.serverA.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.serverA.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+{{- end }}

@@ -1,7 +1,7 @@
 eureka:
   client:
     register-with-eureka: true
-    fetch-registry: false
+    fetch-registry: true
     service-url:
       defaultZone: "${EUREKA_DEFAULT_ZONE:http://localhost:8761/eureka/}"
 
@@ -40,11 +40,26 @@ github:
   owner: ${GITHUB_OWNER:michi2012}
   repo: ${GITHUB_REPO:goods-promotion-project}
 
+linear:
+  api-key: ${LINEAR_API_KEY:}
+  team-id: ${LINEAR_TEAM_ID:}
+
 slack:
   webhook-url: ${SLACK_WEBHOOK_URL}
+  bot-token: ${SLACK_BOT_TOKEN:}
 
 k8s:
   namespace: ${K8S_NAMESPACE:promotion}
+
+canary:
+  rollout:
+    interval-ms: ${CANARY_ROLLOUT_INTERVAL_MS:300000}
+    services: ${CANARY_ROLLOUT_SERVICES:server-a,server-b,server-c}
+    steps: ${CANARY_ROLLOUT_STEPS:10,25,50,100}
+    healthy-checks-required: ${CANARY_ROLLOUT_HEALTHY_CHECKS_REQUIRED:2}
+    max-error-rate-percent: ${CANARY_ROLLOUT_MAX_ERROR_RATE_PERCENT:5.0}
+    min-request-rate: ${CANARY_ROLLOUT_MIN_REQUEST_RATE:0.05}
+    max-p99-latency-ms: ${CANARY_ROLLOUT_MAX_P99_LATENCY_MS:1000}
 
 management:
   observations:

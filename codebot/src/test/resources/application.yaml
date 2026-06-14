@@ -1,0 +1,26 @@
+spring:
+  ai:
+    google:
+      genai:
+        api-key: test-key
+        chat:
+          options:
+            model: gemini-3.1-flash-lite
+
+observability:
+  loki:
+    url: http://localhost:3100
+  tempo:
+    url: http://localhost:3200
+  prometheus:
+    url: http://localhost:9090
+  pyroscope:
+    url: http://localhost:4040
+
+github:
+  owner: test-owner
+  repo: test-repo
+
+linear:
+  api-key: test-linear-key
+  team-id: test-team-id

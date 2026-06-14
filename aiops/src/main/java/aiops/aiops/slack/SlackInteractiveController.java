@@ -2,6 +2,7 @@ package aiops.aiops.slack;
 
 import aiops.aiops.approval.ActionApprovalService;
 import aiops.aiops.approval.ActionApprovalService.PendingAction;
+import aiops.aiops.linear.LinearAuditService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class SlackInteractiveController {
 
     private final ActionApprovalService approvalService;
     private final SlackNotificationService slackService;
+    private final LinearAuditService linearAuditService;
     private final ObjectMapper objectMapper;
 
     // Slack Interactive Components는 application/x-www-form-urlencoded + payload 필드로 JSON 전송
@@ -57,7 +59,7 @@ public class SlackInteractiveController {
                 }
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] 롤링 재시작 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeRolloutRestart(pending));
+                sendResultWithAudit(responseUrl, pending, approvalService.executeRolloutRestart(pending));
             }
 
             if ("reject_hpa_patch".equals(actionId)) {
@@ -75,7 +77,7 @@ public class SlackInteractiveController {
                 }
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] HPA 패치 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeHpaPatch(pending));
+                sendResultWithAudit(responseUrl, pending, approvalService.executeHpaPatch(pending));
             }
 
             if ("reject_helm_rollback".equals(actionId)) {
@@ -93,7 +95,7 @@ public class SlackInteractiveController {
                 }
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] Helm 롤백 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeHelmRollback(pending));
+                sendResultWithAudit(responseUrl, pending, approvalService.executeHelmRollback(pending));
             }
 
             if ("reject_traffic_shift".equals(actionId)) {
@@ -110,7 +112,7 @@ public class SlackInteractiveController {
                 }
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] 트래픽 시프트 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeTrafficShift(pending));
+                sendResultWithAudit(responseUrl, pending, approvalService.executeTrafficShift(pending));
             }
 
             if ("reject_outlier_update".equals(actionId)) {
@@ -127,7 +129,7 @@ public class SlackInteractiveController {
                 }
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] Outlier Detection 업데이트 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeOutlierDetectionUpdate(pending));
+                sendResultWithAudit(responseUrl, pending, approvalService.executeOutlierDetectionUpdate(pending));
             }
 
             if ("reject_debezium_restart".equals(actionId)) {
@@ -145,11 +147,19 @@ public class SlackInteractiveController {
                 }
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] Debezium 커넥터 재시작 승인: id={}, params={}", pending.id(), pending.params());
-                slackService.sendToResponseUrl(responseUrl, approvalService.executeDebeziumConnectorRestart(pending));
+                sendResultWithAudit(responseUrl, pending, approvalService.executeDebeziumConnectorRestart(pending));
             }
 
         } catch (Exception e) {
             log.error("[Slack Interactive] 처리 실패: {}", e.getMessage());
         }
+    }
+
+    // 자동조치 실행 결과와 Linear 감사 티켓 생성 결과를 하나의 메시지로 합쳐 전송한다.
+    // sendToResponseUrl은 replace_original=true이므로, 두 번 호출하면 첫 메시지가 덮어써진다.
+    private void sendResultWithAudit(String responseUrl, PendingAction pending, String executionResult) {
+        String auditResult = linearAuditService.createAuditTicket(
+                pending.actionType(), pending.params(), pending.reason(), executionResult);
+        slackService.sendToResponseUrl(responseUrl, executionResult + "\n\n" + auditResult);
     }
 }
