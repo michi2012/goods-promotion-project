@@ -59,6 +59,7 @@ canary:
     healthy-checks-required: ${CANARY_ROLLOUT_HEALTHY_CHECKS_REQUIRED:2}
     max-error-rate-percent: ${CANARY_ROLLOUT_MAX_ERROR_RATE_PERCENT:5.0}
     min-request-rate: ${CANARY_ROLLOUT_MIN_REQUEST_RATE:0.05}
+    max-p99-latency-ms: ${CANARY_ROLLOUT_MAX_P99_LATENCY_MS:1000}
 
 management:
   observations:

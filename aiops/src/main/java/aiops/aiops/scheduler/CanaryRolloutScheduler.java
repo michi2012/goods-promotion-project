@@ -26,6 +26,7 @@ public class CanaryRolloutScheduler {
     private final int healthyChecksRequired;
     private final double maxErrorRatePercent;
     private final double minRequestRate;
+    private final double maxP99LatencyMs;
 
     private final Map<String, CanaryState> states = new ConcurrentHashMap<>();
 
@@ -39,7 +40,8 @@ public class CanaryRolloutScheduler {
             @Value("${canary.rollout.steps:10,25,50,100}") List<Integer> steps,
             @Value("${canary.rollout.healthy-checks-required:2}") int healthyChecksRequired,
             @Value("${canary.rollout.max-error-rate-percent:5.0}") double maxErrorRatePercent,
-            @Value("${canary.rollout.min-request-rate:0.05}") double minRequestRate) {
+            @Value("${canary.rollout.min-request-rate:0.05}") double minRequestRate,
+            @Value("${canary.rollout.max-p99-latency-ms:1000}") double maxP99LatencyMs) {
         this.kubernetesTools = kubernetesTools;
         this.prometheusClient = prometheusClient;
         this.objectMapper = objectMapper;
@@ -48,6 +50,7 @@ public class CanaryRolloutScheduler {
         this.healthyChecksRequired = healthyChecksRequired;
         this.maxErrorRatePercent = maxErrorRatePercent;
         this.minRequestRate = minRequestRate;
+        this.maxP99LatencyMs = maxP99LatencyMs;
     }
 
     @Scheduled(fixedRateString = "${canary.rollout.interval-ms:300000}")
@@ -93,6 +96,18 @@ public class CanaryRolloutScheduler {
             return;
         }
         if (errorRatePercent > maxErrorRatePercent) {
+            states.put(service, new CanaryState(weight, 0, state.lastProposedWeight()));
+            return;
+        }
+
+        double p99LatencyMs = queryScalar(String.format(
+                "histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket{destination_service_name=\"%s\", destination_version=\"v2\"}[5m])) by (le))",
+                service));
+        if (p99LatencyMs < 0) {
+            states.put(service, state);
+            return;
+        }
+        if (p99LatencyMs > maxP99LatencyMs) {
             states.put(service, new CanaryState(weight, 0, state.lastProposedWeight()));
             return;
         }

@@ -50,7 +50,8 @@ class CanaryRolloutSchedulerTest {
                 List.of(10, 25, 50, 100),
                 2,
                 5.0,
-                0.05);
+                0.05,
+                1000.0);
     }
 
     private String prometheusValue(double value) {
@@ -63,9 +64,7 @@ class CanaryRolloutSchedulerTest {
     @DisplayName("v2 weight=0이면 스킵하고 proposeTrafficShift를 호출하지 않는다")
     void checkService_v2weight0_스킵() {
         given(kubernetesTools.getCanaryWeight("server-a")).willReturn(0);
-
         scheduler.checkService("server-a");
-
         verify(kubernetesTools, never()).proposeTrafficShift(anyString(), anyInt(), anyInt(), anyString());
         assertThat(scheduler.getStates()).doesNotContainKey("server-a");
         server.verify();
@@ -75,9 +74,7 @@ class CanaryRolloutSchedulerTest {
     @DisplayName("v2 weight=100이면 스킵하고 proposeTrafficShift를 호출하지 않는다")
     void checkService_v2weight100_스킵() {
         given(kubernetesTools.getCanaryWeight("server-a")).willReturn(100);
-
         scheduler.checkService("server-a");
-
         verify(kubernetesTools, never()).proposeTrafficShift(anyString(), anyInt(), anyInt(), anyString());
         assertThat(scheduler.getStates()).doesNotContainKey("server-a");
         server.verify();
@@ -89,9 +86,7 @@ class CanaryRolloutSchedulerTest {
         given(kubernetesTools.getCanaryWeight("server-a")).willReturn(10);
         server.expect(method(HttpMethod.GET))
                 .andRespond(withSuccess(prometheusValue(0.01), MediaType.APPLICATION_JSON));
-
         scheduler.checkService("server-a");
-
         verify(kubernetesTools, never()).proposeTrafficShift(anyString(), anyInt(), anyInt(), anyString());
         assertThat(scheduler.getStates().get("server-a").consecutiveHealthyCount()).isZero();
         server.verify();
@@ -103,9 +98,10 @@ class CanaryRolloutSchedulerTest {
         given(kubernetesTools.getCanaryWeight("server-a")).willReturn(10);
 
         // MockRestServiceServer는 요청이 시작된 후 expectation 추가를 허용하지 않으므로 모두 선언 후 호출한다.
-        // 1차: 정상(요청률 1.0, 에러율 0%) / 2차: 에러율 10% > 5%
+        // 1차: 정상(요청률 1.0, 에러율 0%, latency 100ms) / 2차: 에러율 10% > 5% (latency 체크 도달 전 리턴)
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(100.0), MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(10.0), MediaType.APPLICATION_JSON));
 
@@ -120,14 +116,54 @@ class CanaryRolloutSchedulerTest {
     }
 
     @Test
+    @DisplayName("v2 p99 latency가 임계값을 초과하면 연속 정상 카운터를 리셋한다")
+    void checkService_latency초과_카운터리셋() {
+        given(kubernetesTools.getCanaryWeight("server-a")).willReturn(10);
+
+        // 1차: 정상(요청률 1.0, 에러율 0%, latency 100ms) / 2차: latency 2000ms > 1000ms
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(100.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(2000.0), MediaType.APPLICATION_JSON));
+
+        scheduler.checkService("server-a");
+        assertThat(scheduler.getStates().get("server-a").consecutiveHealthyCount()).isEqualTo(1);
+
+        scheduler.checkService("server-a");
+        assertThat(scheduler.getStates().get("server-a").consecutiveHealthyCount()).isZero();
+
+        verify(kubernetesTools, never()).proposeTrafficShift(anyString(), anyInt(), anyInt(), anyString());
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("요청률/에러율/latency가 모두 정상이면 연속 정상 카운터가 증가한다")
+    void checkService_모두정상_카운터증가() {
+        given(kubernetesTools.getCanaryWeight("server-a")).willReturn(10);
+
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(100.0), MediaType.APPLICATION_JSON));
+
+        scheduler.checkService("server-a");
+
+        assertThat(scheduler.getStates().get("server-a").consecutiveHealthyCount()).isEqualTo(1);
+        verify(kubernetesTools, never()).proposeTrafficShift(anyString(), anyInt(), anyInt(), anyString());
+        server.verify();
+    }
+
+    @Test
     @DisplayName("정상 상태가 healthyChecksRequired회 연속되면 다음 단계 승급을 제안하고, 같은 단계로는 재제안하지 않는다")
     void checkService_정상N회_승급제안_쿨다운() {
         given(kubernetesTools.getCanaryWeight("server-a")).willReturn(10);
 
-        // 4회 호출 x (요청률, 에러율) = 8개 expectation, 모두 정상(요청률 1.0, 에러율 0%)
+        // 4회 호출 x (요청률, 에러율, latency) = 12개 expectation, 모두 정상(요청률 1.0, 에러율 0%, latency 100ms)
         for (int i = 0; i < 4; i++) {
             server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
             server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+            server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(100.0), MediaType.APPLICATION_JSON));
         }
 
         // 1차: 카운터 1, 아직 제안 안 함
@@ -155,8 +191,10 @@ class CanaryRolloutSchedulerTest {
 
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(100.0), MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(1.0), MediaType.APPLICATION_JSON));
         server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(0.0), MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess(prometheusValue(100.0), MediaType.APPLICATION_JSON));
 
         scheduler.checkService("server-a");
         assertThat(scheduler.getStates().get("server-a").consecutiveHealthyCount()).isEqualTo(1);
