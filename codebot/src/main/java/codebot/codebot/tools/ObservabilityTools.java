@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -58,16 +59,16 @@ public class ObservabilityTools {
                     "endVal", end
             );
 
-            String response = lokiClient.get()
+            return lokiClient.get()
                     .uri("/loki/api/v1/query_range?query={queryVal}&start={startVal}&end={endVal}&limit=50", uriVariables)
                     .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        throw new RuntimeException("Loki API 에러: " + response.getStatusCode() + " - " + new String(response.getBody().readAllBytes()));
+                    })
                     .body(String.class);
-
-            log.info("[Tool] Loki query 성공: service={}", service);
-            return truncate(response);
         } catch (Exception e) {
             log.warn("[Tool] Loki 조회 실패: {}", e.getMessage());
-            return "Loki 조회 실패 (서버 장애 가능성): " + e.getMessage() + " — 스킵하고 코드 조사를 계속하세요.";
+            return "Loki 조회 실패: " + e.getMessage();
         }
     }
 
@@ -80,13 +81,13 @@ public class ObservabilityTools {
     public String queryTempoTrace(
             @ToolParam(description = "16자리 이상의 16진수 문자열 traceId") String traceId) {
         try {
-            String response = tempoClient.get()
+            return tempoClient.get()
                     .uri("/api/traces/{traceId}", traceId)
                     .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        throw new RuntimeException("Tempo API 에러: " + response.getStatusCode() + " - " + new String(response.getBody().readAllBytes()));
+                    })
                     .body(String.class);
-
-            log.info("[Tool] Tempo query 성공: traceId={}", traceId);
-            return truncate(response);
         } catch (Exception e) {
             log.warn("[Tool] Tempo 조회 실패: {}", e.getMessage());
             return "Tempo 조회 실패: " + e.getMessage();
@@ -119,15 +120,15 @@ public class ObservabilityTools {
             String response = pyroscopeClient.get()
                     .uri("/pyroscope/render?query={queryVal}&from={fromVal}&until={untilVal}&format=json", uriVariables)
                     .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        throw new RuntimeException("Pyroscope API 에러: " + response.getStatusCode() + " - " + new String(response.getBody().readAllBytes()));
+                    })
                     .body(String.class);
 
-            String summary = extractHotspots(response, topN);
-            log.info("[Tool] Pyroscope 핫스팟 조회 성공: service={}", service);
-            return summary;
+            return extractHotspots(response, topN);
         } catch (Exception e) {
             log.warn("[Tool] Pyroscope 핫스팟 조회 실패: {}", e.getMessage());
-            return "Pyroscope 핫스팟 조회 실패 (서버 장애 또는 profiler 미연동 가능성): " + e.getMessage()
-                   + " — 스킵하고 다른 도구로 조사를 계속하세요.";
+            return "Pyroscope 핫스팟 조회 실패: " + e.getMessage();
         }
     }
 
@@ -141,13 +142,13 @@ public class ObservabilityTools {
             @ToolParam(description = "조회할 PromQL 표현식 (예: rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]))") String promql) {
         try {
             Map<String, String> uriVariables = Map.of("queryVal", promql);
-            String response = prometheusClient.get()
+            return prometheusClient.get()
                     .uri("/api/v1/query?query={queryVal}", uriVariables)
                     .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response) -> {
+                        throw new RuntimeException("Prometheus API 에러: " + response.getStatusCode() + " - " + new String(response.getBody().readAllBytes()));
+                    })
                     .body(String.class);
-
-            log.info("[Tool] Prometheus query 성공");
-            return truncate(response);
         } catch (Exception e) {
             log.warn("[Tool] Prometheus 조회 실패: {}", e.getMessage());
             return "Prometheus 조회 실패: " + e.getMessage();
@@ -177,8 +178,6 @@ public class ObservabilityTools {
                 return "프로파일 데이터 없음 (해당 기간 동안 수집된 샘플이 없을 수 있습니다)";
             }
 
-            // 플레임그래프는 [offset, total, self, nameIndex] 4개 단위 그룹의 레벨 배열로 구성됨.
-            // 메서드별 "자체(self) CPU 시간"을 합산해 핫스팟을 가린다 (total은 하위 호출 포함이라 중복 집계됨).
             Map<Integer, Long> selfByNameIndex = new HashMap<>();
             for (JsonNode level : levels) {
                 for (int i = 0; i + 3 < level.size(); i += 4) {
