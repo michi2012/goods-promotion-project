@@ -75,6 +75,9 @@ public class AiOpsAgentService {
 
             10. Istio 트래픽 제어 시나리오 (카나리 배포 중인 경우에만 해당):
                 - 카나리 배포 감지 기준: getClusterStatus 결과에 동일 서비스에 v1/v2 파드가 동시에 존재하는 경우.
+                - v1/v2 에러율 비교는 queryPrometheusMetrics로 다음 PromQL을 조회하여 판단하라:
+                  sum(rate(istio_requests_total{destination_version="v2", response_code=~"5.."}[5m])) / sum(rate(istio_requests_total{destination_version="v2"}[5m])) * 100
+                  (v1은 destination_version="v1"로 동일하게 조회하여 비교)
                 - v2 파드에서 에러율이 높고 v1은 정상인 경우: proposeTrafficShift(serviceName, v1Weight=100, v2Weight=0, reason)을 호출하여 v2 격리를 제안하라.
                   이 경우 proposeHelmRollback보다 proposeTrafficShift를 우선 제안하라. 파드를 유지하면서 트래픽만 차단하므로 더 빠른 격리가 가능하다.
                 - 특정 파드에서만 간헐적 5xx가 발생하고 전체 에러율은 낮은 경우: proposeOutlierDetectionUpdate를 호출하여 outlier detection 임계값 강화를 제안하라.
