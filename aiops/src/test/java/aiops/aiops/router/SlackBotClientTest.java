@@ -15,6 +15,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 
 @DisplayName("SlackBotClient 단위 테스트")
 class SlackBotClientTest {
@@ -66,5 +67,49 @@ class SlackBotClientTest {
 
         // when & then (예외 없이 종료)
         slackBotClient.postMessage("C123", "thread-123", "안녕하세요");
+    }
+
+    @Test
+    @DisplayName("**볼드** 마크다운을 Slack *볼드* 문법으로 변환한다")
+    void postMessage_볼드변환() {
+        // given
+        server.expect(requestTo("https://slack.com/api/chat.postMessage"))
+                .andExpect(content().string(containsString("*중요*")))
+                .andExpect(content().string(not(containsString("**중요**"))))
+                .andRespond(withSuccess("""
+                        { "ok": true }
+                        """, MediaType.APPLICATION_JSON));
+
+        // when & then (예외 없이 종료)
+        slackBotClient.postMessage("C123", "thread-123", "**중요** 합니다");
+    }
+
+    @Test
+    @DisplayName("### 헤딩 마크다운을 Slack *볼드* 문법으로 변환한다")
+    void postMessage_헤딩변환() {
+        // given
+        server.expect(requestTo("https://slack.com/api/chat.postMessage"))
+                .andExpect(content().string(containsString("*제목*")))
+                .andExpect(content().string(not(containsString("### 제목"))))
+                .andRespond(withSuccess("""
+                        { "ok": true }
+                        """, MediaType.APPLICATION_JSON));
+
+        // when & then (예외 없이 종료)
+        slackBotClient.postMessage("C123", "thread-123", "### 제목\n내용");
+    }
+
+    @Test
+    @DisplayName("[text](url) 마크다운을 Slack <url|text> 링크 문법으로 변환한다")
+    void postMessage_링크변환() {
+        // given
+        server.expect(requestTo("https://slack.com/api/chat.postMessage"))
+                .andExpect(content().string(containsString("<https://example.com|문서>")))
+                .andRespond(withSuccess("""
+                        { "ok": true }
+                        """, MediaType.APPLICATION_JSON));
+
+        // when & then (예외 없이 종료)
+        slackBotClient.postMessage("C123", "thread-123", "[문서](https://example.com) 참고");
     }
 }

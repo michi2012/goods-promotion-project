@@ -58,8 +58,31 @@ spec:
               value: {{ .Values.codebot.linearApiKey | quote }}
             - name: LINEAR_TEAM_ID
               value: {{ .Values.codebot.linearTeamId | quote }}
+            - name: CODEBOT_ORDER_DB_URL
+              value: {{ .Values.codebot.datasource.order.url | quote }}
+            - name: CODEBOT_ORDER_DB_USERNAME
+              value: {{ .Values.codebot.datasource.order.username | quote }}
+            - name: CODEBOT_ORDER_DB_PASSWORD
+              value: {{ .Values.codebot.datasource.order.password | quote }}
+            - name: CODEBOT_PAYMENT_DB_URL
+              value: {{ .Values.codebot.datasource.payment.url | quote }}
+            - name: CODEBOT_PAYMENT_DB_USERNAME
+              value: {{ .Values.codebot.datasource.payment.username | quote }}
+            - name: CODEBOT_PAYMENT_DB_PASSWORD
+              value: {{ .Values.codebot.datasource.payment.password | quote }}
+            - name: CODEBOT_USER_DB_URL
+              value: {{ .Values.codebot.datasource.user.url | quote }}
+            - name: CODEBOT_USER_DB_USERNAME
+              value: {{ .Values.codebot.datasource.user.username | quote }}
+            - name: CODEBOT_USER_DB_PASSWORD
+              value: {{ .Values.codebot.datasource.user.password | quote }}
             - name: EUREKA_DEFAULT_ZONE
               value: {{ .Values.codebot.eurekaDefaultZone | quote }}
+            - name: CODEBOT_REPO_PATH
+              value: "/repo/current"
+          volumeMounts:
+            - name: repo-cache
+              mountPath: /repo
           resources:
             requests:
               cpu: {{ .Values.codebot.resources.requests.cpu | quote }}
@@ -81,3 +104,36 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
+        - name: git-sync
+          image: {{ .Values.codebot.gitSync.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+            runAsUser: 0
+          env:
+            - name: GITSYNC_REPO
+              value: "https://github.com/{{ .Values.codebot.githubOwner }}/{{ .Values.codebot.githubRepo }}"
+            - name: GITSYNC_REF
+              value: "main"
+            - name: GITSYNC_ROOT
+              value: "/repo"
+            - name: GITSYNC_LINK
+              value: "current"
+            - name: GITSYNC_PERIOD
+              value: {{ .Values.codebot.gitSync.period | quote }}
+            - name: GITSYNC_USERNAME
+              value: "x-access-token"
+            - name: GITSYNC_PASSWORD
+              value: {{ .Values.codebot.githubToken | quote }}
+          volumeMounts:
+            - name: repo-cache
+              mountPath: /repo
+          resources:
+            requests:
+              cpu: {{ .Values.codebot.gitSync.resources.requests.cpu | quote }}
+              memory: {{ .Values.codebot.gitSync.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.codebot.gitSync.resources.limits.cpu | quote }}
+              memory: {{ .Values.codebot.gitSync.resources.limits.memory | quote }}
+      volumes:
+        - name: repo-cache
+          emptyDir: {}

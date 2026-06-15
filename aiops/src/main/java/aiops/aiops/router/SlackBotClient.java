@@ -22,7 +22,7 @@ public class SlackBotClient {
         try {
             String rawResponse = slackBotApiClient.post()
                     .uri("/chat.postMessage")
-                    .body(Map.of("channel", channel, "thread_ts", threadTs, "text", text))
+                    .body(Map.of("channel", channel, "thread_ts", threadTs, "text", convertMarkdownToSlackMrkdwn(text)))
                     .retrieve()
                     .body(String.class);
 
@@ -34,5 +34,12 @@ public class SlackBotClient {
         } catch (Exception e) {
             log.error("[SlackBotClient] chat.postMessage 호출 중 오류: channel={}, message={}", channel, e.getMessage());
         }
+    }
+
+    private String convertMarkdownToSlackMrkdwn(String text) {
+        String result = text.replaceAll("\\*\\*(.+?)\\*\\*", "*$1*");
+        result = result.replaceAll("(?m)^#{1,6}\\s*(.+)$", "*$1*");
+        result = result.replaceAll("\\[(.+?)\\]\\((.+?)\\)", "<$2|$1>");
+        return result;
     }
 }
