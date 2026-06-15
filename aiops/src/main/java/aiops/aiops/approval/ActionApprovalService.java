@@ -127,6 +127,74 @@ public class ActionApprovalService {
         }
     }
 
+    public String executePodRestart(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String podName = params.path("podName").asText();
+            String ns = params.path("namespace").asText("promotion");
+
+            List<String> command = new ArrayList<>(
+                    List.of("kubectl", "delete", "pod", podName, "-n", ns));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("[Approval] kubectl delete pod 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ Pod 재시작 실패 (exitCode=" + exitCode + "): " + output;
+            }
+
+            log.info("[Approval] Pod 재시작 성공: pod={}", podName);
+            return "✅ Pod 재시작 완료: `" + podName + "`\n`" + output + "`";
+
+        } catch (Exception e) {
+            log.error("[Approval] executePodRestart 예외: {}", e.getMessage());
+            return "❌ Pod 재시작 실행 중 오류: " + e.getMessage();
+        }
+    }
+
+    public String executeHpaMinReplicasPatch(PendingAction action) {
+        try {
+            JsonNode params = objectMapper.readTree(action.params());
+            String hpaName = params.path("hpa").asText();
+            int minReplicas = params.path("minReplicas").asInt();
+            String ns = params.path("namespace").asText("promotion");
+
+            String patch = String.format("{\"spec\":{\"minReplicas\":%d}}", minReplicas);
+            List<String> command = new ArrayList<>(
+                    List.of("kubectl", "patch", "hpa", hpaName, "-n", ns, "--patch", patch, "--type", "merge"));
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = reader.lines().collect(Collectors.joining("\n"));
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("[Approval] kubectl patch hpa(minReplicas) 실패: exitCode={}, output={}", exitCode, output);
+                return "❌ HPA minReplicas 패치 실패 (exitCode=" + exitCode + "): " + output;
+            }
+
+            log.info("[Approval] HPA minReplicas 패치 성공: hpa={}, minReplicas={}", hpaName, minReplicas);
+            return "✅ HPA minReplicas 패치 완료: `" + hpaName + "` minReplicas=" + minReplicas + "\n`" + output + "`";
+
+        } catch (Exception e) {
+            log.error("[Approval] executeHpaMinReplicasPatch 예외: {}", e.getMessage());
+            return "❌ HPA minReplicas 패치 실행 중 오류: " + e.getMessage();
+        }
+    }
+
     public String executeHelmRollback(PendingAction action) {
         try {
             JsonNode params = objectMapper.readTree(action.params());

@@ -64,7 +64,7 @@ public class ObservabilityTools {
             실패 시: Loki 서버 장애일 수 있으므로 이 도구 호출을 스킵하고 메트릭만으로 분석을 계속하세요.
             """)
     public String queryLokiLogs(
-            @ToolParam(description = "조회할 서비스 이름 (예: server-a, server-b, server-c, mcp)") String service,
+            @ToolParam(description = "조회할 서비스 이름. Loki의 app 라벨 값과 동일하게 camelCase로 지정 (예: serverA, serverB, serverC, mcp)") String service,
             @ToolParam(description = "LogQL 필터 표현식 (예: |= \"ERROR\", 필터 없음: 빈 문자열)") String query,
             @ToolParam(description = "조회 범위. 현재 시각 기준 몇 분 전까지 조회할지 (예: 5)") int minutes) {
         try {
@@ -122,11 +122,12 @@ public class ObservabilityTools {
             언제 호출: Tempo 트레이스에서 특정 서비스/스팬의 지연이 확인됐지만, 그 서비스 내부의 어떤 코드(메서드)가
             병목인지 불분명할 때. "어느 서비스가 느린가"는 Tempo로, "그 서비스 안 어떤 코드가 느린가"는 이 도구로 좁히세요.
             반환: "자체 CPU 시간 비율(%) | 메서드명" 형식의 상위 핫스팟 목록 (최대 N건).
+            라벨 컨벤션: Pyroscope는 service_name 라벨을 사용하며, Prometheus의 application·Loki의 app과 동일한 값(serverA/serverB/serverC)입니다.
             실패 시: Pyroscope 서버 장애이거나 해당 서비스에 profiler가 연동되지 않았을 수 있으므로
             스킵하고 Tempo·Loki 기반 분석을 계속하세요.
             """)
     public String queryProfilerHotspots(
-            @ToolParam(description = "조회할 서비스 이름 (예: server-a, server-b, server-c)") String service,
+            @ToolParam(description = "조회할 서비스 이름. Pyroscope의 service_name 라벨 값과 동일 (예: serverA, serverB, serverC)") String service,
             @ToolParam(description = "조회 범위. 현재 시각 기준 몇 분 전까지 조회할지 (예: 10)") int minutes,
             @ToolParam(description = "반환할 핫스팟 메서드 개수 (예: 10)") int topN) {
         try {
@@ -162,7 +163,7 @@ public class ObservabilityTools {
             실패 시: Prometheus 서버 장애이므로 로그만으로 분석을 계속하세요.
             """)
     public String queryPrometheusMetrics(
-            @ToolParam(description = "조회할 PromQL 표현식. 에러율: rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]), 가용성: sum(rate(http_server_requests_seconds_count{status!~\"5..\"}[5m]))/sum(rate(http_server_requests_seconds_count[5m]))*100") String promql) {
+            @ToolParam(description = "조회할 PromQL 표현식. 에러율: rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]), 가용성: sum(rate(http_server_requests_seconds_count{status!~\"5..\"}[5m]))/sum(rate(http_server_requests_seconds_count[5m]))*100. 특정 서비스로 필터링할 때는 application 라벨 사용 (값: \"serverA\"/\"serverB\"/\"serverC\", job은 항상 \"promotion-api\"). 예: process_cpu_usage{application=\"serverA\", job=\"promotion-api\"}") String promql) {
         try {
             String response = callPrometheus(promql);
             log.info("[Tool] Prometheus query 성공");

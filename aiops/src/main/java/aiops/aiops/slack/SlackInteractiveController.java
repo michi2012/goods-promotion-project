@@ -62,6 +62,24 @@ public class SlackInteractiveController {
                 sendResultWithAudit(responseUrl, pending, approvalService.executeRolloutRestart(pending));
             }
 
+            if ("reject_pod_restart".equals(actionId)) {
+                log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ Pod 재시작 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_pod_restart".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] Pod 재시작 승인: id={}, params={}", pending.id(), pending.params());
+                sendResultWithAudit(responseUrl, pending, approvalService.executePodRestart(pending));
+            }
+
             if ("reject_hpa_patch".equals(actionId)) {
                 log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
                 approvalService.reject(approvalId);
@@ -78,6 +96,24 @@ public class SlackInteractiveController {
                 PendingAction pending = action_.get();
                 log.info("[Slack Interactive] HPA 패치 승인: id={}, params={}", pending.id(), pending.params());
                 sendResultWithAudit(responseUrl, pending, approvalService.executeHpaPatch(pending));
+            }
+
+            if ("reject_hpa_min_patch".equals(actionId)) {
+                log.info("[Slack Interactive] 거절: approvalId={}", approvalId);
+                approvalService.reject(approvalId);
+                slackService.sendToResponseUrl(responseUrl, "❌ HPA minReplicas 패치 조치가 거절되었습니다.");
+                return;
+            }
+
+            if ("approve_hpa_min_patch".equals(actionId)) {
+                Optional<PendingAction> action_ = approvalService.approve(approvalId);
+                if (action_.isEmpty()) {
+                    slackService.sendToResponseUrl(responseUrl, "⚠️ 승인 ID가 존재하지 않거나 이미 만료되었습니다: " + approvalId);
+                    return;
+                }
+                PendingAction pending = action_.get();
+                log.info("[Slack Interactive] HPA minReplicas 패치 승인: id={}, params={}", pending.id(), pending.params());
+                sendResultWithAudit(responseUrl, pending, approvalService.executeHpaMinReplicasPatch(pending));
             }
 
             if ("reject_helm_rollback".equals(actionId)) {
