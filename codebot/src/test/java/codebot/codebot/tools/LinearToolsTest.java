@@ -42,14 +42,14 @@ class LinearToolsTest {
                 .andExpect(content().string(containsString("issueLabels")))
                 .andExpect(content().string(containsString("프로모션")))
                 .andRespond(withSuccess("""
-                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-promotion" } ] } } }
+                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-promotion", "parent": { "name": "도메인" } } ] } } }
                         """, MediaType.APPLICATION_JSON));
 
         server.expect(method(HttpMethod.POST))
                 .andExpect(content().string(containsString("issueLabels")))
                 .andExpect(content().string(containsString("백엔드")))
                 .andRespond(withSuccess("""
-                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-backend" } ] } } }
+                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-backend", "parent": { "name": "직무" } } ] } } }
                         """, MediaType.APPLICATION_JSON));
 
         server.expect(method(HttpMethod.POST))
@@ -114,13 +114,13 @@ class LinearToolsTest {
         server.expect(method(HttpMethod.POST))
                 .andExpect(content().string(containsString("issueLabels")))
                 .andRespond(withSuccess("""
-                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-promotion" } ] } } }
+                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-promotion", "parent": { "name": "도메인" } } ] } } }
                         """, MediaType.APPLICATION_JSON));
 
         server.expect(method(HttpMethod.POST))
                 .andExpect(content().string(containsString("issueLabels")))
                 .andRespond(withSuccess("""
-                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-backend" } ] } } }
+                        { "data": { "issueLabels": { "nodes": [ { "id": "label-uuid-backend", "parent": { "name": "직무" } } ] } } }
                         """, MediaType.APPLICATION_JSON));
 
         server.expect(method(HttpMethod.POST))
