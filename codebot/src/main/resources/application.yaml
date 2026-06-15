@@ -46,6 +46,10 @@ linear:
 k8s:
   namespace: ${K8S_NAMESPACE:promotion}
 
+codebot:
+  repo:
+    local-path: ${CODEBOT_REPO_PATH:/repo/current}
+
 data-query:
   datasource:
     order:

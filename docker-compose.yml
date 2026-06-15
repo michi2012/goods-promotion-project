@@ -752,6 +752,28 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  codebot-git-sync:
+    image: registry.k8s.io/git-sync/git-sync:v4.2.4
+    container_name: codebot-git-sync
+    user: "0:0"
+    volumes:
+      - codebot-repo:/repo
+    networks:
+      - promotion-network
+    environment:
+      GITSYNC_REPO: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}
+      GITSYNC_REF: main
+      GITSYNC_ROOT: /repo
+      GITSYNC_LINK: current
+      GITSYNC_PERIOD: 1m
+      GITSYNC_USERNAME: x-access-token
+      GITSYNC_PASSWORD: ${GITHUB_TOKEN}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
   codebot:
     build:
       context: ./codebot
@@ -759,6 +781,7 @@ services:
     container_name: codebot
     volumes:
       - shared-logs:/logs
+      - codebot-repo:/repo:ro
     ports:
       - "8087:8087"
     networks:
@@ -777,6 +800,7 @@ services:
       CODEBOT_ORDER_DB_PASSWORD: codebot_ro_pw
       CODEBOT_PAYMENT_DB_PASSWORD: codebot_ro_pw
       CODEBOT_USER_DB_PASSWORD: codebot_ro_pw
+      CODEBOT_REPO_PATH: /repo/current
     depends_on:
       prometheus:
         condition: service_started
@@ -794,6 +818,8 @@ services:
         condition: service_healthy
       mysql-user:
         condition: service_healthy
+      codebot-git-sync:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -810,3 +836,4 @@ volumes:
   shared-logs:
   mysql-user-data:
   pyroscope-agent:
+  codebot-repo:

@@ -25,6 +25,10 @@ linear:
   api-key: test-linear-key
   team-id: test-team-id
 
+codebot:
+  repo:
+    local-path: /repo/current
+
 data-query:
   datasource:
     order:

@@ -3,6 +3,7 @@ package codebot.codebot.tools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -10,6 +11,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,14 +32,29 @@ class PullRequestToolsTest {
     private static final String FILE_PATH = "aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java";
     private static final String NEW_CONTENT = "fixed file content";
 
+    @TempDir
+    Path repoDir;
+
     private MockRestServiceServer server;
     private PullRequestTools pullRequestTools;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
         server = MockRestServiceServer.bindTo(builder).build();
-        pullRequestTools = new PullRequestTools(builder.build(), OWNER, REPO);
+
+        run("git", "init", "-q");
+        Files.createDirectories(repoDir.resolve(FILE_PATH).getParent());
+        Files.writeString(repoDir.resolve(FILE_PATH), "package aiops.aiops.agent;\n\npublic class AiOpsAgentService {\n}\n");
+        run("git", "add", "-A");
+        run("git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-q", "-m", "init");
+
+        pullRequestTools = new PullRequestTools(builder.build(), OWNER, REPO, repoDir.toString());
+    }
+
+    private void run(String... command) throws Exception {
+        Process process = new ProcessBuilder(command).directory(repoDir.toFile()).start();
+        process.waitFor();
     }
 
     @Test
@@ -228,6 +246,99 @@ class PullRequestToolsTest {
 
         // then
         assertThat(result).contains("보안상").contains(".env");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("filePath가 파일명만 주어지면 git ls-files로 실제 경로를 찾아 자동 보정한다")
+    void createFixPullRequest_경로자동보정_basename일치() {
+        // 1. 브랜치 존재 확인 -> 404
+        server.expect(request -> assertThat(request.getURI().getPath())
+                        .isEqualTo("/repos/" + OWNER + "/" + REPO + "/git/refs/heads/" + BRANCH))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        // 2. main 브랜치 최신 SHA 조회
+        server.expect(request -> assertThat(request.getURI().getPath())
+                        .isEqualTo("/repos/" + OWNER + "/" + REPO + "/git/refs/heads/main"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        { "object": { "sha": "main-sha-123" } }
+                        """, MediaType.APPLICATION_JSON));
+
+        // 3. 새 브랜치 생성
+        server.expect(request -> assertThat(request.getURI().getPath())
+                        .isEqualTo("/repos/" + OWNER + "/" + REPO + "/git/refs"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        // 4. 파일 SHA 조회 - 자동 보정된 FILE_PATH로 호출되어야 함
+        server.expect(request -> {
+                    assertThat(request.getURI().getPath())
+                            .isEqualTo("/repos/" + OWNER + "/" + REPO + "/contents/" + FILE_PATH);
+                    assertThat(request.getURI().getQuery()).contains("ref=" + BRANCH);
+                })
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        { "sha": "file-sha-456" }
+                        """, MediaType.APPLICATION_JSON));
+
+        // 5. 파일 커밋 - 자동 보정된 FILE_PATH로 호출되어야 함
+        server.expect(request -> assertThat(request.getURI().getPath())
+                        .isEqualTo("/repos/" + OWNER + "/" + REPO + "/contents/" + FILE_PATH))
+                .andExpect(method(HttpMethod.PUT))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        // 6. PR 생성
+        server.expect(request -> assertThat(request.getURI().getPath())
+                        .isEqualTo("/repos/" + OWNER + "/" + REPO + "/pulls"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("""
+                        { "html_url": "https://github.com/test-owner/test-repo/pull/11" }
+                        """, MediaType.APPLICATION_JSON));
+
+        // when - 디렉토리 없이 파일명만 전달
+        String result = pullRequestTools.createFixPullRequest(
+                "AiOpsAgentService.java", NEW_CONTENT, "MIC-12", "fix: 버그 수정", "fix: 버그 수정", "## 변경 요약\n버그를 수정했습니다.");
+
+        // then
+        assertThat(result)
+                .contains("새 PR을 생성했습니다")
+                .contains("https://github.com/test-owner/test-repo/pull/11");
+    }
+
+    @Test
+    @DisplayName("일치하는 파일이 없으면 GitHub API 호출 없이 오류 메시지를 반환한다")
+    void createFixPullRequest_경로없음_에러() {
+        // when
+        String result = pullRequestTools.createFixPullRequest(
+                "NotFound.java", NEW_CONTENT, "MIC-12", "fix: 버그 수정", "fix: 버그 수정", "## 변경 요약\n버그를 수정했습니다.");
+
+        // then
+        assertThat(result).startsWith("경로를 찾을 수 없습니다:").contains("NotFound.java");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("동일한 파일명이 여러 경로에 존재하면 GitHub API 호출 없이 후보 목록을 반환한다")
+    void createFixPullRequest_경로여러개일치_에러() throws Exception {
+        // given - 동일 파일명을 다른 경로에 추가로 커밋
+        String duplicatePath = "codebot/src/main/java/codebot/codebot/agent/AiOpsAgentService.java";
+        Path duplicateFile = repoDir.resolve(duplicatePath);
+        Files.createDirectories(duplicateFile.getParent());
+        Files.writeString(duplicateFile, "package codebot.codebot.agent;\n\npublic class AiOpsAgentService {\n}\n");
+        run("git", "add", "-A");
+        run("git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-q", "-m", "dup");
+
+        // when
+        String result = pullRequestTools.createFixPullRequest(
+                "AiOpsAgentService.java", NEW_CONTENT, "MIC-12", "fix: 버그 수정", "fix: 버그 수정", "## 변경 요약\n버그를 수정했습니다.");
+
+        // then
+        assertThat(result)
+                .contains("여러 개입니다")
+                .contains(FILE_PATH)
+                .contains(duplicatePath);
         server.verify();
     }
 }

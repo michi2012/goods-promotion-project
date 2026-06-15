@@ -11,9 +11,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -37,15 +42,18 @@ public class PullRequestTools {
     private final ObjectMapper objectMapper;
     private final String githubOwner;
     private final String githubRepo;
+    private final Path repoPath;
 
     public PullRequestTools(
             @Qualifier("githubClient") RestClient githubClient,
             @Value("${github.owner}") String githubOwner,
-            @Value("${github.repo}") String githubRepo) {
+            @Value("${github.repo}") String githubRepo,
+            @Value("${codebot.repo.local-path:/repo/current}") String repoPath) {
         this.githubClient = githubClient;
         this.objectMapper = new ObjectMapper();
         this.githubOwner = githubOwner;
         this.githubRepo = githubRepo;
+        this.repoPath = Path.of(repoPath);
     }
 
     @Tool(description = """
@@ -59,7 +67,7 @@ public class PullRequestTools {
             실패 시: GitHub API 오류 메시지를 그대로 반환하므로 사용자에게 안내하세요.
             """)
     public String createFixPullRequest(
-            @ToolParam(description = "레포지토리 루트 기준 수정할 파일 경로 (예: \"aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java\")") String filePath,
+            @ToolParam(description = "레포지토리 루트 기준 수정할 파일 경로. 이전 단계(getFileContent/searchCode/previewDiff)에서 확인한 실제 경로를 그대로 사용하세요.") String filePath,
             @ToolParam(description = "교체될 파일 전체 내용") String newContent,
             @ToolParam(description = "Linear 이슈 식별자 (예: \"MIC-12\") — 브랜치명 결정 및 PR의 Closes 연동에 사용") String issueIdentifier,
             @ToolParam(description = "커밋 메시지 (예: \"fix: OrderService 무한루프 수정\")") String commitMessage,
@@ -79,6 +87,21 @@ public class PullRequestTools {
         if (isProtectedPath(filePath)) {
             return "보안상 \"" + filePath + "\" 경로는 codebot이 수정할 수 없습니다 (CI 설정/환경변수 파일 등). 직접 수정해주세요.";
         }
+
+        String resolvedPath;
+        try {
+            resolvedPath = resolveFilePath(filePath);
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        } catch (Exception e) {
+            log.warn("[Tool] 경로 확인 실패: {}", e.getMessage());
+            return "경로 확인 중 오류가 발생했습니다: " + e.getMessage();
+        }
+
+        if (isProtectedPath(resolvedPath)) {
+            return "보안상 \"" + resolvedPath + "\" 경로는 codebot이 수정할 수 없습니다 (CI 설정/환경변수 파일 등). 직접 수정해주세요.";
+        }
+
         try {
             String branch = "feature/" + issueIdentifier.toLowerCase() + "-codebot-fix";
             boolean isNewBranch = !branchExists(branch);
@@ -87,8 +110,8 @@ public class PullRequestTools {
                 createBranch(branch);
             }
 
-            String fileSha = getFileSha(filePath, branch);
-            commitFile(filePath, newContent, commitMessage, branch, fileSha);
+            String fileSha = getFileSha(resolvedPath, branch);
+            commitFile(resolvedPath, newContent, commitMessage, branch, fileSha);
 
             if (isNewBranch) {
                 String prUrl = createPullRequest(branch, issueIdentifier, prTitle, prBody);
@@ -114,6 +137,45 @@ public class PullRequestTools {
     private boolean isProtectedPath(String filePath) {
         String normalized = filePath.startsWith("/") ? filePath.substring(1) : filePath;
         return normalized.startsWith(".github/") || normalized.equals(".env") || normalized.startsWith(".env.");
+    }
+
+    private String resolveFilePath(String filePath) throws Exception {
+        String normalized = filePath.startsWith("/") ? filePath.substring(1) : filePath;
+        List<String> files = listFiles();
+        if (files.contains(normalized)) {
+            return normalized;
+        }
+
+        String basename = Path.of(normalized).getFileName().toString();
+        List<String> matches = files.stream()
+                .filter(line -> Path.of(line).getFileName().toString().equalsIgnoreCase(basename))
+                .collect(Collectors.toList());
+
+        if (matches.isEmpty()) {
+            throw new IllegalArgumentException("경로를 찾을 수 없습니다: " + filePath);
+        }
+        if (matches.size() > 1) {
+            throw new IllegalArgumentException("파일명이 일치하는 경로가 여러 개입니다. 정확한 경로를 지정해주세요:\n" + String.join("\n", matches));
+        }
+
+        String matchedPath = matches.get(0);
+        log.info("[Tool] 경로 자동 보정: 요청={}, 실제={}", filePath, matchedPath);
+        return matchedPath;
+    }
+
+    private List<String> listFiles() throws Exception {
+        List<String> command = List.of("git", "-C", repoPath.toString(), "ls-files");
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+
+        List<String> files;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            files = reader.lines().collect(Collectors.toList());
+        }
+        process.waitFor();
+        return files;
     }
 
     private boolean branchExists(String branch) {
