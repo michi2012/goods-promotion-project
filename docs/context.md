@@ -136,3 +136,131 @@
 
 ### 외부 참조
 - `registry.k8s.io/git-sync/git-sync` — Kubernetes SIG 공식 git-sync 이미지 (정확한 env var/플래그명은 구현 시 공식 문서로 재확인 필요)
+
+## [진행 중] codebot 이슈/PR 생성 UX 개선
+
+### 왜 이 방식을 선택했는가
+"codebot 코드 검색 신뢰성 개선" plan 단계6 ngrok Slack E2E에서 시나리오2(코드 개선점 분석 후 이슈 등록)와 시나리오3(코드 수정 후 PR 생성 동의)을 실행한 결과, 3가지 UX 문제가 발견됐다:
+
+- **Q1: createIssue description 템플릿 분기**: 현재 SYSTEM_PROMPT의 "## 이슈 생성 (createIssue)" description 규칙("배경, 증상, 근본 원인(미확인 부분은 '가설:' 표기), 조사 근거")은 운영 장애 RCA를 염두에 둔 것이다. 시나리오2처럼 "코드 개선점 분석해서 이슈로 등록해줘"라는 비-장애 요청에도 동일 템플릿이 적용되어, 실제로 생성된 MIC-14의 "가설" 섹션에는 "위 개선사항들을 적용하면 안정성이 향상될 것임" 같은 내용 없는 문장만 채워졌다. 사용자가 직접 "가설에도 코드 부분 어디가 문제인지 코드를 보여줘야 하는거 아니야?"라고 지적 — description 템플릿을 조사 유형(운영 이상 vs 코드 개선)에 따라 분기해, 코드 개선 유형에는 "가설" 표기 없이 항목별 코드 인용 + 개선 방향을 작성하도록 했다. `## 조사 원칙` 3번("확정되지 않은 원인은 '가설:'로 표기")은 일반 조사 응답에 대한 규칙이라 그대로 유지하고, createIssue description 규칙만 분기한다.
+- **Q2: Slack mrkdwn 변환을 코드 레벨에서 처리**: `SlackBotClient.postMessage`가 LLM이 생성한 표준 마크다운(`**bold**`, `### heading`, `[text](url)`)을 그대로 Slack `chat.postMessage`의 `text`로 전송해, Slack에서 `**`가 글자 그대로 노출된다. SYSTEM_PROMPT에 "Slack mrkdwn 문법을 사용하라"는 지시를 추가하는 대안도 있었지만, "코드 검색 신뢰성 개선" plan에서 이미 "LLM의 비결정적 동작은 프롬프트보다 코드 레벨 처리가 안정적"이라는 결론을 내렸다(SYSTEM_PROMPT 확인 절차 규칙 추가 후에도 여전히 비결정적 동작이 관찰됨, checklist "발견 사항" 참고). 동일한 이유로, `postMessage` 직전에 정규식 기반 `convertMarkdownToSlackMrkdwn()`을 추가해 결정론적으로 변환한다.
+- **Q3: previewDiff 도구 + java-diff-utils**: 시나리오3에서 codebot이 PR 생성 동의를 구할 때 수정된 파일 "전체"를 Slack에 보여줘 어디가 바뀌었는지 파악하기 어렵다는 문제가 제기됐다. LLM이 직접 unified diff 형식의 텍스트를 생성하게 하는 방법도 있지만, line 번호/context 정확도가 낮아 부적합하다고 판단했다. 대신 `getFileContent`(기존 파일 내용)와 LLM이 작성한 `newContent`를 코드(java-diff-utils)로 비교해 정확한 unified diff를 계산하는 `previewDiff` 도구를 추가하고, createFixPullRequest 호출 전 이 도구로 diff를 보여주도록 SYSTEM_PROMPT에 안내한다. java-diff-utils는 IntelliJ/다수 코드 리뷰 도구가 사용하는 소규모 검증된 라이브러리로, 직접 diff 알고리즘을 구현하는 것보다 리스크가 적다.
+
+### 검토했으나 채택하지 않은 대안
+
+#### 대안 A (Q1): createIssue description 템플릿은 그대로 두고, "가설" 섹션 내용을 사용자가 직접 보강
+- 무엇: SYSTEM_PROMPT를 수정하지 않고, 부실한 "가설" 섹션은 이슈 생성 후 사용자가 Linear에서 직접 수정
+- 왜 안 썼나: 매번 동일한 패턴(코드 개선 요청 → 내용 없는 "가설" 섹션)이 반복될 것이 예상되고, 프롬프트 레벨에서 한 번 고치면 향후 모든 코드 개선 이슈에 일관되게 적용된다.
+
+#### 대안 B (Q2): SYSTEM_PROMPT에 "Slack mrkdwn 문법(`*bold*`, `<url|text>`)을 사용해 응답하라" 지시 추가
+- 무엇: LLM이 처음부터 mrkdwn 문법으로 응답하도록 프롬프트 지시
+- 왜 안 썼나: "코드 검색 신뢰성 개선" plan에서 SYSTEM_PROMPT에 확인 절차 규칙을 추가한 뒤에도 LLM이 규칙을 일관되게 따르지 않는 비결정성이 반복 관찰됐다(checklist "발견 사항" 단계4/5/6). 마크다운 문법은 LLM의 사전학습된 강한 습관이라 프롬프트만으로 완전히 억제하기 더 어려울 것으로 판단, 코드 레벨 후처리로 결정.
+
+#### 대안 C (Q3): PR 생성 후 GitHub PR 페이지 링크만 안내 (Slack에서 diff 미표시)
+- 무엇: previewDiff 없이, PR 생성 완료 후 "변경 내용은 PR 링크에서 확인하세요"로 안내
+- 왜 안 썼나: 사용자가 "PR 생성 전" 동의 단계에서 변경 내용을 파악하고 싶어 하는 것이 원래 질문의 핵심이었고, "현업이라면 어떻게 했을지" 질문에 대한 답으로도 diff 미리보기가 표준적인 코드 리뷰 관행에 더 부합한다.
+
+#### 대안 D (Q3): 직접 unified diff 알고리즘 구현 (hand-rolled, 신규 의존성 없음)
+- 무엇: java-diff-utils 없이 Java로 직접 line-by-line diff 알고리즘 구현
+- 왜 안 썼나: 사용자에게 제시한 트레이드오프(hand-rolled 구현 리스크 > 소규모 의존성 추가 리스크)에 대해 A안(java-diff-utils)으로 명시적으로 결정함.
+
+### 기존 코드베이스 컨벤션
+- `@Tool` 패턴: `codebot/src/main/java/codebot/codebot/tools/CodeSearchTools.java`의 `getFileContent`/`searchCode` — `@Tool(description = """...""")`, try/catch 후 설명적 에러 문자열 반환, `truncate()` 10,000자 제한. `previewDiff`도 동일 패턴을 따른다.
+- SYSTEM_PROMPT 섹션 구조: `codebot/src/main/java/codebot/codebot/agent/CodebotAgentService.java`의 `## 이슈 생성 (createIssue)`/`## 코드 수정 (createFixPullRequest)` 섹션 — 불릿 목록으로 호출 조건/필드 작성 규칙을 명시하는 기존 형식을 유지하며 항목 추가/분기한다.
+- Slack 클라이언트 테스트: `aiops/src/test/java/aiops/aiops/router/SlackBotClientTest.java` — `MockRestServiceServer`, `@DisplayName`, given/when/then 한글 주석 컨벤션을 신규 테스트에도 동일 적용.
+
+### 관련 파일/위치
+- `codebot/src/main/java/codebot/codebot/agent/CodebotAgentService.java` — SYSTEM_PROMPT의 "## 이슈 생성 (createIssue)" description 분기(Q1), "## 코드 수정 (createFixPullRequest)" previewDiff 안내 추가(Q3)
+- `aiops/src/main/java/aiops/aiops/router/SlackBotClient.java`, `aiops/src/test/java/aiops/aiops/router/SlackBotClientTest.java` — 마크다운→mrkdwn 변환(Q2)
+- `codebot/build.gradle` — java-diff-utils 의존성 추가(Q3)
+- `codebot/src/main/java/codebot/codebot/tools/CodeSearchTools.java`, `codebot/src/test/java/codebot/codebot/tools/CodeSearchToolsTest.java` — previewDiff 도구 추가(Q3)
+- `codebot/src/main/java/codebot/codebot/tools/PullRequestTools.java` — previewDiff와 직접 연계되지는 않지만, createFixPullRequest의 newContent 흐름 이해를 위한 참고 (변경 없음)
+
+### 외부 참조
+- java-diff-utils (Maven Central, `io.github.java-diff-utils:java-diff-utils`) — unified diff 생성 라이브러리, 정확한 버전은 단계3에서 확인
+
+## [진행 중] codebot 라우팅 안정성 개선 + 이슈 description 코드 인용 강화
+
+### 왜 이 방식을 선택했는가
+"codebot 이슈/PR 생성 UX 개선" plan 완료 후 ngrok Slack E2E를 재검증하는 과정에서, 시나리오2가 정상 동작(MIC-15가 올바른 "코드 품질/구조 개선" 템플릿으로 생성됨)한 뒤 "pr 날려줘"에 대해 codebot이 실제 파일 내용이 아닌 가상의 `com.michi.tools.CodeSearchTools`/`search()` 클래스로 diff를 만들어내는 hallucination이 발생했다. 이어서 "생성해"/"너가 판단해" 같은 짧은 후속 메시지를 보내자 매번 "인프라 문제인지 코드/기능 문제인지 알려주세요."라는 동일한 문장이 반복 반환되며 멈췄다.
+
+원인을 추적한 결과, 이 고정 문구는 codebot이 아니라 `aiops.aiops.router.RouterService`의 `UNKNOWN_GUIDANCE` 상수였다. `RouterService.handleAppMention`은 매 메시지마다 `IntentClassifierService.classify(text)`를 호출하는데, 이 분류기는 스레드 맥락 없이 메시지 1건만 보고 INFRA/CODE/UNKNOWN을 판단한다. "생성해"처럼 맥락이 없으면 짧은 메시지는 거의 항상 UNKNOWN으로 분류되고, 이 경우 codebot/InfraChatAgentService 어느 쪽에도 메시지가 전달되지 않은 채 고정 안내문만 반환된다 — 이전 plan의 Q1(createIssue description 분기)과는 무관한, 라우팅 계층의 사전 존재 이슈다.
+
+해결 방향으로 (a) INFRA/CODE 분기를 없애고 codebot으로 통합, (b) 분류기에 스레드 히스토리 전달, (c) 스레드별 직전 라우트를 sticky 캐시로 재사용을 검토했다. (a)는 `InfraChatAgentService`가 가진 `propose*`(조치 제안 + Slack 승인/거절 버튼) 기능을 codebot으로 옮겨야 하는 큰 변경이라 제외했다. (b)는 분류기 입력 구조/프롬프트 변경이 필요해 이번 문제 규모에 비해 과하다고 판단했다. (c)는 `RouterService` 한 파일(+테스트)만 변경하면 되고, "분류 결과가 INFRA/CODE면 우선 사용 + 캐시 갱신, UNKNOWN일 때만 캐시 재사용"이라는 규칙으로 주제 전환에도 대응할 수 있어 선택했다.
+
+description 코드 인용 강화는, 같은 E2E에서 관찰된 PR diff hallucination(존재하지 않는 클래스/메서드로 diff를 생성)이 createIssue description의 코드 인용에서도 동일하게 발생할 수 있다고 판단해, "코드 품질/구조 개선 요청" 항목에 `getFileContent`로 조회한 실제 내용을 파일 경로와 함께 그대로 인용하라는 문구를 추가했다.
+
+### 검토했으나 채택하지 않은 대안
+
+#### 대안 A: INFRA/CODE 분기를 제거하고 모든 메시지를 codebot으로 라우팅
+- 무엇: `RouterService`의 사전 분류 단계를 없애고 `IntentClassifierService`/`InfraChatAgentService` 분기를 제거
+- 왜 안 썼나: `InfraChatAgentService`는 `observabilityTools`/`kubernetesTools`와 함께 조치 제안(`propose*` + Slack 승인/거절 버튼) 기능을 갖고 있는데 codebot에는 이 기능이 없다. 이를 이전하는 것은 이번 문제(짧은 후속 메시지가 dead-end되는 것) 해결에 비해 훨씬 큰 변경이다.
+
+#### 대안 B: IntentClassifierService에 스레드 최근 메시지 히스토리 전달
+- 무엇: `classify()`에 최근 N개 메시지를 함께 전달해 맥락 기반으로 분류
+- 왜 안 썼나: 분류기의 입력 구조와 프롬프트를 변경해야 하고 호출당 비용도 늘어난다. sticky 캐시로 동일 증상(짧은 후속 메시지의 UNKNOWN 분류)을 훨씬 작은 변경으로 해결할 수 있다.
+
+#### 대안 C: Linear Project/Milestone 고정 연결 추가
+- 무엇: `LinearTools.createIssue`의 `issueCreate` 입력에 고정 `projectId`/`projectMilestoneId`(또는 둘 중 하나)를 추가
+- 왜 안 썼나: 워크스페이스에는 "프로모션 시스템 구축"(전체 프로젝트 컨테이너, M1~M4 Milestone으로 영역별 진행 관리) 1개 Project만 존재한다. 봇이 생성하는 모든 이슈를 여기에 강제 귀속시키는 것은 부적절하고, 현업에서도 봇이 생성한 이슈는 라벨까지만 부여하고 Project/Milestone 배정은 사람이 triage 시점에 결정하는 것이 일반적이다. 현재 동작(미지정)이 의도된 것으로 확인되어 변경하지 않는다.
+
+### 기존 코드베이스 컨벤션
+- 라우팅: `aiops/src/main/java/aiops/aiops/router/RouterService.java` — `IntentClassifierService.classify()` 결과(INFRA/CODE/UNKNOWN)에 따라 `InfraChatAgentService`/`CodebotClient`/정적 안내문(`UNKNOWN_GUIDANCE`)으로 분기, `threadTs`를 conversationId로 사용
+- 라우터 테스트: `aiops/src/test/java/aiops/aiops/router/RouterServiceTest.java` — Mockito mock(`intentClassifierService`/`infraChatAgentService`/`codebotClient`/`slackBotClient`)을 직접 `new RouterService(...)`에 주입하는 패턴
+- SYSTEM_PROMPT 패턴: `codebot/src/main/java/codebot/codebot/agent/CodebotAgentService.java` — 텍스트 블록(`"""..."""`) 내 항목별 불릿으로 지시, 이번 plan 단계3도 동일하게 기존 불릿에 문구를 추가하는 형태로 적용
+
+### 관련 파일/위치
+- `aiops/src/main/java/aiops/aiops/router/RouterService.java` — sticky 캐시 추가 지점
+- `aiops/src/test/java/aiops/aiops/router/RouterServiceTest.java` — 신규 sticky 캐시 테스트 추가 지점
+- `codebot/src/main/java/codebot/codebot/agent/CodebotAgentService.java` — SYSTEM_PROMPT의 "코드 품질/구조 개선 요청" 항목에 코드 인용 출처 강화 문구 추가
+- `aiops/src/main/java/aiops/aiops/router/IntentClassifierService.java`, `aiops/src/main/java/aiops/aiops/router/InfraChatAgentService.java` — 이번 plan에서 변경하지 않지만 라우팅 동작 이해를 위한 참고
+
+### 외부 참조
+- 없음
+
+## [진행 중] codebot PR 흐름 신뢰성 개선 — diff 인용 + filePath 자동보정
+
+### 왜 이 방식을 선택했는가
+"codebot 라우팅 안정성 개선 + 이슈 description 코드 인용 강화" plan 완료 후 진행한 ngrok Slack E2E에서 시나리오3(코드 수정 → PR 생성 동의)을 재검증하는 과정에서 3가지 문제가 발견되었다:
+
+1. MIC-16 이슈의 코드 인용이 getFileContent로 조회한 실제 내용이 아니라 추측/재구성된 pseudo-code였다.
+2. codebot이 "위의 diff를 확인하라"고 안내했지만, 실제 응답에는 previewDiff가 반환한 diff 텍스트가 포함되어 있지 않았다.
+3. createFixPullRequest 호출이 GitHub API 404로 실패했다.
+
+docker logs와 코드를 직접 확인한 결과, 1과 2는 "도구 호출은 정확한 데이터로 성공했지만, LLM이 그 결과를 이후 응답에서 충실히 재사용하지 않는다"는 동일한 패턴이었다. 3은 createFixPullRequest에 전달된 filePath가 같은 스레드의 이전 턴에서 getFileContent/previewDiff에 사용했던 실제 경로와 달랐기 때문이었다.
+
+1은 직전 plan(라우팅 안정성 개선)의 단계3(description 코드 인용 출처 강화)으로 이미 부분적으로 다뤄졌으므로 이번 plan에서는 2(diff 인용)와 3(filePath)에 집중한다.
+
+3의 원인을 더 들여다보면, `ChatMemoryConfig`가 `MessageWindowChatMemory.builder().maxMessages(20)`으로 구성되어 있다 — 대화가 길어지면 오래된 메시지(이전 턴의 getFileContent/previewDiff 호출·결과 포함)가 컨텍스트에서 제거된다. createFixPullRequest는 보통 previewDiff로 동의를 구한 뒤 1-2턴 후에 호출되므로, 그 사이 경로 정보가 컨텍스트에서 밀려나면 "previewDiff(filePath, ...)에 사용한 경로를 createFixPullRequest의 filePath에도 그대로 사용하라"는 프롬프트 지시만으로는 안정적으로 동작하지 않을 가능성이 높다.
+
+이 때문에 filePath 문제(3)는 프롬프트 지시(대안 A) 대신 코드 레벨 자동보정(B)으로 해결하기로 사용자와 합의했다 — CodeSearchTools.readByBasename과 동일한 패턴(git ls-files 기반 정확 일치 → basename 단일 일치 시 자동 보정 → 0개/2개 이상이면 명시적 오류)을 PullRequestTools.createFixPullRequest에도 적용한다. 이 방식은 ChatMemory 상태와 무관하게 결정론적으로 동작한다.
+
+추가로, PullRequestTools/CodeSearchTools의 `@ToolParam` 경로 예시가 모두 `"aiops/src/main/java/aiops/aiops/agent/AiOpsAgentService.java"`로 동일한데, 이 경로는 실제로 존재하는 파일이다. LLM이 컨텍스트 유실로 이 예시를 그대로 filePath에 사용하면, 자동보정의 "정확히 일치" 분기를 그대로 통과해 의도하지 않은 파일(AiOpsAgentService.java)을 조용히 수정/diff하게 될 위험이 있다. 따라서 이번 plan에서는 세 `@ToolParam` 모두에서 구체적인 예시 경로를 제거하고 "이전 단계에서 확인한 실제 경로를 그대로 사용"하라는 안내로 대체한다 — 자동보정이 "정상 매칭"으로 오인하지 않고 "경로를 찾을 수 없음" 오류로 드러나도록 유도한다.
+
+diff 인용(2)은 previewDiff가 반환하는 텍스트를 ```diff 코드 블록으로 감싸 반환하도록 변경(코드 레벨 1차 방어선)하고, SYSTEM_PROMPT에 "previewDiff 결과를 변형 없이 그대로 포함"하라는 지시를 보조로 추가한다.
+
+### 검토했으나 채택하지 않은 대안
+
+#### 대안 A (filePath 재사용): SYSTEM_PROMPT에 "previewDiff와 동일한 filePath를 createFixPullRequest에도 사용" 지시만 추가
+- 무엇: 프롬프트 텍스트 수정만으로 filePath 일관성을 유도
+- 왜 안 썼나: `ChatMemoryConfig.maxMessages(20)` 때문에 previewDiff 호출 시점의 filePath가 createFixPullRequest 호출 시점에는 컨텍스트에서 이미 제거되어 있을 수 있다. 직전 plan(라우팅 안정성 개선)의 description 코드 인용 지시도 같은 종류의 프롬프트 의존 해결책이었는데 이번 E2E에서 한계가 다시 확인되었다 — 코드 레벨(B)을 우선 적용하기로 사용자와 합의했다.
+
+#### 대안 B (diff 인용): previewDiff 출력을 코드 블록으로 감싸지 않고 SYSTEM_PROMPT 지시만 추가
+- 무엇: ```diff``` 감싸기 없이 "previewDiff 결과를 그대로 포함하라"는 지시만 추가
+- 왜 안 썼나: 대안 A와 정확히 같은 한계 — previewDiff 호출과 그 결과를 다음 응답에서 재사용하는 사이의 LLM 비결정성을 코드가 아닌 프롬프트로만 통제하게 된다. ```diff``` 코드 블록 감싸기는 previewDiff의 반환값 자체를 Slack에 그대로 노출하기 좋은 형태로 만들어, "그대로 인용"을 코드 레벨에서 더 쉽게 만든다.
+
+### 기존 코드베이스 컨벤션
+- 경로 자동보정 패턴: `codebot/src/main/java/codebot/codebot/tools/CodeSearchTools.java`의 `readFile`/`readByBasename`/`listFiles` — `repoPath.resolve(path).normalize()`로 정확히 일치하는 파일 우선 사용, 없으면 `git ls-files` 결과에서 basename이 일치하는 파일을 찾아 0개/1개/2개 이상에 따라 분기. PullRequestTools.resolveFilePath도 동일 패턴을 따른다(공통 추출 없이 각자 보유).
+- `@Tool`/`@ToolParam` 패턴: 동일 파일의 `getFileContent`/`previewDiff` — description에 호출 시점/반환값/실패 시 동작을 명시.
+- 테스트 패턴: `codebot/src/test/java/codebot/codebot/tools/CodeSearchToolsTest.java` — `@TempDir Path repoDir` + `@BeforeEach`에서 git init/add/commit으로 임시 레포 구성. PullRequestToolsTest에도 동일 패턴 적용.
+
+### 관련 파일/위치
+- `codebot/src/main/java/codebot/codebot/tools/PullRequestTools.java` — filePath 자동보정 추가 지점(단계1)
+- `codebot/src/test/java/codebot/codebot/tools/PullRequestToolsTest.java` — 자동보정 테스트 추가 지점(단계2)
+- `codebot/src/main/java/codebot/codebot/tools/CodeSearchTools.java` — previewDiff 코드 블록 감싸기 + `@ToolParam` 예시 제거(단계3)
+- `codebot/src/test/java/codebot/codebot/tools/CodeSearchToolsTest.java` — 코드 블록 감싸기 검증(단계4)
+- `codebot/src/main/java/codebot/codebot/agent/CodebotAgentService.java` — previewDiff 결과 raw 인용 지시 추가(단계5)
+- `codebot/src/main/java/codebot/codebot/config/ChatMemoryConfig.java` — maxMessages(20) eviction 원인 분석 참고(변경 없음)
+
+### 외부 참조
+- 없음
