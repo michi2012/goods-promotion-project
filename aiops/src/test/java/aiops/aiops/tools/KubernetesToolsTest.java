@@ -118,4 +118,34 @@ class KubernetesToolsTest {
         // then
         assertThat(result).isEqualTo(-1);
     }
+
+    @Test
+    @DisplayName("getPodLogs: kubectl 접근 불가 시 실패 안내 문자열을 반환한다")
+    void getPodLogs_kubectl실패시_안내문자열반환() {
+        // when: kubectl 접근 불가 환경
+        String result = kubernetesTools.getPodLogs("nonexistent-pod", 100);
+
+        // then
+        assertThat(result).startsWith("Pod 로그 조회 실패");
+    }
+
+    @Test
+    @DisplayName("getRolloutStatus: kubectl 접근 불가 시 실패 안내 문자열을 반환한다")
+    void getRolloutStatus_kubectl실패시_안내문자열반환() {
+        // when: kubectl 접근 불가 환경
+        String result = kubernetesTools.getRolloutStatus("nonexistent-deployment");
+
+        // then
+        assertThat(result).startsWith("롤아웃 상태 조회 실패");
+    }
+
+    @Test
+    @DisplayName("getRolloutHistory: kubectl 접근 불가 시 실패 안내 문자열을 반환한다")
+    void getRolloutHistory_kubectl실패시_안내문자열반환() {
+        // when: kubectl 접근 불가 환경
+        String result = kubernetesTools.getRolloutHistory("nonexistent-deployment");
+
+        // then
+        assertThat(result).startsWith("롤아웃 이력 조회 실패");
+    }
 }

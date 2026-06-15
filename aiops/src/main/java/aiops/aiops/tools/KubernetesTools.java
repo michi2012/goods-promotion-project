@@ -54,6 +54,61 @@ public class KubernetesTools {
     }
 
     @Tool(description = """
+            특정 Pod의 최근 로그를 조회합니다. (읽기 전용)
+            언제 호출: 에러 원인 파악을 위해 특정 Pod의 로그를 직접 확인해야 할 때. 정확한 podName은 getClusterStatus 결과의 Pod 목록을 참고하세요.
+            반환: 해당 Pod의 최근 로그 (지정한 줄 수만큼).
+            실패 시: kubectl 접근 불가 환경이거나 Pod이 존재하지 않을 수 있으므로 스킵하고 다른 도구로 분석을 계속하세요.
+            """)
+    public String getPodLogs(
+            @ToolParam(description = "조회할 Pod 이름 (getClusterStatus 결과의 Pod 목록 참고)") String podName,
+            @ToolParam(description = "조회할 최근 로그 줄 수 (예: 100)") int tailLines) {
+        try {
+            String logs = runKubectl("logs", podName, "-n", namespace, "--tail=" + tailLines);
+            log.info("[K8s] Pod 로그 조회 완료: pod={}, tailLines={}", podName, tailLines);
+            return logs;
+        } catch (Exception e) {
+            log.warn("[K8s] Pod 로그 조회 실패: pod={}, error={}", podName, e.getMessage());
+            return "Pod 로그 조회 실패 — kubectl 접근 불가 환경이거나 Pod이 존재하지 않을 수 있습니다: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = """
+            Deployment의 현재 롤아웃 진행 상태를 조회합니다. (읽기 전용)
+            언제 호출: 배포(helm upgrade, rollout restart) 이후 롤아웃이 정상적으로 완료되었는지 확인할 때.
+            반환: 롤아웃 진행 상태 (예: "Waiting for deployment ... rollout to finish" 또는 "successfully rolled out").
+            실패 시: kubectl 접근 불가 환경이거나 Deployment가 존재하지 않을 수 있으므로 스킵하고 다른 도구로 분석을 계속하세요.
+            """)
+    public String getRolloutStatus(
+            @ToolParam(description = "조회할 Deployment 이름 (예: server-a, server-b, server-c)") String deploymentName) {
+        try {
+            String status = runKubectl("rollout", "status", "deployment/" + deploymentName, "-n", namespace);
+            log.info("[K8s] 롤아웃 상태 조회 완료: deployment={}", deploymentName);
+            return status;
+        } catch (Exception e) {
+            log.warn("[K8s] 롤아웃 상태 조회 실패: deployment={}, error={}", deploymentName, e.getMessage());
+            return "롤아웃 상태 조회 실패 — kubectl 접근 불가 환경이거나 Deployment가 존재하지 않을 수 있습니다: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = """
+            Deployment의 롤아웃 이력(revision 목록)을 조회합니다. (읽기 전용)
+            언제 호출: 이전 배포 버전으로의 롤백을 검토하기 전, 사용 가능한 revision 이력을 확인할 때.
+            반환: revision 번호와 변경 원인(CHANGE-CAUSE) 목록.
+            실패 시: kubectl 접근 불가 환경이거나 Deployment가 존재하지 않을 수 있으므로 스킵하고 다른 도구로 분석을 계속하세요.
+            """)
+    public String getRolloutHistory(
+            @ToolParam(description = "조회할 Deployment 이름 (예: server-a, server-b, server-c)") String deploymentName) {
+        try {
+            String history = runKubectl("rollout", "history", "deployment/" + deploymentName, "-n", namespace);
+            log.info("[K8s] 롤아웃 이력 조회 완료: deployment={}", deploymentName);
+            return history;
+        } catch (Exception e) {
+            log.warn("[K8s] 롤아웃 이력 조회 실패: deployment={}, error={}", deploymentName, e.getMessage());
+            return "롤아웃 이력 조회 실패 — kubectl 접근 불가 환경이거나 Deployment가 존재하지 않을 수 있습니다: " + e.getMessage();
+        }
+    }
+
+    @Tool(description = """
             원인 불명의 데드락 또는 응답 불능 상태가 메트릭/로그로 확인된 경우에만 호출. Deployment 롤링 재시작을 Slack에 승인 요청합니다.
             언제 호출: HTTP 요청이 처리되지 않고 큐잉되는데 liveness probe는 정상인 경우. 데드락 의심 시.
             반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
@@ -74,6 +129,50 @@ public class KubernetesTools {
 
         log.info("[K8s] 롤링 재시작 제안 등록 및 Slack 발송: id={}, deployment={}", id, deploymentName);
         return "롤링 재시작 제안 등록됨 [" + id + "]: " + deploymentName + "\n사유: " + reason;
+    }
+
+    @Tool(description = """
+            특정 Pod 재시작(kubectl delete pod, ReplicaSet이 자동 재생성)을 Slack에 승인 요청합니다.
+            언제 호출: 특정 Pod만 OOM, 높은 에러율, 응답 불능 등의 문제를 보이고 다른 Pod은 정상인 경우.
+            Deployment 전체에 영향이 있다면 proposeRolloutRestart를 사용하세요.
+            반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
+            주의: ReplicaSet이 즉시 새 Pod을 재생성하나, 해당 Pod에서 처리 중이던 요청은 중단됨. 근거 없이 호출 금지.
+            """)
+    public String proposePodRestart(
+            @ToolParam(description = "재시작할 Pod의 정확한 이름 (선택, getClusterStatus 결과 참고). 비워두면 deploymentName 기준 app 라벨로 첫 번째 매칭 Pod을 찾는다.") String podName,
+            @ToolParam(description = "대상 Deployment 이름 (예: server-a, server-b, server-c). podName이 비어있을 때 app=<deploymentName> 라벨로 Pod을 조회하는 데 사용된다.") String deploymentName,
+            @ToolParam(description = "재시작이 필요한 이유. 어떤 Pod에서 어떤 문제가 관측됐는지 포함한 1문장.") String reason) {
+        String resolvedPodName;
+        String resolutionNote;
+        if (podName != null && !podName.isBlank()) {
+            resolvedPodName = podName.trim();
+            resolutionNote = "지정된 Pod";
+        } else {
+            try {
+                String found = runKubectl("get", "pods", "-n", namespace,
+                        "-l", "app=" + deploymentName,
+                        "-o", "jsonpath={.items[0].metadata.name}").trim();
+                if (found.isBlank() || found.equals("(결과 없음)")) {
+                    return "Pod 재시작 제안 실패: app=" + deploymentName + " 라벨과 매칭되는 Pod을 찾을 수 없습니다.";
+                }
+                resolvedPodName = found;
+                resolutionNote = "app=" + deploymentName + " 매칭 Pod 중 첫 번째";
+            } catch (Exception e) {
+                log.warn("[K8s] Pod 재시작 대상 조회 실패: deployment={}, error={}", deploymentName, e.getMessage());
+                return "Pod 재시작 제안 실패: 대상 Pod 조회 중 오류가 발생했습니다: " + e.getMessage();
+            }
+        }
+
+        String params = String.format(
+                "{\"podName\":\"%s\",\"namespace\":\"%s\"}", resolvedPodName, namespace);
+        String id = approvalService.propose("POD_RESTART", params, reason);
+
+        slackService.sendBlockKit(
+                "Pod 재시작 승인 요청: " + resolvedPodName,
+                buildPodRestartBlocks(id, resolvedPodName, resolutionNote, reason));
+
+        log.info("[K8s] Pod 재시작 제안 등록 및 Slack 발송: id={}, pod={}", id, resolvedPodName);
+        return "Pod 재시작 제안 등록됨 [" + id + "]: " + resolvedPodName + " (" + resolutionNote + ")\n사유: " + reason;
     }
 
     @Tool(description = """
@@ -100,6 +199,29 @@ public class KubernetesTools {
 
         log.info("[K8s] HPA 패치 제안 등록 및 Slack 발송: id={}, hpa={}, maxReplicas={}", id, hpaName, newMaxReplicas);
         return "HPA 패치 제안 등록됨 [" + id + "]: " + hpaName + " → maxReplicas=" + newMaxReplicas + "\n사유: " + reason;
+    }
+
+    @Tool(description = """
+            HPA의 minReplicas를 조정하는 패치를 Slack에 승인 요청합니다.
+            언제 호출: 트래픽 급증이 예고되어(이벤트, 프로모션 등) 최소 replica를 선제적으로 상향해 스케일아웃 지연을 줄이고 싶을 때.
+            maxReplicas 조정이 필요하면 proposeHpaPatch를 사용하세요 (이 도구는 minReplicas 전용).
+            반환: 승인 ID. Slack에 [승인][거절] 버튼이 발송됩니다.
+            """)
+    public String proposeHpaMinReplicasPatch(
+            @ToolParam(description = "패치할 HPA 이름 (예: server-a, server-b, server-c, gateway)") String hpaName,
+            @ToolParam(description = "새로운 minReplicas 값 (현재 maxReplicas 이하, 1 이상)") int newMinReplicas,
+            @ToolParam(description = "패치가 필요한 이유. 트래픽 급증 예고 근거를 포함한 1문장.") String reason) {
+        String params = String.format(
+                "{\"hpa\":\"%s\",\"minReplicas\":%d,\"namespace\":\"%s\"}",
+                hpaName, newMinReplicas, namespace);
+        String id = approvalService.propose("HPA_MIN_PATCH", params, reason);
+
+        slackService.sendBlockKit(
+                "HPA minReplicas 패치 승인 요청: " + hpaName,
+                buildHpaMinReplicasPatchBlocks(id, hpaName, newMinReplicas, reason));
+
+        log.info("[K8s] HPA minReplicas 패치 제안 등록 및 Slack 발송: id={}, hpa={}, minReplicas={}", id, hpaName, newMinReplicas);
+        return "HPA minReplicas 패치 제안 등록됨 [" + id + "]: " + hpaName + " → minReplicas=" + newMinReplicas + "\n사유: " + reason;
     }
 
     @Tool(description = """
@@ -318,6 +440,78 @@ public class KubernetesTools {
             result = result.substring(0, maxLength) + "\n... (이하 생략)";
         }
         return result;
+    }
+
+    private List<Map<String, Object>> buildPodRestartBlocks(String id, String podName, String resolutionNote, String reason) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("type", "header");
+        header.put("text", Map.of("type", "plain_text", "text", "🔄 Pod 재시작 승인 요청"));
+        blocks.add(header);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("type", "section");
+        section.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*대상 Pod:* `%s` (%s)\n*이유:* %s", podName, resolutionNote, reason)));
+        blocks.add(section);
+
+        Map<String, Object> approveBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "✅ 승인"),
+                "style", "primary",
+                "action_id", "approve_pod_restart",
+                "value", id);
+
+        Map<String, Object> rejectBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "❌ 거절"),
+                "style", "danger",
+                "action_id", "reject_pod_restart",
+                "value", id);
+
+        Map<String, Object> actions = new LinkedHashMap<>();
+        actions.put("type", "actions");
+        actions.put("elements", List.of(approveBtn, rejectBtn));
+        blocks.add(actions);
+
+        return blocks;
+    }
+
+    private List<Map<String, Object>> buildHpaMinReplicasPatchBlocks(String id, String hpaName, int minReplicas, String reason) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("type", "header");
+        header.put("text", Map.of("type", "plain_text", "text", "⚡ HPA minReplicas 패치 승인 요청"));
+        blocks.add(header);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("type", "section");
+        section.put("text", Map.of("type", "mrkdwn", "text",
+                String.format("*대상 HPA:* `%s`\n*새 minReplicas:* %d\n*이유:* %s", hpaName, minReplicas, reason)));
+        blocks.add(section);
+
+        Map<String, Object> approveBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "✅ 승인"),
+                "style", "primary",
+                "action_id", "approve_hpa_min_patch",
+                "value", id);
+
+        Map<String, Object> rejectBtn = Map.of(
+                "type", "button",
+                "text", Map.of("type", "plain_text", "text", "❌ 거절"),
+                "style", "danger",
+                "action_id", "reject_hpa_min_patch",
+                "value", id);
+
+        Map<String, Object> actions = new LinkedHashMap<>();
+        actions.put("type", "actions");
+        actions.put("elements", List.of(approveBtn, rejectBtn));
+        blocks.add(actions);
+
+        return blocks;
     }
 
     private List<Map<String, Object>> buildHpaPatchBlocks(String id, String hpaName, int maxReplicas, String reason) {
