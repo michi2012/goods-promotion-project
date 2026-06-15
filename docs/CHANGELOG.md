@@ -4,6 +4,18 @@
 
 ---
 
+## v1.10.0 — 2026-06-15
+
+> codebot에 주문/결제/사용자 데이터 조회 도구를 추가하고, 코드 검색·PR 생성 흐름을 git-sync 기반 로컬 조회와 diff 미리보기로 신뢰성 있게 개선했습니다.
+
+### ✨ New Features
+- codebot 데이터 조회/코드 검색/PR 흐름 신뢰성 개선 — order/payment/user DB 화이트리스트 조회 도구(executeQuery) 추가, CodeSearchTools/PullRequestTools를 git-sync 사이드카 기반 로컬 git 조회로 재작성(diff 미리보기·filePath 자동보정), createIssue/createFixPullRequest 템플릿 개선, Slack mrkdwn 변환, RouterService 스레드별 sticky 캐시 추가 (82e9141)
+
+### 🔧 Chore / Docs
+- pre-tool-check 훅 차단 조건 좁히기 (b4dadf0)
+
+---
+
 ## v1.9.0 — 2026-06-14
 
 > Router-Worker 챗봇 아키텍처 도입과 Istio 카나리(v1/v2) 트래픽 격리·자동 점진 승급(에러율+latency) 인프라를 추가했습니다.
