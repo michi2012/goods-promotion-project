@@ -4,6 +4,17 @@
 
 ---
 
+## v1.11.0 — 2026-06-16
+
+> CS 자동 응대 챗봇(cs-bot) Phase1 출시 및 aiops DLT 자동 재처리·인프라 챗봇 고도화
+
+### ✨ New Features
+- CS 자동 응대 챗봇(cs-bot) Phase1 백엔드 구현 및 Helm 배포 설정 (a6edf86) — Spring AI 기반 CS 챗봇 모듈 신규 출시. 주문·결제·환불 조회, 환불 요청, 에스컬레이션 도구 포함. Istio VirtualService/DestinationRule 포함 Helm 차트 추가.
+- aiops DLT 자동 재처리 도구 추가 (7341e9e) — Prometheus `PurchaseDltAccumulated` 알람 수신 시 UNRESOLVED DLT를 자동 분류 후 복구 시도 (retryable → 자동 재처리, non-retryable → Slack 수동 안내). serverA Gauge 메트릭 및 목록 조회 API 포함.
+- [aiops] 인프라 챗봇 라벨 컨벤션 반영 + 인프라 도구 화이트리스트 추가 (9a57401)
+
+---
+
 ## v1.10.0 — 2026-06-15
 
 > codebot에 주문/결제/사용자 데이터 조회 도구를 추가하고, 코드 검색·PR 생성 흐름을 git-sync 기반 로컬 조회와 diff 미리보기로 신뢰성 있게 개선했습니다.
