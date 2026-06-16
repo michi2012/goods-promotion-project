@@ -1,110 +1,210 @@
-# 계획서: aiops 인프라 챗봇 — 라벨 컨벤션 반영 + 인프라 도구 화이트리스트 추가
+# 계획서: CS 자동 응대 챗봇 Phase1 — 백엔드 cs-bot 모듈
+
+---
+
+## [진행 중] CS 봇 도구 5종 추가 (Phase1 보완)
+
+- 작성일: 2026-06-16
+- 관련 이슈/티켓: 없음
+
+## 목표
+cs-bot이 단순 조회를 넘어 실제 예외 상황(주문-결제 불일치, 중복 결제, 환불 지연)을 감지하고 고객에게 의미 있는 답변을 제공할 수 있도록 도구 3개를 추가한다.
+
+## 성공 기준
+- [ ] `getOrderDetail(orderId)` 호출 시 결제정보(serverC) + 상품명(serverA) + 주문상태(serverB)를 통합해 반환
+- [ ] `trackRefundStatus(orderId)` 호출 시 status CANCELLED=완료, PAID=처리 중 구분 반환
+- [ ] `diagnosePaymentIssue()` 호출 시 불일치 또는 10분 이내 중복 결제 감지
+- [ ] `PaymentCancelConsumer`가 취소 후 DB status를 CANCELLED로 업데이트
+- [ ] serverA `GET /api/v1/goods/{goodsId}` 호출 시 상품명과 재고 반환
+- [ ] `checkAndRetryPurchaseDlt(orderId)` 호출 시 UNRESOLVED DLT 발견 → retryDlt() 호출 후 재처리 결과 반환
+- [ ] `.\gradlew.bat :cs-bot:build :serverA:build :serverC:build` 전체 빌드 통과
+
+## 비범위 (Out of Scope)
+- 회원 정보 수정 (Phase2)
+- 프론트엔드 변경
+- serverA/serverB docker-compose 기동 (E2E 전 사용자 직접 기동)
+- payment-cancel 재발행 별도 도구 → `requestRefund(orderId)` 재호출이 재발행과 동일하므로 SYSTEM_PROMPT 안내로 대체
+
+## 단계별 작업 계획
+
+### 단계 1: serverA API 추가 (상품 조회 + DLT 조회)
+- 변경 파일:
+  - `serverA/src/main/java/promotion/serverA/dto/response/GoodsResponse.java` (신규)
+  - `serverA/src/main/java/promotion/serverA/dto/response/DltResponse.java` (신규)
+  - `serverA/src/main/java/promotion/serverA/service/GoodsService.java`
+  - `serverA/src/main/java/promotion/serverA/controller/GoodsController.java`
+  - `serverA/src/main/java/promotion/serverA/repository/DeadLetterRepository.java`
+  - `serverA/src/main/java/promotion/serverA/controller/AdminController.java`
+- 변경 내용:
+  - GoodsResponse DTO(id, name, stock) 추가. GoodsService에 `findById(Long id)` 추가. GoodsController에 `GET /api/v1/goods/{goodsId}` 엔드포인트 추가.
+  - DltResponse DTO(id, orderId, goodsId, quantity, reason, status) 추가. DeadLetterRepository에 `Optional<DeadLetter> findByOrderId(String orderId)` 추가. AdminController에 `GET /api/v1/admin/dlt/orders/{orderId}` 엔드포인트 추가.
+- 검증: `.\gradlew.bat :serverA:compileJava`
+- 롤백: 6개 파일 변경 취소
+- 예상 소요: 짧음
+
+### 단계 2: serverC PaymentCancelConsumer 취소 후 status CANCELLED 업데이트
+- 변경 파일:
+  - `serverC/src/main/java/promotion/serverC/kafka/PaymentCancelConsumer.java`
+- 변경 내용: `pgClient.cancelPayments()` 호출 후 `paymentRepository.updateOrderStatus(orderId, "CANCELLED")` 추가. MockPgClient가 DB status를 변경하지 않는 버그 수정.
+- 검증: `.\gradlew.bat :serverC:compileJava`
+- 롤백: PaymentCancelConsumer 변경 취소
+- 예상 소요: 짧음
+
+### 단계 3: cs-bot DTO 추가 및 CsBotClient 확장
+- 변경 파일:
+  - `cs-bot/src/main/java/csbot/csbot/client/dto/GoodsResponse.java` (신규)
+  - `cs-bot/src/main/java/csbot/csbot/client/dto/OrderStatusResponse.java` (신규)
+  - `cs-bot/src/main/java/csbot/csbot/client/dto/DltResponse.java` (신규)
+  - `cs-bot/src/main/java/csbot/csbot/client/CsBotClient.java`
+- 변경 내용: GoodsResponse(id, name, stock), OrderStatusResponse(orderId, status), DltResponse(id, orderId, goodsId, quantity, reason, status) DTO 추가. CsBotClient에 serverA `getGoodsInfo`, `getDltByOrderId`, `retryDlt` 메서드 + serverB `getOrderStatus` 호출 메서드 추가.
+- 검증: `.\gradlew.bat :cs-bot:compileJava`
+- 롤백: 4개 파일 변경 취소
+- 예상 소요: 짧음
+
+### 단계 4: CsBotTools 도구 4개 추가 + SYSTEM_PROMPT 업데이트
+- 변경 파일:
+  - `cs-bot/src/main/java/csbot/csbot/tools/CsBotTools.java`
+  - `cs-bot/src/main/java/csbot/csbot/router/CsChatAgentService.java` (SYSTEM_PROMPT)
+- 변경 내용:
+  - `getOrderDetail(orderId)`: serverC 결제정보 + serverA 상품명 + serverB 주문상태 통합
+  - `trackRefundStatus(orderId)`: serverC status 재조회 (CANCELLED=완료, PAID=처리 중)
+  - `diagnosePaymentIssue()`: PAID인데 serverB 주문상태 불일치 감지 / 동일 goodsId 10분 이내 2건 중복 감지 후 취소 제안
+  - `checkAndRetryPurchaseDlt(orderId)`: serverA DLT 조회 → UNRESOLVED이면 retryDlt() 호출(재고 복구) 후 결과 반환. 없거나 RESOLVED이면 "정상 처리됨" 반환.
+  - SYSTEM_PROMPT 추가: "취소 요청 후 환불이 안 됐다" → trackRefundStatus → PAID이면 requestRefund 재호출로 재처리 안내
+- 검증: `.\gradlew.bat :cs-bot:compileJava`
+- 롤백: 2개 파일 변경 취소
+- 예상 소요: 보통
+
+### 단계 5: 테스트 코드 추가
+- 변경 파일:
+  - `cs-bot/src/test/java/csbot/csbot/tools/CsBotToolsTest.java`
+  - `serverA/src/test/java/promotion/serverA/controller/GoodsControllerTest.java` (신규)
+- 변경 내용: 각 도구 정상/예외 케이스 단위 테스트
+- 검증: `.\gradlew.bat :cs-bot:compileTestJava :serverA:compileTestJava`
+- 롤백: 테스트 파일 삭제
+- 예상 소요: 보통
+
+## 리스크 및 대응
+- serverB가 Redis에서 주문 상태 조회 → Redis에 데이터 없으면 "NOT_FOUND" 반환 → 불일치 판단 제외
+- serverA, serverB가 로컬 E2E 시 Eureka에 등록되어 있어야 함 → `docker compose up -d server-a server-b redis-b` 추가 기동 필요
+
+## 의존성
+- serverA Eureka 이름: `serverA`, serverB: `serverB`
+- serverA 의존: redis, server-b (docker-compose)
+
+---
 
 - 작성일: 2026-06-15
 - 관련 이슈/티켓: 없음
 
 ## 목표
-실제 Prometheus/Loki 라벨 컨벤션을 `ObservabilityTools`의 도구 설명과 `InfraChatAgentService`의 SYSTEM_PROMPT에 반영해 LLM이 정확한 PromQL/LogQL을 생성하도록 하고, 인프라 화이트리스트 도구 4종(Pod 로그 조회, 롤아웃 상태/이력 조회, 개별 Pod 재시작, HPA minReplicas 조정)을 추가한다.
+로그인한 고객이 본인의 구매/결제/환불 내역을 조회하고 환불·취소를 요청할 수 있으며, 챗봇이 처리할 수 없는 문의는 Linear 이슈로 에스컬레이션하는 CS 챗봇 백엔드(`cs-bot` 신규 모듈)를 구축한다. 프론트엔드 채팅 위젯은 Phase2로 분리한다.
 
 ## 성공 기준
-- [ ] `ObservabilityTools.queryLokiLogs`의 `@ToolParam(service)` 예시가 실제 Loki `app` 라벨 값(`serverA`/`serverB`/`serverC`)과 일치한다.
-- [ ] `ObservabilityTools.queryPrometheusMetrics`의 `@ToolParam(promql)` description에 실제 라벨 컨벤션(`job="promotion-api"`, `instance="server-a:8080"` 등, `application="serverA"` 등)이 명시된다.
-- [ ] `InfraChatAgentService`의 SYSTEM_PROMPT에 "라벨 컨벤션" 섹션이 추가되고, 신규 화이트리스트 도구 4종의 사용 가이드가 포함된다.
-- [ ] `KubernetesTools`에 QUERY 도구 2종(Pod 로그 조회, 롤아웃 상태/이력 조회)과 ACTION 도구 2종(Pod 재시작, HPA minReplicas 조정)이 추가되고, `ActionApprovalService`/`SlackInteractiveController`에 ACTION 도구에 대응하는 `execute*`/`approve_*`/`reject_*`가 추가된다.
-- [ ] `.\gradlew.bat :aiops:test --tests "aiops.aiops.tools.KubernetesToolsTest"` 통과 (신규 QUERY 도구 kubectl 실패경로 테스트 포함).
-- [ ] `.\gradlew.bat :aiops:build` 전체 통과.
+- [ ] `.\gradlew.bat :cs-bot:build` 전체 통과 (단위 테스트 포함)
+- [ ] `.\gradlew.bat :user-service:test` 통과 (`InternalUserResponse`에 `id` 추가 후)
+- [ ] gateway에 `/api/v1/cs-chat/**` 라우트가 등록되고, `JwtAuthFilter`가 적용되어 JWT 없이 호출 시 401 응답
+- [ ] docker-compose로 cs-bot 기동 후: 로그인 → JWT 획득 → `/api/v1/cs-chat/messages` 호출 시 본인의 구매/결제 내역이 정상 반환되는 E2E 확인
+- [ ] `requestRefund` 호출 시 `payment-cancel` 토픽에 메시지가 produce되고, serverC `PaymentCancelConsumer`가 이를 소비하는지 로그로 확인
 
 ## 비범위 (Out of Scope)
-- `getClusterStatus` 자체의 실패 응답 문구/처리 개선
-- 화이트리스트 나머지 항목 (Kafka consumer offset 리셋, Alertmanager 알람 mute, DB 장시간 쿼리 KILL)
-- `CodebotAgentService`의 SYSTEM_PROMPT 수정 (KubernetesTools는 공유되지만, 신규 도구 가이드는 InfraChatAgentService에만 작성)
-- 기존 `proposeHpaPatch`(maxReplicas)의 시그니처/동작 변경
+- 프론트엔드 채팅 위젯 (Phase2)
+- 실제 PG사 연동 (MockPgClient 유지)
+- 환불 금액/이력 기반 리스크 분기, 어드민 검토 큐
+- serverB 주문상태(`order:view:{orderId}:status`) read-model 연동 — `PaymentResponse.status`로 대체
+- 다국어 지원, 응답 스트리밍
+- IntentClassifier/RouterService 같은 멀티 에이전트 라우팅 (CS 도메인은 단일 에이전트로 충분)
+- aiops 모듈 코드 변경 (패턴 참고만 함)
 
 ## 단계별 작업 계획 (최대 7단계)
 
-### 단계 1: ObservabilityTools 라벨 컨벤션 description 수정
-- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/ObservabilityTools.java`
-- 변경 내용 요약:
-  - `queryLokiLogs`의 `@ToolParam(service)` 예시(67행, `"server-a, server-b, server-c, mcp"`)를 실제 Loki `app` 라벨 값(`serverA, serverB, serverC`, camelCase)으로 수정.
-  - `queryPrometheusMetrics`의 `@ToolParam(promql)` description(165행)에 실제 라벨 셋 예시 추가: `job="promotion-api"`(고정값), `instance="server-a:8080"`/`"server-b:8081"`/`"server-c:8082"`, `application="serverA"`/`"serverB"`/`"serverC"`(camelCase).
-  - `queryProfilerHotspots`의 `service_name="<service>"`(Pyroscope, 135행)은 Prometheus/Loki와 다른 별도 네이밍 컨벤션이므로 description에 "Pyroscope는 `serverA`/`serverB`/`serverC` 형식의 `service_name`을 사용하며 Prometheus의 `application`/Loki의 `app`과 동일한 값" 안내 추가.
-- 검증 방법: `.\gradlew.bat :aiops:compileJava`
-- 롤백 방법: `git checkout -- aiops/src/main/java/aiops/aiops/tools/ObservabilityTools.java`
-- 예상 소요: 짧음
-
-### 단계 2: InfraChatAgentService SYSTEM_PROMPT — 라벨 컨벤션 섹션 + 신규 도구 가이드
-- 변경 파일: `aiops/src/main/java/aiops/aiops/router/InfraChatAgentService.java`
-- 변경 내용 요약:
-  - SYSTEM_PROMPT(17-31행)에 "## 라벨 컨벤션" 섹션을 신설해 Prometheus(`job="promotion-api"`, `instance`, `application`)와 Loki(`app`)의 실제 라벨 값을 한 곳에 정리.
-  - "## 조사 원칙" 섹션에 신규 QUERY 도구(Pod 로그 조회, 롤아웃 상태/이력 조회) 사용 가이드를 추가.
-  - "## 조치 제안" 섹션에 신규 ACTION 도구(Pod 재시작, HPA minReplicas 조정)의 호출 조건/주의사항을 추가 (기존 `propose*` 도구들과 동일한 "근거 기반 호출" 원칙 적용).
-- 검증 방법: `.\gradlew.bat :aiops:compileJava`
-- 롤백 방법: `git checkout -- aiops/src/main/java/aiops/aiops/router/InfraChatAgentService.java`
-- 예상 소요: 짧음
-
-### 단계 3: KubernetesTools — QUERY 도구 2종 추가 (Pod 로그 조회, 롤아웃 상태/이력 조회)
-- 변경 파일: `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
-- 변경 내용 요약:
-  - `getPodLogs(podName, tailLines)` — `kubectl logs <podName> -n <namespace> --tail=<tailLines>` 실행, `getClusterStatus`와 동일한 try/catch + "kubectl 접근 불가 환경일 수 있습니다" 실패 메시지 패턴. description에 "정확한 podName은 getClusterStatus 결과의 Pod 목록을 참고" 안내.
-  - `getRolloutStatus(deploymentName)` — `kubectl rollout status deployment/<deploymentName> -n <namespace>`.
-  - `getRolloutHistory(deploymentName)` — `kubectl rollout history deployment/<deploymentName> -n <namespace>`.
-  - 3개 모두 읽기 전용 `@Tool`, `runKubectl(...)` 재사용, 승인 불필요.
-- 검증 방법: `.\gradlew.bat :aiops:compileJava`
-- 롤백 방법: `git checkout -- aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
-- 예상 소요: 보통
-
-### 단계 4: Pod 재시작 ACTION 추가 (KubernetesTools + ActionApprovalService + SlackInteractiveController)
+### 단계 1: cs-bot 모듈 골격
 - 변경 파일:
-  - `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
-  - `aiops/src/main/java/aiops/aiops/approval/ActionApprovalService.java`
-  - `aiops/src/main/java/aiops/aiops/slack/SlackInteractiveController.java`
-- 변경 내용 요약:
-  - `KubernetesTools.proposePodRestart(podName, deploymentName, reason)` — `podName`이 비어있지 않으면 그대로 사용, 비어있으면 `kubectl get pods -n <namespace> -l app=<deploymentName> -o jsonpath={.items[0].metadata.name}`(`extractThreadDumpSummary`와 동일한 lookup 패턴)으로 첫 번째 매칭 pod을 resolve. resolve 실패 시 에러 문자열 반환(제안 등록 안 함).
-  - `params = {"podName":"<resolved>","namespace":"<ns>"}`로 `approvalService.propose("POD_RESTART", params, reason)` 호출, `buildPodRestartBlocks(...)`로 Slack 발송 — **실제 resolve된 podName을 메시지에 표시**(app만 주어진 경우 "app=<deploymentName> 매칭 pod 중 첫 번째: <podName>" 안내 포함).
-  - `ActionApprovalService.executePodRestart(action)` — params에서 `podName`/`namespace` 파싱 후 `kubectl delete pod <podName> -n <ns>` 실행 (`executeRolloutRestart`와 동일한 ProcessBuilder/List<String> 구조).
-  - `SlackInteractiveController`에 `approve_pod_restart`/`reject_pod_restart` 라우팅 추가 (기존 `approve_restart`/`reject_restart` 블록과 동일 패턴).
-- 검증 방법: `.\gradlew.bat :aiops:compileJava`
-- 롤백 방법: 3개 파일 `git checkout`
+  - `settings.gradle`
+  - `cs-bot/build.gradle`
+  - `cs-bot/src/main/java/csbot/csbot/CsBotApplication.java`
+  - `cs-bot/src/main/resources/application.yaml`
+- 변경 내용 요약: aiops와 동일한 구조(Java 21, Spring Boot 3.5.14, spring-ai-bom 1.1.7)로 신규 모듈 생성. 의존성: Eureka client, web, validation, `spring-ai-starter-model-google-genai`, Lombok, actuator+micrometer(prometheus/otlp, 기존 관측 스택과 일관성), **+ `spring-kafka`(신규, 환불 ACTION에서 `payment-cancel` 토픽 produce용)**. 포트 8089, `spring.application.name: cs-bot`, eureka 등록, `spring.ai.google.genai.api-key: ${AI_API_KEY}`, `spring.kafka.bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}`(producer만, consumer 불필요).
+- 검증 방법: `.\gradlew.bat :cs-bot:compileJava` → BUILD SUCCESSFUL
+- 롤백 방법: `cs-bot/` 디렉토리 삭제, `settings.gradle`에서 `'cs-bot'` 제거
 - 예상 소요: 보통
 
-### 단계 5: HPA minReplicas ACTION 추가 (KubernetesTools + ActionApprovalService + SlackInteractiveController)
+### 단계 2: user-service — Identity 매핑 (`InternalUserResponse`에 `id` 추가)
 - 변경 파일:
-  - `aiops/src/main/java/aiops/aiops/tools/KubernetesTools.java`
-  - `aiops/src/main/java/aiops/aiops/approval/ActionApprovalService.java`
-  - `aiops/src/main/java/aiops/aiops/slack/SlackInteractiveController.java`
-- 변경 내용 요약:
-  - `KubernetesTools.proposeHpaMinReplicasPatch(hpaName, newMinReplicas, reason)` — 신규 도구. `params = {"hpa":"<name>","minReplicas":N,"namespace":"<ns>"}`로 `approvalService.propose("HPA_MIN_PATCH", params, reason)` 호출, `buildHpaMinReplicasPatchBlocks(...)`로 Slack 발송 (`buildHpaPatchBlocks`와 동일 구조, 새 `action_id`).
-  - `ActionApprovalService.executeHpaMinReplicasPatch(action)` — `kubectl patch hpa <hpaName> -n <ns> --patch '{"spec":{"minReplicas":N}}' --type merge` (`executeHpaPatch`와 동일 구조).
-  - `SlackInteractiveController`에 `approve_hpa_min_patch`/`reject_hpa_min_patch` 라우팅 추가.
-  - 기존 `proposeHpaPatch`/`executeHpaPatch`/`approve_hpa_patch`(maxReplicas)는 변경하지 않음.
-- 검증 방법: `.\gradlew.bat :aiops:compileJava`
-- 롤백 방법: 3개 파일 `git checkout`
-- 예상 소요: 보통
-
-### 단계 6: KubernetesToolsTest — 신규 단위 테스트 추가
-- 변경 파일: `aiops/src/test/java/aiops/aiops/tools/KubernetesToolsTest.java`
-- 변경 내용 요약:
-  - `getPodLogs`/`getRolloutStatus`/`getRolloutHistory`에 대해 `getCanaryWeight_kubectl실패시_minus1`과 동일한 스타일의 kubectl 실패경로 테스트(로컬 환경에서 kubectl 접근 불가 → 실패 안내 문자열 반환 확인) 추가.
-  - 단계 4에서 추가되는 pod 이름 resolve 순수 로직(예: app 매칭 결과가 빈 문자열/`(결과 없음)`일 때 처리)이 별도 private/package-private 헬퍼로 분리된다면, `extractBlockedThreads`/`parseCanaryWeight`와 동일한 스타일로 단위 테스트 추가.
-  - 신규 ACTION `execute*`(executePodRestart, executeHpaMinReplicasPatch)와 `SlackInteractiveController`의 `approve_pod_restart`/`approve_hpa_min_patch` 라우팅은 기존 `executeHpaPatch`/`executeRolloutRestart` 등과 동일하게 테스트를 작성하지 않음(기존 컨벤션 유지).
-- 검증 방법: `.\gradlew.bat :aiops:test --tests "aiops.aiops.tools.KubernetesToolsTest"`
-- 롤백 방법: `git checkout -- aiops/src/test/java/aiops/aiops/tools/KubernetesToolsTest.java`
-- 예상 소요: 보통
-
-### 단계 7: 전체 빌드 검증
-- 변경 파일: 없음 (검증 전용)
-- 변경 내용 요약: `.\gradlew.bat :aiops:build` 전체 통과 확인, `git diff --stat`로 변경 범위가 plan의 "비범위"를 침범하지 않았는지 최종 확인, `docs/checklist.md` 최종 갱신.
-- 검증 방법: 위와 동일
-- 롤백 방법: 해당 없음
+  - `user-service/src/main/java/com/example/user_service/dto/response/InternalUserResponse.java`
+  - (있다면) 관련 테스트 — `UserService.getUserByUserId` 또는 `InternalUserController` 테스트
+- 변경 내용 요약: `InternalUserResponse` record에 `Long id` 필드를 추가하고 `fromEntity(User user)`에서 `user.getId()`를 함께 전달한다. cs-bot이 `GET /internal/api/users/{loginId}`(String 로그인ID)를 호출했을 때 숫자 PK(`User.id`)를 받을 수 있게 하기 위함 — 이 값으로 serverC `payments/users/{id}`, user-service `api/users/{id}`를 호출한다. 기존 응답 필드(`userId`, `username`)는 변경하지 않는다(추가 전용, 하위호환).
+- 검증 방법: `.\gradlew.bat :user-service:test`
+- 롤백 방법: `git checkout -- user-service/src/main/java/com/example/user_service/dto/response/InternalUserResponse.java`
 - 예상 소요: 짧음
+
+### 단계 3: cs-bot 인프라 클라이언트 (RestClientConfig, CsBotClient, CsUserContext)
+- 변경 파일:
+  - `cs-bot/src/main/java/csbot/csbot/config/RestClientConfig.java`
+  - `cs-bot/src/main/java/csbot/csbot/client/CsBotClient.java`
+  - `cs-bot/src/main/java/csbot/csbot/context/CsUserContext.java`
+  - `cs-bot/src/test/java/csbot/csbot/client/CsBotClientTest.java`
+- 변경 내용 요약:
+  - `RestClientConfig`: aiops `internalServiceClientBuilder()`(DiscoveryClient + Eureka, 3s/60s 타임아웃) 패턴 재사용.
+  - `CsBotClient`: ① `resolveNumericUserId(String loginId)` → user-service `GET /internal/api/users/{loginId}` → `InternalUserResponse.id` 반환, ② `getMyPayments(Long numericUserId)` → serverC `GET /api/v1/payments/users/{numericUserId}` → `List<PaymentResponse>`, ③ `getMyProfile(Long numericUserId, String loginId)` → user-service `GET /api/users/{numericUserId}`(`X-User-Id: loginId` 헤더 포함) → `UserProfileResponse`.
+  - `CsUserContext`: `@RequestScope` 빈. `X-User-Id`(String 로그인ID)를 보관하고, `resolveNumericId()`에서 `CsBotClient.resolveNumericUserId`를 호출해 결과를 요청 내에서 캐싱한다. 모든 `@Tool`은 이 컨텍스트를 통해서만 사용자 식별자를 얻는다 — LLM이 생성한 userId를 절대 신뢰하지 않는다는 보안 원칙의 구현체.
+- 검증 방법: `.\gradlew.bat :cs-bot:test --tests "*CsBotClientTest"`
+- 롤백 방법: 3개 신규 파일 삭제
+- 예상 소요: 보통
+
+### 단계 4: CS 도구(@Tool) — 조회 통합 도구 + 환불/취소 ACTION + 에스컬레이션
+- 변경 파일:
+  - `cs-bot/src/main/java/csbot/csbot/tools/CsBotTools.java`
+  - `cs-bot/src/main/java/csbot/csbot/linear/CsEscalationService.java`
+  - `cs-bot/src/test/java/csbot/csbot/tools/CsBotToolsTest.java`
+- 변경 내용 요약:
+  - `getMyOrders()`: `CsUserContext.resolveNumericId()` → `CsBotClient.getMyPayments(id)` → `PaymentResponse` 리스트 반환. 구매/주문 내역, 결제 내역/실패 사유, 환불/취소 상태 조회를 이 단일 도구로 통합(`status` 필드로 모두 표현 가능).
+  - `getMyProfile()`: `CsBotClient.getMyProfile(id, loginId)` → 회원 정보 반환.
+  - `requestRefund(orderId)`: `getMyOrders()` 결과에서 해당 `orderId`가 본인 소유이고 `status`가 취소 가능한 상태(`SUCCESS`)인지 확인(상태 가드/멱등성) → 통과 시 `KafkaTemplate`으로 `payment-cancel` 토픽에 `PaymentCancelMessage(orderId)`(JSON) produce → "취소 요청이 접수되었습니다" 응답. 본인 주문이 아니거나 이미 취소/실패 상태면 처리 거부 사유를 반환(별도 승인 절차 없음 — 즉시 처리).
+  - `escalateToHuman(summary)`: `CsEscalationService.createEscalationTicket(summary, conversationId)` 호출 — aiops `LinearAuditService`와 동일한 GraphQL `issueCreate` mutation 패턴을 독립 구현(aiops 모듈 의존 없음), title prefix `[CS 에스컬레이션]`. 실패 시 예외 throw 없이 안내 문자열 반환.
+  - 모든 `@Tool`은 `@ToolParam`으로 사용자 식별자를 받지 않는다.
+- 검증 방법: `.\gradlew.bat :cs-bot:test --tests "*CsBotToolsTest"`
+- 롤백 방법: 3개 파일 삭제
+- 예상 소요: 김
+
+### 단계 5: Router/Agent + Controller
+- 변경 파일:
+  - `cs-bot/src/main/java/csbot/csbot/router/ChatMemoryConfig.java`
+  - `cs-bot/src/main/java/csbot/csbot/router/CsChatAgentService.java`
+  - `cs-bot/src/main/java/csbot/csbot/controller/CsChatController.java`
+  - `cs-bot/src/test/java/csbot/csbot/controller/CsChatControllerTest.java`
+- 변경 내용 요약:
+  - `ChatMemoryConfig`: aiops와 동일 — `MessageWindowChatMemory` + `InMemoryChatMemoryRepository`(maxMessages=20). replica=1 가정(`docs/context.md`에 명시).
+  - `CsChatAgentService`: SYSTEM_PROMPT(CS 응대 톤, "본인 데이터만 다룬다"는 안내, `requestRefund` 호출 전 `getMyOrders`로 본인 주문 확인 지시, 해결 불가 시 `escalateToHuman` 안내) + `ChatClient.Builder` + `ChatMemory` + `CsBotTools`를 `chat(conversationId, message)`로 노출 (InfraChatAgentService와 동일 구조).
+  - `CsChatController`: `POST /api/v1/cs-chat/messages` — `X-User-Id` 헤더(필수)를 `CsUserContext`에 설정한 뒤 `CsChatAgentService.chat(...)` 호출, 응답 반환. 요청 바디: `{conversationId, message}`.
+- 검증 방법: `.\gradlew.bat :cs-bot:test --tests "*CsChatControllerTest"`
+- 롤백 방법: 4개 파일 삭제
+- 예상 소요: 보통
+
+### 단계 6: gateway 라우팅 추가 (인프라 변경 — 단계별 승인 유지)
+- 변경 파일: `gateway-service/src/main/resources/application.yml`
+- 변경 내용 요약: `/api/v1/cs-chat/**` → `lb://cs-bot` 라우트 추가. 기존 인증 필요 라우트(`user-service`/`api/users/**` 등)와 동일한 Redis rate-limit 패턴 적용. `JwtAuthFilter`는 전역 필터이므로 별도 설정 없이 `X-User-Id`/`X-User-Role` 주입이 자동 적용된다.
+- 검증 방법: `.\gradlew.bat :gateway-service:compileJava` + gateway 기동 후 라우트 등록 확인
+- 롤백 방법: `git checkout -- gateway-service/src/main/resources/application.yml`
+- 예상 소요: 짧음
+
+### 단계 7: docker-compose 통합 + 전체 빌드/E2E 검증 (인프라 변경 — 단계별 승인 유지)
+- 변경 파일: `docker-compose.yml`
+- 변경 내용 요약: `cs-bot` 서비스 추가(포트 8089). aiops와 동일한 환경변수 패턴(`AI_API_KEY`, `EUREKA_DEFAULT_ZONE`, `LINEAR_API_KEY`, `LINEAR_TEAM_ID`, `OTLP_ENDPOINT` 등) + `SPRING_KAFKA_BOOTSTRAP_SERVERS`. `depends_on: discovery-service, kafka`.
+- 검증 방법: `.\gradlew.bat :cs-bot:build`(전체) → `docker compose config` → `docker compose up -d cs-bot`(run_in_background) → 기동 후 curl로 로그인→JWT 획득→gateway 경유 `/api/v1/cs-chat/messages` 호출 E2E, `requestRefund` 호출 시 serverC 로그에서 `PaymentCancelConsumer` 소비 확인
+- 롤백 방법: `git checkout -- docker-compose.yml`, `docker compose down cs-bot`
+- 예상 소요: 김
 
 ## 리스크 및 대응
-- 리스크 1: 신규 kubectl 명령(`logs`, `rollout status/history`, `delete pod`, `patch hpa --patch minReplicas`)은 로컬 docker-compose에 실제 k8s API 서버가 없어 실제 동작 E2E가 불가능 → 대응: CLAUDE.md "진짜 로컬 불가(클라우드 전용)" 기준 적용, `gradle build` + 단위테스트(kubectl 실패경로) 통과까지를 커밋 전 검증 기준으로 한다. 커밋 메시지에 "EKS 배포 후 검증 필요" 명시 권고.
-- 리스크 2: `KubernetesTools`는 `CodebotAgentService`(CODE 라우팅)에서도 공유되므로, 신규 `@Tool`이 의도와 무관하게 CODE 라우팅에서도 호출 가능 → 대응: `InfraChatAgentService`의 SYSTEM_PROMPT에만 사용 가이드를 추가하고 `CodebotAgentService`의 SYSTEM_PROMPT는 변경하지 않는다(비범위). 각 `@Tool`의 description 자체에 "K8s 인프라 조치/조회" 목적을 명확히 해 오용 가능성을 낮춘다.
-- 리스크 3: Pod 재시작 시 `app` 라벨 다중 매칭으로 의도하지 않은 pod이 삭제될 위험 → 대응: Slack 승인 메시지에 실제 resolve된 podName을 표시해 승인자가 확인 가능하게 하고, 다중 매칭 시 "여러 개 중 첫 번째"임을 명시한다.
+- 리스크 1: `spring-kafka`는 cs-bot에 추가되는 **신규 Gradle 의존성** → CLAUDE.md 규칙상 사용자 확인 필요(이 plan 승인 시 함께 확인).
+- 리스크 2: `CsUserContext`(`@RequestScope`)에 담긴 `X-User-Id`를 `@Tool` 메서드 실행 시점에 정상적으로 읽을 수 있는지 — Spring AI `ChatClient.call()`은 기본적으로 호출 스레드에서 동기 실행되므로 동일 요청 스레드 내에서는 문제 없으나, virtual thread 전환 시 `RequestContextHolder` 전파 필요 여부를 단계 3/5 구현 중 확인한다.
+- 리스크 3: `requestRefund`의 상태 가드 기준(`SUCCESS`만 취소 가능)이 `Payment.status`의 실제 값 집합과 일치하는지 — 단계 4 구현 시 `PgClient`/`Payment` 엔티티의 status 값들을 확인해 가드 조건을 정확히 맞춘다.
+- 리스크 4: `LINEAR_API_KEY`/`LINEAR_TEAM_ID`가 로컬에 없을 수 있음 → `CsEscalationService`는 `LinearAuditService`처럼 실패 시 예외 대신 안내 문자열을 반환한다.
 
 ## 의존성
-- 기존 `ActionApprovalService.propose()`/`approve()`/`reject()` 패턴
-- 기존 `SlackNotificationService.sendBlockKit`/`sendToResponseUrl`
-- 기존 `KubernetesTools.runKubectl(...)` 헬퍼
-- `SlackInteractiveController.sendResultWithAudit(...)` (LinearAuditService 연동, 신규 ACTION에도 자동 적용됨)
+- ⚠️ 신규 Gradle 의존성: `cs-bot` → `spring-kafka` (producer only)
+- 기존 `payment-cancel` Kafka 토픽 (serverA `KafkaTopicConfig`에서 선언, 3 partitions/1 replica) — cs-bot은 새로 선언하지 않고 produce만 함
+- 기존 `GET /internal/api/users/{userId}` (user-service, gateway 미노출, 서비스간 전용) + 본 plan에서 `id` 필드 추가
+- 기존 `GET /api/v1/payments/users/{userId}` (serverC, `PaymentResponse`)
+- 기존 `GET /api/users/{id}` (user-service, `UserProfileResponse`, `X-User-Id` 헤더로 본인 검증)
+- aiops `CodebotClient`/`RestClientConfig.internalServiceClientBuilder`, `ChatMemoryConfig`, `InfraChatAgentService`, `LinearAuditService` — 패턴 참고용 템플릿(코드 재사용 아닌 패턴 복제)
