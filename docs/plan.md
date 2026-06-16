@@ -2,7 +2,67 @@
 
 ---
 
-## [진행 중] CS 봇 도구 5종 추가 (Phase1 보완)
+## [진행 중] cs-bot Helm 차트 추가
+
+- 작성일: 2026-06-16
+- 관련 이슈/티켓: 없음
+
+## 목표
+기존 promotion-app Helm 차트에 cs-bot 서비스를 추가한다. aiops 패턴을 따르며, HPA 없이 replicas: 1로 시작한다.
+
+## 성공 기준
+- [ ] `helm template promotion-app ./helm/promotion-app` 오류 없이 렌더링
+- [ ] cs-bot Deployment, Service, VirtualService, DestinationRule, ServiceAccount 리소스 정상 생성
+- [ ] `values.yaml`에 `csBot` 섹션 추가 (image, port, 환경변수 전체)
+- [ ] 민감 환경변수(AI_API_KEY, LINEAR_API_KEY, LINEAR_TEAM_ID)는 `--set`으로 주입하도록 기본값 `""` 처리
+
+## 비범위 (Out of Scope)
+- HPA (Phase2에서 트래픽 확인 후 추가)
+- 카나리 배포 (serverA/B/C만 해당)
+- Ingress 변경 (모든 트래픽은 gateway-service 경유)
+- Profiler sidecar (aiops/codebot도 없음)
+
+## 단계별 작업 계획
+
+### 단계 1: values.yaml에 csBot 섹션 추가
+- 변경 파일: `helm/promotion-app/values.yaml`
+- 변경 내용: `codebot` 섹션 뒤에 `csBot` 섹션 추가. port 8089, replicas 1, 환경변수 7개
+- 검증 방법: 파일 확인 (helm template은 단계 4에서)
+- 롤백 방법: git checkout helm/promotion-app/values.yaml
+- 예상 소요: 짧음
+
+### 단계 2: deployment.yaml + service.yaml 생성
+- 변경 파일: `helm/promotion-app/templates/cs-bot/deployment.yaml`, `service.yaml`
+- 변경 내용: aiops 패턴 복사 후 csBot 변수로 교체. 환경변수 7개 주입
+- 검증 방법: 파일 확인
+- 롤백 방법: 파일 삭제
+- 예상 소요: 짧음
+
+### 단계 3: virtualservice.yaml + destinationrule.yaml 생성
+- 변경 파일: `helm/promotion-app/templates/cs-bot/virtualservice.yaml`, `destinationrule.yaml`
+- 변경 내용: aiops 패턴 복사 후 csBot 변수로 교체
+- 검증 방법: 파일 확인
+- 롤백 방법: 파일 삭제
+- 예상 소요: 짧음
+
+### 단계 4: rbac.yaml 생성 + helm template 검증
+- 변경 파일: `helm/promotion-app/templates/cs-bot/rbac.yaml`
+- 변경 내용: ServiceAccount만 생성 (ClusterRole 없음)
+- 검증 방법: `helm template promotion-app ./helm/promotion-app` 렌더링 성공
+- 롤백 방법: 파일 삭제
+- 예상 소요: 짧음
+
+## 리스크 및 대응
+- 리스크: `helm template` 없이는 EKS에서만 오류 발견 → `helm template` 렌더링 필수
+- 리스크: AI_API_KEY 등 민감값이 기본값에 노출 → 기본값 `""` 처리로 방지
+
+## 의존성
+- 기존 `promotion-app` Helm 차트 구조
+- cs-bot Docker 이미지 (ECR push는 배포 시 별도 진행)
+
+---
+
+## [완료] CS 봇 도구 5종 추가 (Phase1 보완)
 
 - 작성일: 2026-06-16
 - 관련 이슈/티켓: 없음

@@ -2,7 +2,30 @@
 
 ---
 
-## [진행 중] CS 봇 도구 5종 추가 맥락
+## [진행 중] cs-bot Helm 차트 추가 맥락
+
+### 왜 aiops 패턴을 따랐는가
+- aiops: AI 기능 단일 목적 서비스, Eureka 등록, Kafka 없음, HPA 없음, VirtualService/DestinationRule 있음 → cs-bot과 거의 동일 프로파일
+- codebot: VirtualService/DestinationRule 없음 → GitHub webhook 수신 전용, Istio mesh 내 L7 라우팅 불필요. cs-bot은 gateway에서 lb://cs-bot으로 Eureka 라우팅되므로 Istio mesh 라우팅 정책 적용 대상
+- 따라서 cs-bot = aiops 패턴 (VirtualService/DestinationRule O) + codebot의 rbac (SA only, ClusterRole 없음)
+
+### 왜 HPA를 제외했는가
+Phase1 목표는 Helm 등록 완료. cs-bot은 Gemini API 호출로 I/O 집중이지만 초기 트래픽이 낮으므로 replicas: 1로 시작. Phase2에서 실측 트래픽 기반으로 추가.
+
+### 환경변수 매핑
+| app yaml 키 | 환경변수명 | values.yaml 키 |
+|---|---|---|
+| spring.ai.google.genai.api-key | AI_API_KEY | csBot.aiApiKey |
+| eureka.client.service-url.defaultZone | EUREKA_DEFAULT_ZONE | csBot.eurekaDefaultZone |
+| spring.kafka.bootstrap-servers | SPRING_KAFKA_BOOTSTRAP_SERVERS | csBot.kafka.bootstrapServers |
+| linear.api-key | LINEAR_API_KEY | csBot.linearApiKey |
+| linear.team-id | LINEAR_TEAM_ID | csBot.linearTeamId |
+| management.otlp.tracing.endpoint | OTLP_ENDPOINT | csBot.otlpEndpoint |
+| spring.profiles.active | SPRING_PROFILES_ACTIVE | csBot.springProfilesActive |
+
+---
+
+## [완료] CS 봇 도구 5종 추가 맥락
 
 ### 왜 도구를 3개로 통합했는가
 5개 도구를 요청했지만 3개로 통합함.

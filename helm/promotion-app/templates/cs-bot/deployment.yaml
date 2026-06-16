@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.csBot.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.csBot.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  replicas: {{ .Values.csBot.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.csBot.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.csBot.name }}
+        app.kubernetes.io/name: {{ .Values.csBot.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.csBot.port | quote }}
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: cs-bot
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.csBot.name }}
+          image: {{ .Values.csBot.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 20"]
+          ports:
+            - containerPort: {{ .Values.csBot.port }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.csBot.springProfilesActive | quote }}
+            - name: AI_API_KEY
+              value: {{ .Values.csBot.aiApiKey | quote }}
+            - name: LINEAR_API_KEY
+              value: {{ .Values.csBot.linearApiKey | quote }}
+            - name: LINEAR_TEAM_ID
+              value: {{ .Values.csBot.linearTeamId | quote }}
+            - name: EUREKA_DEFAULT_ZONE
+              value: {{ .Values.csBot.eurekaDefaultZone | quote }}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.csBot.kafka.bootstrapServers | quote }}
+            {{- if .Values.csBot.otlpEndpoint }}
+            - name: OTLP_ENDPOINT
+              value: {{ .Values.csBot.otlpEndpoint | quote }}
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.csBot.resources.requests.cpu | quote }}
+              memory: {{ .Values.csBot.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.csBot.resources.limits.cpu | quote }}
+              memory: {{ .Values.csBot.resources.limits.memory | quote }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: {{ .Values.csBot.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: {{ .Values.csBot.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3

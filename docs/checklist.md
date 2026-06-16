@@ -80,3 +80,28 @@
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
 - 단계 4: `Payment.status`의 실제 값은 `PAID`/`FAILED`뿐(`SUCCESS` 없음). `requestRefund`의 취소 가능 상태 가드를 plan.md의 `SUCCESS` 대신 `PAID`로 구현(`CANCELABLE_STATUS = "PAID"`). 또한 `MockPgClient.cancelPayments()`가 취소 후 DB status를 변경하지 않아, 동일 `orderId`에 대한 중복 취소 요청 자체는 차단되지 않음(본인 소유 + 현재 PAID 사전조건 체크로 한정) — 기존 시스템의 한계이며 Phase1 비범위로 유지(사용자 확인 완료).
+
+---
+
+## [진행 중] cs-bot Helm 차트 추가
+
+- 마지막 업데이트: 2026-06-16
+
+## 진행 상황
+- [x] 단계 1: values.yaml csBot 섹션 추가
+  - [x] 검증 통과 (파일 확인)
+  - [ ] 코드리뷰 통과
+- [x] 단계 2: deployment.yaml + service.yaml 생성
+  - [x] 검증 통과 (파일 확인)
+  - [ ] 코드리뷰 통과
+- [x] 단계 3: virtualservice.yaml + destinationrule.yaml 생성
+  - [x] 검증 통과 (파일 확인)
+  - [ ] 코드리뷰 통과
+- [x] 단계 4: rbac.yaml 생성 + helm template 렌더링 검증
+  - [x] 검증 통과 (`helm template promotion-app ./helm/promotion-app` → RENDER_SUCCESS)
+  - [ ] 코드리뷰 통과
+
+## 최종 검증
+- [x] `helm template promotion-app ./helm/promotion-app` 오류 없이 렌더링 (2026-06-16)
+- [x] 변경 사항이 plan.md 비범위 침범 안 했는지 확인 (Ingress 미변경, HPA 미추가)
+- [ ] 의도하지 않은 파일 변경 없는지 git diff 최종 확인
