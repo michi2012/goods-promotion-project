@@ -1,6 +1,17 @@
   groups:
   - name: Tier1-Business-Impact-SLO
     rules:
+      # 0. [P0] 구매 이벤트 DLT 누적 (재고 복구 실패)
+      - alert: PurchaseDltAccumulated
+        expr: business_dead_letter_unresolved_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          tier: P0
+        annotations:
+          summary: "🚨 [P0] 구매 DLT 미해결 레코드 누적 ({{ printf \"%.0f\" $value }}건)"
+          description: "재고 복구 실패로 인한 DLT 레코드가 1분 이상 UNRESOLVED 상태로 존재. aiops가 재처리 가능 여부를 자동 판단하고 복구를 시도합니다."
+
       # 1. [P0] 데이터 정합성 파손 (즉각 알람)
       - alert: PaymentFatalError
         expr: increase(business_payment_pg_refund_fatal_total[1m]) > 0

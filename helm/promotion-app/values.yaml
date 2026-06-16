@@ -275,6 +275,7 @@ aiops:
   slackWebhookUrl: ""    # --set aiops.slackWebhookUrl=<url>
   slackBotToken: ""      # --set aiops.slackBotToken=<token>
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  serverAUrl: "http://server-a:8080"
   otlpEndpoint: ""
   resources:
     requests:
