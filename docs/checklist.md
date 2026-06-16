@@ -1,3 +1,35 @@
+# 체크리스트: aiops DLT 자동 재처리 도구
+
+- 마지막 업데이트: 2026-06-16
+
+## 진행 상황
+- [x] 단계 1: serverA DeadLetterRepository + AdminController GET /dlt
+  - [x] 검증 통과 (`.\gradlew.bat :serverA:compileJava` → BUILD SUCCESSFUL)
+  - [ ] 코드리뷰 통과
+- [x] 단계 2: serverA Prometheus 게이지 MetricsConfig
+  - [x] 검증 통과 (`.\gradlew.bat :serverA:compileJava` → BUILD SUCCESSFUL)
+  - [ ] 코드리뷰 통과
+- [x] 단계 3: alert-rules.yml PurchaseDltAccumulated 추가
+  - [x] 검증 통과 (파일 육안 확인)
+  - [ ] 코드리뷰 통과
+- [x] 단계 4: aiops serverA RestClient + DltTools.java
+  - [x] 검증 통과 (`.\gradlew.bat :aiops:compileJava` → BUILD SUCCESSFUL)
+  - [ ] 코드리뷰 통과
+- [x] 단계 5: aiops AiOpsAgentService DltTools 등록 + SYSTEM_PROMPT
+  - [x] 검증 통과 (`.\gradlew.bat :aiops:compileJava` → BUILD SUCCESSFUL)
+  - [ ] 코드리뷰 통과
+- [x] 단계 6: Helm aiops 업데이트 + 테스트
+  - [x] 검증 통과 (`helm template` RENDER_SUCCESS + `compileTestJava` BUILD SUCCESSFUL)
+  - [ ] 코드리뷰 통과
+
+## 최종 검증
+- [ ] `.\gradlew.bat :serverA:build :aiops:build -x test` 빌드 통과
+- [x] `helm template promotion-app ./helm/promotion-app` 렌더링 통과 (2026-06-16)
+- [x] 변경 사항이 plan.md 비범위 침범 안 했는지 확인 (Slack 승인 미추가, Linear 이슈 미추가)
+- [ ] 의도하지 않은 파일 변경 없는지 git diff 최종 확인
+
+---
+
 # 체크리스트: CS 자동 응대 챗봇 Phase1 — 백엔드 cs-bot 모듈
 
 - 마지막 업데이트: 2026-06-16

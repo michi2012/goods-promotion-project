@@ -79,6 +79,11 @@ public class RestClientConfig {
     }
 
     @Bean
+    public RestClient serverAAdminClient(@Value("${services.server-a.url}") String serverAUrl) {
+        return buildWithTimeout(serverAUrl);
+    }
+
+    @Bean
     public RestClient githubClient() {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))

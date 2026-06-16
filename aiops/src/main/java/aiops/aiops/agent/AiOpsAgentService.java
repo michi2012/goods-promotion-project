@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import aiops.aiops.slack.SlackNotificationService;
+import aiops.aiops.tools.DltTools;
 import aiops.aiops.tools.KubernetesTools;
 import aiops.aiops.tools.ObservabilityTools;
 import org.springframework.ai.chat.client.ChatClient;
@@ -18,6 +19,7 @@ public class AiOpsAgentService {
     private final ChatClient.Builder chatClientBuilder;
     private final ObservabilityTools observabilityTools;
     private final KubernetesTools kubernetesTools;
+    private final DltTools dltTools;
     private final SlackNotificationService slackService;
     private final AlertDeduplicationService deduplicationService;
 
@@ -94,6 +96,23 @@ public class AiOpsAgentService {
             9. 수집한 모든 정보를 바탕으로 아래 형식의 보고서를 작성하라.
                데이터로 뒷받침되지 않는 추측은 쓰지 마라.
 
+            ## PurchaseDltAccumulated 알람 처리 (DLT 자동 재처리)
+
+            alertname == "PurchaseDltAccumulated"이면 아래 절차만 수행하고 일반 분석 절차(1~10)는 스킵하라.
+
+            1. listUnresolvedDlt()를 호출하여 UNRESOLVED DLT 목록을 조회하라.
+            2. 각 레코드에 대해 재처리 가능 여부를 판단하라:
+               - retryable: orderId != "UNKNOWN" && goodsId != null
+               - non-retryable: orderId == "UNKNOWN" 또는 goodsId == null (스키마 오류)
+            3. retryable 레코드 각각에 대해 retryDlt(id)를 호출하라.
+            4. 아래 형식으로 Slack에 보고하라:
+
+            ## 🛠️ [P0] DLT 자동 재처리 결과
+            *총 UNRESOLVED*: N건
+            *자동 재처리 완료*: retryable 건수 및 각 결과 (성공/실패)
+            *수동 처리 필요*: non-retryable 건수, orderId/reason 목록
+            *권장 조치*: 수동 처리 필요 건이 있으면 "스키마 오류 — DLT 레코드를 직접 확인하고 수동 복구가 필요합니다."
+
             ## 연쇄 장애 추론 원칙
             - 원인과 증상이 여러 계층에 걸쳐 있는지 반드시 검토하라.
             - 예시: "타겟 DB 부하 증가 → CDC 추출 지연 → Kafka 프로듀서 블로킹 → API 스레드 풀 포화 → HTTP 5xx"
@@ -145,7 +164,7 @@ public class AiOpsAgentService {
                                              .prompt()
                                              .system(SYSTEM_PROMPT)
                                              .user(alertPayload)
-                                             .tools(observabilityTools, kubernetesTools)
+                                             .tools(observabilityTools, kubernetesTools, dltTools)
                                              .call()
                                              .content();
 

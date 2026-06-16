@@ -1,3 +1,36 @@
+# 맥락 노트: aiops DLT 자동 재처리 도구
+
+## 왜 자동 재처리(승인 없음)를 선택했는가
+- DLT = 이미 실패한 트랜잭션의 보상 재시도 → 신규 데이터 훼손 아님
+- `retryDeadLetter()`는 RESOLVED 체크로 멱등성 보장 → 이중 처리 불가
+- 재고 복구(`increaseStockAtomically`)는 "원래 있어야 할 값"을 돌려주는 작업 → 리스크 낮음
+- 승인 패턴(proposeAction)이면 새벽 장애 시 운영자가 깨야 함 → 복구 지연 = 비즈니스 손실
+
+## 왜 MeterRegistry.gauge(Supplier)를 선택했는가
+- `@Scheduled` + `AtomicLong` 대비 코드 단순 (설정 클래스 1개로 완결)
+- Prometheus scrape 주기(기본 15s)마다 DB COUNT 쿼리 → 단순 인덱스 쿼리라 부하 미미
+- Spring Boot Actuator의 표준 gauge 패턴
+
+## 재처리 가능 여부 판단 기준
+- Retryable: `orderId != "UNKNOWN"` && `goodsId != null`
+  → DLT 메시지가 정상 파싱된 케이스. 재고 복구 가능.
+- Non-retryable: `orderId == "UNKNOWN"` 또는 `goodsId == null`
+  → 스키마 오류로 메시지 파싱 실패. 재처리 시 GoodsNotFoundException 발생. 수동 처리 필요.
+
+## aiops → serverA 통신 방식
+- aiops는 Eureka 미사용, 직접 URL RestClient 방식 (기존 loki/tempo/prometheus 동일)
+- URL: `${SERVER_A_URL:http://server-a:8080}` — k8s와 docker-compose 모두 동일 서비스명
+
+## 관련 파일
+- `serverA/.../config/MetricsConfig.java` — DLT 게이지 메트릭 등록
+- `serverA/.../repository/DeadLetterRepository.java` — countByStatus, findAllByStatus
+- `serverA/.../controller/AdminController.java` — GET /api/v1/admin/dlt
+- `aiops/.../tools/DltTools.java` — listUnresolvedDlt, retryDlt
+- `aiops/.../agent/AiOpsAgentService.java` — DltTools 등록, SYSTEM_PROMPT 확장
+- `helm/promotion-monitoring/files/alert-rules.yml` — PurchaseDltAccumulated 알람
+
+---
+
 # 맥락 노트: CS 자동 응대 챗봇 Phase1 — 백엔드 cs-bot 모듈
 
 ---

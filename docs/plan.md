@@ -1,3 +1,81 @@
+# 계획서: aiops DLT 자동 재처리 도구 추가
+
+- 작성일: 2026-06-16
+- 관련 이슈/티켓: 없음
+
+## 목표
+Prometheus가 DLT 누적을 감지하면 aiops가 자동으로 재처리 가능한 DLT를 복구하고, 스키마 오류 등 재처리 불가 건은 Slack으로 수동 처리를 안내한다.
+
+## 성공 기준
+- [ ] serverA `GET /api/v1/admin/dlt` 호출 시 UNRESOLVED DLT 목록 반환
+- [ ] serverA Actuator `/actuator/prometheus`에 `business_dead_letter_unresolved_total` 게이지 노출
+- [ ] `PurchaseDltAccumulated` Prometheus 알람이 alert-rules.yml에 추가됨
+- [ ] aiops가 `PurchaseDltAccumulated` 알람 수신 시 retryable DLT 자동 재처리 후 Slack 보고
+- [ ] non-retryable(orderId="UNKNOWN" 또는 goodsId=null) DLT는 Slack 수동 처리 알림
+- [ ] `.\gradlew.bat :serverA:compileJava :aiops:compileJava` 빌드 통과
+- [ ] `helm template promotion-app ./helm/promotion-app` 렌더링 통과
+
+## 비범위 (Out of Scope)
+- Slack 승인 버튼(proposeAction) 패턴 — 재처리 가능 건은 즉시 자동 실행
+- Linear 이슈 자동 생성 — Slack 알림으로 충분
+- 스키마 오류 DLT의 자동 보정 (메시지 재파싱 등) — 수동 처리 대상
+- docker-compose E2E (Prometheus → Alertmanager → aiops 전체 흐름) — 인프라 의존
+
+## 단계별 작업 계획
+
+### 단계 1: serverA — DeadLetterRepository 확장 + AdminController `GET /dlt`
+- 변경 파일: `serverA/.../repository/DeadLetterRepository.java`, `service/dlt/DeadLetterService.java`, `controller/AdminController.java`
+- 변경 내용: `findAllByStatus(DltStatus)` 쿼리 메서드 추가, `listUnresolved()` 서비스 메서드 추가, `GET /api/v1/admin/dlt` 엔드포인트 추가
+- 검증 방법: `.\gradlew.bat :serverA:compileJava`
+- 롤백 방법: git checkout serverA/...
+- 예상 소요: 짧음
+
+### 단계 2: serverA — Prometheus 게이지 메트릭
+- 변경 파일: `serverA/.../config/MetricsConfig.java` (NEW)
+- 변경 내용: `MeterRegistry.gauge("business_dead_letter_unresolved_total", deadLetterRepository, repo -> repo.countByStatus(DltStatus.UNRESOLVED))` 등록. `DeadLetterRepository`에 `countByStatus` 추가.
+- 검증 방법: `.\gradlew.bat :serverA:compileJava`
+- 롤백 방법: 파일 삭제
+- 예상 소요: 짧음
+
+### 단계 3: alert-rules.yml — PurchaseDltAccumulated 알람 추가
+- 변경 파일: `helm/promotion-monitoring/files/alert-rules.yml`
+- 변경 내용: `Tier1-Business-Impact-SLO` 그룹에 `PurchaseDltAccumulated` 알람 추가 (`business_dead_letter_unresolved_total > 0`, for: 1m, severity: critical, tier: P1)
+- 검증 방법: yaml 파일 육안 확인
+- 롤백 방법: git checkout helm/...
+- 예상 소요: 짧음
+
+### 단계 4: aiops — serverA RestClient + DltTools.java
+- 변경 파일: `aiops/src/main/resources/application.yaml`, `aiops/.../config/RestClientConfig.java`, `aiops/.../tools/DltTools.java` (NEW)
+- 변경 내용: application.yaml에 `services.server-a.url` 추가. RestClientConfig에 `serverAAdminClient` Bean 추가. DltTools에 `listUnresolvedDlt()`, `retryDlt(Long dltId)` 두 메서드 구현.
+- 검증 방법: `.\gradlew.bat :aiops:compileJava`
+- 롤백 방법: DltTools.java 삭제, yaml/config 원복
+- 예상 소요: 보통
+
+### 단계 5: aiops — AiOpsAgentService DltTools 등록 + SYSTEM_PROMPT
+- 변경 파일: `aiops/.../agent/AiOpsAgentService.java`
+- 변경 내용: `tools(observabilityTools, kubernetesTools, dltTools)` 추가. SYSTEM_PROMPT에 `PurchaseDltAccumulated` 시나리오 추가 (listUnresolvedDlt → 분류 → retryable이면 retryDlt 자동 호출 → Slack 보고, non-retryable이면 수동 처리 안내).
+- 검증 방법: `.\gradlew.bat :aiops:compileJava`
+- 롤백 방법: git checkout aiops/...
+- 예상 소요: 짧음
+
+### 단계 6: Helm aiops 업데이트 + 테스트
+- 변경 파일: `helm/promotion-app/values.yaml`, `helm/promotion-app/templates/aiops/deployment.yaml`, `serverA/.../controller/AdminControllerTest.java`, `aiops/.../tools/DltToolsTest.java` (NEW)
+- 변경 내용: aiops values에 `serverAUrl` 추가, deployment에 `SERVER_A_URL` 환경변수 추가. AdminController `GET /dlt` 테스트, DltTools 단위 테스트.
+- 검증 방법: `helm template promotion-app ./helm/promotion-app` + `.\gradlew.bat :serverA:compileTestJava :aiops:compileTestJava`
+- 롤백 방법: git checkout helm/...
+- 예상 소요: 보통
+
+## 리스크 및 대응
+- 리스크: MeterRegistry.gauge Supplier가 매 scrape마다 DB 조회 → 대응: countByStatus는 단순 COUNT 쿼리, Prometheus 기본 scrape 15s로 부하 미미
+- 리스크: aiops → serverA 네트워크 오류 시 도구 실패 → 대응: DltTools에서 예외 catch 후 "조회 실패" 문자열 반환 (기존 ObservabilityTools 패턴 동일)
+- 리스크: retryDlt 실패(GoodsNotFoundException 등) → 대응: 예외 catch 후 Slack에 실패 내용 포함 에스컬레이션
+
+## 의존성
+- serverA 기동 중이어야 DltTools 동작
+- Prometheus → Alertmanager → aiops webhook 파이프라인은 기존 구성 유지
+
+---
+
 # 계획서: CS 자동 응대 챗봇 Phase1 — 백엔드 cs-bot 모듈
 
 ---

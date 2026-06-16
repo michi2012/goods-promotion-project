@@ -14,6 +14,8 @@ import promotion.serverA.exception.GoodsNotFoundException;
 import promotion.serverA.repository.DeadLetterRepository;
 import promotion.serverA.repository.GoodsRepository;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -61,5 +63,12 @@ public class DeadLetterService {
                                              .orElseThrow(DltNotFoundException::new);
         return new DltResponse(dlt.getId(), dlt.getOrderId(), dlt.getGoodsId(),
                 dlt.getQuantity(), dlt.getReason(), dlt.getStatus().name());
+    }
+
+    public List<DltResponse> listUnresolved() {
+        return deadLetterRepository.findAllByStatus(DltStatus.UNRESOLVED).stream()
+                .map(dlt -> new DltResponse(dlt.getId(), dlt.getOrderId(), dlt.getGoodsId(),
+                        dlt.getQuantity(), dlt.getReason(), dlt.getStatus().name()))
+                .toList();
     }
 }
