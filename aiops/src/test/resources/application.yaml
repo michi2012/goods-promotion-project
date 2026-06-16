@@ -7,6 +7,10 @@ spring:
           options:
             model: gemini-3.1-flash-lite
 
+services:
+  server-a:
+    url: http://server-a:8080
+
 observability:
   loki:
     url: http://localhost:3100

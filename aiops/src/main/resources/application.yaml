@@ -36,6 +36,10 @@ observability:
   kafka-connect:
     url: "${KAFKA_CONNECT_URL:http://kafka-connect:8083}"
 
+services:
+  server-a:
+    url: "${SERVER_A_URL:http://server-a:8080}"
+
 github:
   owner: ${GITHUB_OWNER:michi2012}
   repo: ${GITHUB_REPO:goods-promotion-project}
