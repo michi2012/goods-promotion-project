@@ -43,6 +43,10 @@ docker compose up -d
 | serverB (조회 API) | http://localhost:8081 |
 | serverC (결제 API) | http://localhost:8082 |
 | user-service (회원 API) | http://localhost:8086 |
+| aiops | http://localhost:8085 |
+| codebot | http://localhost:8087 |
+| cs-bot | http://localhost:8089 |
+| frontend (개발 서버) | http://localhost:5173 |
 | Grafana | http://localhost:3000 |
 
 ### Kubernetes (Helm)
@@ -81,8 +85,11 @@ docker compose up -d
 | serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어                                                                                                                       | order DB | ✅ |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회                                                                                                                                        | 없음 | ✅ |
 | serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용                                                                                                                                        | payment DB | 없음 |
-| aiops | 8085 | AIOps. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정·Kafka Lag 조회·Istio 메시 상태 조회) | 없음 | 없음 |
+| aiops | 8085 | AIOps Router. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정·DLT 자동 재처리). Slack 이벤트는 codebot(Worker)으로 라우팅. CanaryRolloutScheduler로 v2 카나리 점진 승급 자동화 | 없음 | 없음 |
 | user-service | 8086 | 회원 관리. JWT 로그인·Refresh 토큰 발급·재발급                                                                                                                                 | user DB (3309) | 없음 |
+| codebot | 8087 | 개발자 지원 챗봇(Worker). Slack으로 문제를 던지면 코드 검색·DB 조회(order/payment/user 화이트리스트)·Pyroscope 핫스팟 분석을 수행하고, Linear 이슈 자동 생성 후 단일 파일 수준의 수정은 diff 미리보기와 함께 PR까지 자동 생성. git-sync 사이드카로 최신 코드베이스를 로컬 조회 | codebot RO (order·payment·user) | 없음 |
+| cs-bot | 8089 | CS 자동 응대 챗봇. 고객 채팅 수신 → Spring AI ChatClient + Tool Calling → 주문·결제·환불 조회·환불 요청·에스컬레이션(Linear 이슈 생성) | 없음 | 없음 |
+| frontend | 5173 | React+TS+Vite SPA. 주문 상태 조회 화면. orval(OpenAPI codegen) + shadcn/ui | 없음 | 없음 |
 
 ### Before Kafka — Phase 1 최종 아키텍처
 
@@ -318,7 +325,7 @@ Prometheus Alertmanager가 웹훅을 AIOps 서버로 발송하면 Spring AI `Cha
 ```
 Alertmanager webhook → AIOps(8085)
   ① 중복 억제 (AlertDeduplicationService, 30분 TTL)
-  ② ChatClient + ObservabilityTools + KubernetesTools Tool Calling
+  ② ChatClient + ObservabilityTools + KubernetesTools + DltTools Tool Calling
      [ObservabilityTools]
      - queryPrometheusMetrics  : 에러율·가용성 현황
      - queryDatabaseHealth     : HikariCP 대기·슬로우 쿼리·Redis 메모리
@@ -335,12 +342,17 @@ Alertmanager webhook → AIOps(8085)
      - proposeRolloutRestart         : 디플로이먼트 롤링 재시작 Slack 승인 요청
      - proposeTrafficShift           : Istio VirtualService 가중치 조정 Slack 승인 요청 (카나리 v2 격리, v1+v2=100 검증)
      - proposeOutlierDetectionUpdate : Istio DestinationRule outlier detection 임계값 강화 Slack 승인 요청
+     [DltTools] — PurchaseDltAccumulated 알람 전용
+     - listUnresolvedDlt : serverA UNRESOLVED DLT 전체 목록 조회
+     - retryDlt(id)      : retryable(orderId≠UNKNOWN && goodsId≠null) 건 자동 재처리. non-retryable 건은 Slack 수동 안내
   ③ 연쇄 장애 추론 (DB 부하 → CDC 지연 → Kafka 블로킹 → HTTP 5xx 등 계층별 인과 서술)
   ④ Slack 보고서 + 필요 시 K8s 조치 승인 버튼 발송
 ```
 
 - **중복 억제:** 동일 `groupLabels` 지문(fingerprint)으로 30분 내 재발송 차단
 - **resolved 처리:** 알람 상태가 `resolved`이면 AI 분석 없이 "정상 회복" 메시지만 발송
+- **카나리 자동화:** `CanaryRolloutScheduler`가 v2 에러율·latency를 주기적으로 확인 — 연속 정상 시 점진 승급(10→25→50→100%) 제안, 비정상 시 카운터 리셋(격리는 `CanaryV2ErrorRateHigh`/`CanaryV2LatencyHigh` 알람 경로 전담)
+- **Slack Router:** 운영 이슈는 aiops가 직접 분석, 코드·개발 관련 질문은 codebot(Worker)으로 라우팅
 
 ---
 
@@ -363,7 +375,7 @@ Alertmanager webhook → AIOps(8085)
 
 | 심각도 | 기준 | 알람 예시 |
 |--------|------|----------|
-| 🚨 P0 | 즉각 수기 대응 필요 | PG 결제 성공 후 환불 보상 트랜잭션까지 연달아 실패 → 수기 정산 발생 |
+| 🚨 P0 | 즉각 수기 대응 필요 | PG 결제 성공 후 환불 보상 트랜잭션까지 연달아 실패 → 수기 정산 발생 / `PurchaseDltAccumulated` — UNRESOLVED DLT 1분 이상 누적 → aiops 자동 재처리 시도 후 non-retryable 건 수기 안내 |
 | 🔥 P1 | 서비스 중단·SLO 위반 임박 | 인스턴스 다운, 가용성 < 99.9%, Heap > 90%, 서킷브레이커 OPEN, DB 커넥션 풀 포화, MySQL 인스턴스 다운 |
 | ⚠️ P2 | 전조 증상·성능 저하 | p95 > 500ms, 결제 종단 간 p95 지연(`PaymentE2ELatencyHigh`) > 2초, 5xx 에러율 > 1% 3분 지속, 카프카 컨슈머 렉 > 500건, CPU > 80%, MySQL 슬로우 쿼리 > 1/s |
 | ℹ️ P3 | 자동 최적화 제안 | HPA 과잉 프로비저닝 — 부하 정상화 후 maxReplicas 원복 제안 |

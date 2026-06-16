@@ -1,5 +1,5 @@
 # Infrastructure Diagram
-_생성일: 2026-05-29 / 업데이트: 2026-06-06 (user-service + mysql-user 추가)_
+_생성일: 2026-05-29 / 업데이트: 2026-06-16 (codebot·cs-bot·frontend 추가)_
 
 ## 1. 서비스 토폴로지 (local — Docker Compose)
 
@@ -18,6 +18,9 @@ flowchart TD
         C["server-c\n:8082"]
         AIO["aiops\n:8085"]
         US["user-service\n:8086"]
+        CB["codebot\n:8087"]
+        CS["cs-bot\n:8089"]
+        FE["frontend\n:5173"]
     end
 
     subgraph Infra["Core Infrastructure (docker-compose.infra.yml)"]
@@ -42,6 +45,7 @@ flowchart TD
     GW -->|"lb://serverC"| C
     GW -->|"lb://aiops"| AIO
     GW -->|"lb://user-service"| US
+    GW -->|"lb://cs-bot"| CS
 
     %% Eureka 등록
     GW -->|"register + fetch"| DS
@@ -50,6 +54,8 @@ flowchart TD
     C -->|"register"| DS
     AIO -->|"register"| DS
     US -->|"register"| DS
+    CB -->|"register"| DS
+    CS -->|"register"| DS
 
     %% 앱 → 인프라
     A -->|"JPA"| MySQL
@@ -60,6 +66,15 @@ flowchart TD
     C -->|"JPA"| MySQLC
     C -->|"consume"| Kafka
     US -->|"JPA"| MySQLU
+    CB -->|"JPA(RO)"| MySQL
+    CB -->|"JPA(RO)"| MySQLC
+    CB -->|"JPA(RO)"| MySQLU
+    AIO -->|"HTTP"| A
+    AIO -->|"HTTP(Worker)"| CB
+    CS -->|"HTTP"| A
+    CS -->|"HTTP"| US
+    CS -->|"produce"| Kafka
+    FE -.->|"HTTP :8088"| GW
 
     %% Debezium CDC
     MySQL -->|"binlog"| KC
@@ -92,6 +107,9 @@ flowchart TD
             C["server-c\n:8082"]
             AIO["aiops\n:8085"]
             US["user-service\n:8086"]
+            CB["codebot\n:8087"]
+            CS["cs-bot\n:8089"]
+            FE["frontend\n(S3+CloudFront)"]
         end
 
         subgraph Infra["Infrastructure Pods"]
@@ -116,6 +134,7 @@ flowchart TD
     GW -->|"http://server-c:8082"| C
     GW -->|"http://aiops:8085"| AIO
     GW -->|"http://user-service:8086"| US
+    GW -->|"http://cs-bot:8089"| CS
 
     A -->|"JPA"| RDS_A
     A -->|"Lettuce"| EC_A
@@ -126,6 +145,14 @@ flowchart TD
     C -->|"produce/consume"| KF
     GW -->|"Lettuce"| EC_A
     US -->|"JPA"| RDS_U
+    CB -->|"JPA(RO)"| RDS_A
+    CB -->|"JPA(RO)"| RDS_C
+    CB -->|"JPA(RO)"| RDS_U
+    AIO -->|"HTTP"| A
+    AIO -->|"HTTP(Worker)"| CB
+    CS -->|"HTTP"| A
+    CS -->|"HTTP"| US
+    CS -->|"produce"| KF
 
     RDS_A -->|"binlog"| KC
     RDS_C -->|"binlog"| KC
@@ -151,6 +178,8 @@ flowchart LR
         DS["discovery-service :8761"]
         AIO["aiops :8085"]
         US["user-service :8086"]
+        CB["codebot :8087"]
+        CS["cs-bot :8089"]
         Logs["/logs/*.log\n(shared-logs vol)"]
         Infra["redis/kafka/mysql\nexporters"]
     end
@@ -173,18 +202,18 @@ flowchart LR
     end
 
     %% Traces: 앱 → otel-collector → tempo
-    SA & SB & SC & GW & DS & AIO & US -->|"OTLP"| OTEL
+    SA & SB & SC & GW & DS & AIO & US & CB & CS -->|"OTLP"| OTEL
     OTEL -->|"OTLP/gRPC"| Tempo
 
     %% Profiling: Java agent (initContainer로 jar 주입) → pyroscope
-    SA & SB & SC & GW & US -.->|"Java agent"| Pyroscope
+    SA & SB & SC & GW & US & CB & CS -.->|"Java agent"| Pyroscope
 
     %% Logs: local=shared-logs 파일, k8s=stdout→/var/log/pods/ DaemonSet
     Logs -.->|"file tail"| VEC
     VEC --> Loki
 
     %% Metrics: prometheus scrape
-    SA & SB & SC & GW & DS & AIO & US -->|"scrape"| PROM
+    SA & SB & SC & GW & DS & AIO & US & CB & CS -->|"scrape"| PROM
     Infra -->|"exporter metrics"| PROM
 
     %% Grafana datasources
