@@ -6,7 +6,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import promotion.serverA.dto.request.CreateGoodsRequest;
 import promotion.serverA.dto.response.CreateGoodsResponse;
+import promotion.serverA.dto.response.GoodsResponse;
 import promotion.serverA.entity.Goods;
+import promotion.serverA.exception.GoodsNotFoundException;
 import promotion.serverA.repository.GoodsRepository;
 
 @Service
@@ -37,6 +39,11 @@ public class GoodsService {
                 savedGoods.getName(),
                 savedGoods.getStock()
         );
+    }
+
+    public GoodsResponse findById(Long id) {
+        Goods goods = goodsRepository.findById(id).orElseThrow(GoodsNotFoundException::new);
+        return new GoodsResponse(goods.getId(), goods.getName(), goods.getStock());
     }
 
 }

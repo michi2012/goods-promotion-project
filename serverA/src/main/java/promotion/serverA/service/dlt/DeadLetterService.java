@@ -5,9 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import promotion.serverA.dto.response.DltResponse;
 import promotion.serverA.entity.DeadLetter;
 import promotion.serverA.entity.DltStatus;
 import promotion.serverA.exception.AlreadyResolvedDltException;
+import promotion.serverA.exception.DltNotFoundException;
 import promotion.serverA.exception.GoodsNotFoundException;
 import promotion.serverA.repository.DeadLetterRepository;
 import promotion.serverA.repository.GoodsRepository;
@@ -52,5 +54,12 @@ public class DeadLetterService {
         deadLetterRepository.save(dlt); // 여기도 더티 체킹이 안 먹히므로 명시적 저장 필요
 
         log.info("🛠️ [Admin] DLT 수동 복구 및 Outbox 동기화 완료. DLT ID: {}", dltId);
+    }
+
+    public DltResponse findDltByOrderId(String orderId) {
+        DeadLetter dlt = deadLetterRepository.findByOrderId(orderId)
+                                             .orElseThrow(DltNotFoundException::new);
+        return new DltResponse(dlt.getId(), dlt.getOrderId(), dlt.getGoodsId(),
+                dlt.getQuantity(), dlt.getReason(), dlt.getStatus().name());
     }
 }

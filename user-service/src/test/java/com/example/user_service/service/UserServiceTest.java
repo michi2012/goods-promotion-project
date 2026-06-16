@@ -316,6 +316,7 @@ class UserServiceTest {
 
         // Then
         assertThat(response).isNotNull();
+        assertThat(response.id()).isEqualTo(testId);
         assertThat(response.userId()).isEqualTo(testUserId);
         verify(userRepository, times(1)).findByUserId(testUserId);
     }

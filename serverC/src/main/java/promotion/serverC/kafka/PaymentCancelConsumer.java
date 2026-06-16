@@ -13,6 +13,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import promotion.serverC.dto.PaymentCancelMessage;
+import promotion.serverC.repository.PaymentRepository;
 import promotion.serverC.service.PgClient;
 
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,7 @@ import java.util.Map;
 public class PaymentCancelConsumer {
 
     private final PgClient pgClient;
+    private final PaymentRepository paymentRepository;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     private final Tracer tracer;
@@ -48,6 +50,7 @@ public class PaymentCancelConsumer {
         try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
             log.info("[PaymentCancel] payment-cancel 수신: orderId={}", msg.orderId());
             pgClient.cancelPayments(List.of(msg.orderId()));
+            paymentRepository.updateOrderStatus(List.of(msg.orderId()), "CANCELLED");
         } catch (Exception e) {
             span.error(e);
             throw e;

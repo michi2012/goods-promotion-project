@@ -3,6 +3,7 @@ package promotion.serverA.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import promotion.serverA.dto.response.DltResponse;
 import promotion.serverA.service.dlt.DeadLetterService;
 
 @RestController
@@ -17,5 +18,10 @@ public class AdminController {
     public ResponseEntity<String> retryDlt(@PathVariable Long dltId) {
         deadLetterService.retryDeadLetter(dltId);
         return ResponseEntity.ok("DLT Re-processed Successfully");
+    }
+
+    @GetMapping("/dlt/orders/{orderId}")
+    public ResponseEntity<DltResponse> getDltByOrderId(@PathVariable String orderId) {
+        return ResponseEntity.ok(deadLetterService.findDltByOrderId(orderId));
     }
 }
