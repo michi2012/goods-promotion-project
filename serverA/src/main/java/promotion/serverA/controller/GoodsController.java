@@ -3,12 +3,15 @@ package promotion.serverA.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import promotion.serverA.dto.request.CreateGoodsRequest;
 import promotion.serverA.dto.response.CreateGoodsResponse;
+import promotion.serverA.dto.response.GoodsResponse;
 import promotion.serverA.service.GoodsService;
 
 @RestController
@@ -27,6 +30,11 @@ public class GoodsController {
 
         log.info("[GoodsController] 상품 생성 완료: id={}", createGoodsResponse.id());
         return ResponseEntity.ok(createGoodsResponse);
+    }
+
+    @GetMapping("/{goodsId}")
+    public ResponseEntity<GoodsResponse> getGoods(@PathVariable Long goodsId) {
+        return ResponseEntity.ok(goodsService.findById(goodsId));
     }
 
 }

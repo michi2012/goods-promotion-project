@@ -327,3 +327,24 @@ codebot:
       limits:
         cpu: "200m"
         memory: "256Mi"
+
+csBot:
+  name: cs-bot
+  replicas: 1
+  port: 8089
+  image: ""  # --set csBot.image=<ECR_URL>/cs-bot:tag
+  springProfilesActive: "k8s"
+  aiApiKey: ""           # --set csBot.aiApiKey=<Gemini API key>
+  linearApiKey: ""       # --set csBot.linearApiKey=<key>
+  linearTeamId: ""       # --set csBot.linearTeamId=<team-id>
+  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  kafka:
+    bootstrapServers: "kafka-service:9092"
+  otlpEndpoint: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"

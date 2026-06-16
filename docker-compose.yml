@@ -826,6 +826,39 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  # CS 자동 응대 챗봇
+  cs-bot:
+    build:
+      context: ./cs-bot
+      dockerfile: Dockerfile
+    container_name: cs-bot
+    volumes:
+      - shared-logs:/logs
+    ports:
+      - "8089:8089"
+    networks:
+      - promotion-network
+    environment:
+      TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: local
+      AI_API_KEY: ${AI_API_KEY}
+      LINEAR_API_KEY: ${LINEAR_API_KEY}
+      LINEAR_TEAM_ID: ${LINEAR_TEAM_ID}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_DEFAULT_ZONE: http://discovery-service:8761/eureka/
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
 networks:
   promotion-network:
     name: promotion-network

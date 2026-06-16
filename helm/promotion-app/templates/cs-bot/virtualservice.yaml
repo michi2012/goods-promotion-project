@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ .Values.csBot.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.csBot.name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  hosts:
+    - {{ .Values.csBot.name }}
+  http:
+    - route:
+        - destination:
+            host: {{ .Values.csBot.name }}
+            subset: v1
+          weight: 100
+        - destination:
+            host: {{ .Values.csBot.name }}
+            subset: v2
+          weight: 0
