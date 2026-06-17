@@ -1,6 +1,10 @@
 package csbot.csbot.router;
 
+import csbot.csbot.classification.CsClassification;
+import csbot.csbot.classification.CsClassificationService;
+import csbot.csbot.context.CsUserContext;
 import csbot.csbot.tools.CsBotTools;
+import csbot.csbot.tools.FaqSearchTools;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -21,6 +25,8 @@ public class CsChatAgentService {
             - 주문·결제 관련 문의가 들어오면 반드시 getMyOrders를 먼저 호출해 실제 데이터를 확인한 후 답변합니다.
             - 환불/취소 요청 시 getMyOrders로 본인 주문을 확인한 후 requestRefund를 호출합니다.
             - 위 도구로 해결할 수 없거나 고객이 상담원 연결을 요청하면 escalateToHuman을 호출합니다.
+            - 환불 기간, 배송비, 구매 제한 등 정책성 질문(본인 데이터 조회가 아닌 일반 규정 문의)에는 searchFaq를 호출해 답변합니다.
+              searchFaq 결과로도 해결되지 않으면 escalateToHuman을 호출합니다.
 
             ## 시나리오별 처리 지침
             - "취소 요청했는데 환불이 안 됐어": trackRefundStatus → PAID이면 requestRefund를 다시 시도하도록 안내합니다.
@@ -37,16 +43,22 @@ public class CsChatAgentService {
     private final ChatClient.Builder chatClientBuilder;
     private final ChatMemory chatMemory;
     private final CsBotTools csBotTools;
+    private final FaqSearchTools faqSearchTools;
+    private final CsClassificationService classificationService;
+    private final CsUserContext csUserContext;
 
     public String chat(String conversationId, String message) {
         try {
+            CsClassification classification = classificationService.classify(message);
+            csUserContext.setUrgency(classification.urgency());
+
             return chatClientBuilder.build()
                     .prompt()
                     .system(SYSTEM_PROMPT)
                     .user(message)
                     .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                     .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
-                    .tools(csBotTools)
+                    .tools(csBotTools, faqSearchTools)
                     .call()
                     .content();
         } catch (Exception e) {

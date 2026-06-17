@@ -253,6 +253,6 @@ public class CsBotTools {
             언제 호출: 위 도구들로 해결되지 않거나, 고객이 명시적으로 상담원 연결을 요청할 때.
             """)
     public String escalateToHuman(@ToolParam(description = "상담원에게 전달할 문의 요약") String summary) {
-        return escalationService.createEscalationTicket(summary, csUserContext.getLoginId());
+        return escalationService.createEscalationTicket(summary, csUserContext.getLoginId(), csUserContext.getUrgency());
     }
 }

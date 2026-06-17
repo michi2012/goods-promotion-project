@@ -2,6 +2,7 @@ package csbot.csbot.linear;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import csbot.csbot.classification.CsClassification;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,7 +27,7 @@ public class CsEscalationService {
         this.teamId = teamId;
     }
 
-    public String createEscalationTicket(String summary, String loginId) {
+    public String createEscalationTicket(String summary, String loginId, CsClassification.Urgency urgency) {
         try {
             String title = "[CS 에스컬레이션] " + summary;
             String description = """
@@ -35,12 +36,16 @@ public class CsEscalationService {
 
                     ## 요청자
                     %s
-                    """.formatted(summary, loginId);
+
+                    ## 긴급도
+                    %s
+                    """.formatted(summary, loginId, urgency);
 
             Map<String, Object> input = Map.of(
                     "title", title,
                     "description", description,
-                    "teamId", teamId
+                    "teamId", teamId,
+                    "priority", mapPriority(urgency)
             );
 
             String mutation = """
@@ -67,6 +72,15 @@ public class CsEscalationService {
             log.warn("[CsEscalation] 에스컬레이션 티켓 생성 실패: {}", e.getMessage());
             return "상담원 연결 접수에 실패했습니다. 잠시 후 다시 시도해 주세요: " + e.getMessage();
         }
+    }
+
+    private int mapPriority(CsClassification.Urgency urgency) {
+        // Linear priority: 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low
+        return switch (urgency) {
+            case HIGH -> 1;
+            case MEDIUM -> 3;
+            case LOW -> 4;
+        };
     }
 
     private JsonNode execute(String query, Map<String, Object> variables) throws Exception {
