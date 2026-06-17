@@ -4,6 +4,16 @@
 
 ---
 
+## v1.11.1 — 2026-06-16
+
+> GitHub Actions 기반 CI/CD 파이프라인 구축 및 문서(README/아키텍처) 정비
+
+### 🔧 Chore / Docs
+- GitHub Actions CI/CD 파이프라인 추가 (96b2900) — JDK 21 기준 9개 서비스 matrix 병렬 빌드, helm upgrade promotion-app values.yaml 키 구조 기반 --set 파라미터 구성, prod 카나리 시작 step 주석 포함(CanaryRolloutScheduler 연동용)
+- README.md 및 아키텍처 md 파일 수정 (68bf9c4)
+
+---
+
 ## v1.11.0 — 2026-06-16
 
 > CS 자동 응대 챗봇(cs-bot) Phase1 출시 및 aiops DLT 자동 재처리·인프라 챗봇 고도화
