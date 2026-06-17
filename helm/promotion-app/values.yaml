@@ -339,6 +339,7 @@ csBot:
   linearApiKey: ""       # --set csBot.linearApiKey=<key>
   linearTeamId: ""       # --set csBot.linearTeamId=<team-id>
   eurekaDefaultZone: "http://discovery-service:8761/eureka/"
+  elasticsearchUris: "http://elasticsearch:9200"
   kafka:
     bootstrapServers: "kafka-service:9092"
   otlpEndpoint: ""
@@ -349,3 +350,17 @@ csBot:
     limits:
       cpu: "500m"
       memory: "512Mi"
+
+elasticsearch:
+  name: elasticsearch
+  replicas: 1
+  port: 9200
+  image: "docker.elastic.co/elasticsearch/elasticsearch:8.13.0"
+  javaOpts: "-Xms512m -Xmx512m"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "768Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1280Mi"

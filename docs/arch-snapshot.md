@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-06-16 (codebot·cs-bot 모듈 추가, aiops DltTools·CanaryRolloutScheduler, PurchaseDltAccumulated 알람)_
+_생성일: 2026-05-28 / 업데이트: 2026-06-17 (cs-bot Elasticsearch FAQ RAG·Metadata Filter·Structured Output 긴급도 분류·Linear priority 연동 추가)_
 
 ---
 
@@ -15,7 +15,7 @@ _생성일: 2026-05-28 / 업데이트: 2026-06-16 (codebot·cs-bot 모듈 추가
 | aiops | 8085 | AIOps Router. Prometheus 웹훅 수신·장애 분석·K8s 조치 제안(HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정)·DLT 자동 재처리·Slack 알림. Slack 이벤트 수신 시 codebot(Worker)으로 라우팅. `CanaryRolloutScheduler`로 v2 카나리 점진 승급 자동화 | - | -                 |
 | user-service | 8086 | 회원·결제수단 관리. 로그인 JWT 발급·Refresh 토큰 관리 | user DB (3309, 전용 MySQL) | 없음 |
 | codebot | 8087 | 개발자 지원 챗봇(Worker). Slack 이벤트 수신 → 코드 검색·DB 조회(order/payment/user 화이트리스트)·Pyroscope 핫스팟 분석 → Linear 이슈 자동 생성 → 단일 파일 수정 PR 자동 생성(diff 미리보기 포함). git-sync 사이드카로 최신 코드베이스 로컬 조회 | codebot RO (order·payment·user, 3307·3308·3309) | 없음 |
-| cs-bot | 8089 | CS 자동 응대 챗봇. 고객 채팅 수신 → Spring AI ChatClient + Tool Calling → 주문·결제·환불 조회·환불 요청·에스컬레이션(Linear 이슈 생성) | 없음 | 없음 |
+| cs-bot | 8089 | CS 자동 응대 챗봇. 고객 채팅 수신 → Spring AI ChatClient + Tool Calling → 주문·결제·환불 조회·환불 요청·에스컬레이션(Linear 이슈 생성, Structured Output 긴급도→priority 매핑). Elasticsearch VectorStore 기반 FAQ RAG(Metadata Filter)로 정책 질문 자동 답변 | Elasticsearch (FAQ, 단일 노드) | 없음 |
 | frontend | 5173 | React+TS+Vite SPA. 주문 상태 조회 화면. orval(OpenAPI codegen) + shadcn/ui | 없음 | 없음 |
 
 ---

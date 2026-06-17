@@ -20,6 +20,18 @@ spring:
         chat:
           options:
             model: gemini-3.1-flash-lite
+        embedding:
+          api-key: ${AI_API_KEY}
+          text:
+            options:
+              model: gemini-embedding-001
+    vectorstore:
+      elasticsearch:
+        index-name: cs-faq
+        similarity: cosine
+        dimensions: 3072
+  elasticsearch:
+    uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
