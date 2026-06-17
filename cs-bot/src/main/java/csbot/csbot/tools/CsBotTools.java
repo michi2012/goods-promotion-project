@@ -252,7 +252,14 @@ public class CsBotTools {
             챗봇이 해결할 수 없는 문의를 상담원에게 에스컬레이션합니다(Linear 이슈 생성).
             언제 호출: 위 도구들로 해결되지 않거나, 고객이 명시적으로 상담원 연결을 요청할 때.
             """)
-    public String escalateToHuman(@ToolParam(description = "상담원에게 전달할 문의 요약") String summary) {
-        return escalationService.createEscalationTicket(summary, csUserContext.getLoginId(), csUserContext.getUrgency());
+    public String escalateToHuman(
+            @ToolParam(description = """
+                    상담원이 고객에게 다시 묻지 않고 바로 이어서 처리할 수 있도록 작성하는 요약.
+                    반드시 포함: (1) 고객이 겪고 있는 문제, (2) 이번 대화에서 이미 호출한 도구와 그 결과
+                    (예: getMyOrders 조회 결과, checkAndRetryPurchaseDlt 재처리 결과, diagnosePaymentIssue 진단 결과 등).
+                    """) String summary) {
+        return escalationService.createEscalationTicket(
+                summary, csUserContext.getLoginId(), csUserContext.getUrgency(),
+                csUserContext.getConversationId(), csUserContext.getOriginalMessage());
     }
 }

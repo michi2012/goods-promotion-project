@@ -23,6 +23,14 @@ public class CsUserContext {
     @Setter
     private CsClassification.Urgency urgency = CsClassification.Urgency.MEDIUM;
 
+    @Getter
+    @Setter
+    private String conversationId;
+
+    @Getter
+    @Setter
+    private String originalMessage;
+
     private Long numericId;
 
     public Long resolveNumericId() {

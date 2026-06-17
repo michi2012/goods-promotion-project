@@ -27,19 +27,27 @@ public class CsEscalationService {
         this.teamId = teamId;
     }
 
-    public String createEscalationTicket(String summary, String loginId, CsClassification.Urgency urgency) {
+    public String createEscalationTicket(
+            String summary, String loginId, CsClassification.Urgency urgency,
+            String conversationId, String originalMessage) {
         try {
             String title = "[CS 에스컬레이션] " + summary;
             String description = """
                     ## 고객 문의 요약
                     %s
 
+                    ## 고객 원문
+                    %s
+
                     ## 요청자
+                    %s
+
+                    ## 대화 ID
                     %s
 
                     ## 긴급도
                     %s
-                    """.formatted(summary, loginId, urgency);
+                    """.formatted(summary, originalMessage, loginId, conversationId, urgency);
 
             Map<String, Object> input = Map.of(
                     "title", title,

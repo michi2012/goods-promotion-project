@@ -51,6 +51,8 @@ public class CsChatAgentService {
         try {
             CsClassification classification = classificationService.classify(message);
             csUserContext.setUrgency(classification.urgency());
+            csUserContext.setConversationId(conversationId);
+            csUserContext.setOriginalMessage(message);
 
             return chatClientBuilder.build()
                     .prompt()
