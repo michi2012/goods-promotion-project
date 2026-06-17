@@ -52,6 +52,8 @@ spec:
               value: {{ .Values.csBot.eurekaDefaultZone | quote }}
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.csBot.kafka.bootstrapServers | quote }}
+            - name: ELASTICSEARCH_URIS
+              value: {{ .Values.csBot.elasticsearchUris | quote }}
             {{- if .Values.csBot.otlpEndpoint }}
             - name: OTLP_ENDPOINT
               value: {{ .Values.csBot.otlpEndpoint | quote }}
