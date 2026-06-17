@@ -895,6 +895,5 @@ networks:
 volumes:
   kafka-data:
   shared-logs:
-  mysql-user-data:
   pyroscope-agent:
   codebot-repo:
