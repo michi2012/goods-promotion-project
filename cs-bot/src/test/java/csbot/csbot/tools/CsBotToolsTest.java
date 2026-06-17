@@ -7,6 +7,7 @@ import csbot.csbot.client.dto.GoodsResponse;
 import csbot.csbot.client.dto.OrderStatusResponse;
 import csbot.csbot.client.dto.PaymentResponse;
 import csbot.csbot.client.dto.UserProfileResponse;
+import csbot.csbot.classification.CsClassification;
 import csbot.csbot.context.CsUserContext;
 import csbot.csbot.linear.CsEscalationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -133,7 +134,12 @@ class CsBotToolsTest {
     @DisplayName("escalateToHuman: CsEscalationService에 위임한다")
     void escalateToHuman_위임() {
         given(csUserContext.getLoginId()).willReturn("test-uuid-123");
-        given(escalationService.createEscalationTicket("문의 요약", "test-uuid-123")).willReturn("상담원에게 문의가 접수되었습니다.");
+        given(csUserContext.getUrgency()).willReturn(CsClassification.Urgency.MEDIUM);
+        given(csUserContext.getConversationId()).willReturn("conv-1");
+        given(csUserContext.getOriginalMessage()).willReturn("원본 메시지");
+        given(escalationService.createEscalationTicket(
+                "문의 요약", "test-uuid-123", CsClassification.Urgency.MEDIUM, "conv-1", "원본 메시지"))
+                .willReturn("상담원에게 문의가 접수되었습니다.");
 
         String result = csBotTools.escalateToHuman("문의 요약");
 
