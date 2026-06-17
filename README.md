@@ -13,7 +13,8 @@
 | 메시지 브로커 | Apache Kafka (KRaft), Debezium CDC |
 | 캐시 | Redis, Caffeine |
 | 장애 내성 | Resilience4j (Circuit Breaker) |
-| AI / AIOps | Spring AI (ChatClient, Tool Calling) |
+| AI / AIOps | Spring AI (ChatClient, Tool Calling, Structured Output) |
+| 벡터 검색 | Elasticsearch (cs-bot FAQ RAG, Metadata Filter) |
 | 서비스 메시 | Istio |
 | DB | MySQL (DB-per-service) |
 | 모니터링 | Prometheus, Grafana, Tempo, Loki, Pyroscope, Alertmanager, OpenTelemetry Collector, Vector |
@@ -88,7 +89,7 @@ docker compose up -d
 | aiops | 8085 | AIOps Router. Prometheus Alertmanager 웹훅 수신 → Spring AI ChatClient + Tool Calling → Slack 보고서 + K8s 조치 승인 요청 (HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정·DLT 자동 재처리). Slack 이벤트는 codebot(Worker)으로 라우팅. CanaryRolloutScheduler로 v2 카나리 점진 승급 자동화 | 없음 | 없음 |
 | user-service | 8086 | 회원 관리. JWT 로그인·Refresh 토큰 발급·재발급                                                                                                                                 | user DB (3309) | 없음 |
 | codebot | 8087 | 개발자 지원 챗봇(Worker). Slack으로 문제를 던지면 코드 검색·DB 조회(order/payment/user 화이트리스트)·Pyroscope 핫스팟 분석을 수행하고, Linear 이슈 자동 생성 후 단일 파일 수준의 수정은 diff 미리보기와 함께 PR까지 자동 생성. git-sync 사이드카로 최신 코드베이스를 로컬 조회 | codebot RO (order·payment·user) | 없음 |
-| cs-bot | 8089 | CS 자동 응대 챗봇. 고객 채팅 수신 → Spring AI ChatClient + Tool Calling → 주문·결제·환불 조회·환불 요청·에스컬레이션(Linear 이슈 생성) | 없음 | 없음 |
+| cs-bot | 8089 | CS 자동 응대 챗봇. 고객 채팅 수신 → Spring AI ChatClient + Tool Calling → 주문·결제·환불 조회·환불 요청. Elasticsearch VectorStore 기반 FAQ RAG로 환불·배송·구매규칙 정책 질문 자동 답변(Metadata Filter로 카테고리 분리). Structured Output으로 문의 긴급도 분류 → Linear 에스컬레이션 티켓 priority 자동 매핑 | Elasticsearch (FAQ) | 없음 |
 | frontend | 5173 | React+TS+Vite SPA. 주문 상태 조회 화면. orval(OpenAPI codegen) + shadcn/ui | 없음 | 없음 |
 
 ### Before Kafka — Phase 1 최종 아키텍처

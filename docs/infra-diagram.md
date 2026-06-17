@@ -1,5 +1,5 @@
 # Infrastructure Diagram
-_생성일: 2026-05-29 / 업데이트: 2026-06-16 (codebot·cs-bot·frontend 추가)_
+_생성일: 2026-05-29 / 업데이트: 2026-06-17 (cs-bot Elasticsearch FAQ VectorStore 추가)_
 
 ## 1. 서비스 토폴로지 (local — Docker Compose)
 
@@ -32,6 +32,7 @@ flowchart TD
         Kafka["kafka\n:9092"]
         KC["kafka-connect\n:8083"]
         RP["redpanda-console\n:9080"]
+        ES["elasticsearch\n:9200"]
     end
 
     PG(["PG사 외부 API"])
@@ -74,6 +75,7 @@ flowchart TD
     CS -->|"HTTP"| A
     CS -->|"HTTP"| US
     CS -->|"produce"| Kafka
+    CS -->|"REST :9200 (FAQ VectorStore)"| ES
     FE -.->|"HTTP :8088"| GW
 
     %% Debezium CDC
@@ -115,6 +117,7 @@ flowchart TD
         subgraph Infra["Infrastructure Pods"]
             KF["kafka\nStatefulSet+PVC"]
             KC["kafka-connect\nDebezium"]
+            ES["elasticsearch\nDeployment (단일 노드)"]
         end
     end
 
@@ -153,6 +156,7 @@ flowchart TD
     CS -->|"HTTP"| A
     CS -->|"HTTP"| US
     CS -->|"produce"| KF
+    CS -->|"REST :9200 (FAQ VectorStore)"| ES
 
     RDS_A -->|"binlog"| KC
     RDS_C -->|"binlog"| KC

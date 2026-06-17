@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.elasticsearch.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.elasticsearch.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ include "promotion-app.chart" . }}
+spec:
+  replicas: {{ .Values.elasticsearch.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.elasticsearch.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.elasticsearch.name }}
+        app.kubernetes.io/name: {{ .Values.elasticsearch.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: {{ .Values.elasticsearch.name }}
+          image: {{ .Values.elasticsearch.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.elasticsearch.port }}
+          env:
+            - name: discovery.type
+              value: "single-node"
+            - name: xpack.security.enabled
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: {{ .Values.elasticsearch.javaOpts | quote }}
+          resources:
+            requests:
+              cpu: {{ .Values.elasticsearch.resources.requests.cpu | quote }}
+              memory: {{ .Values.elasticsearch.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.elasticsearch.resources.limits.cpu | quote }}
+              memory: {{ .Values.elasticsearch.resources.limits.memory | quote }}
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: {{ .Values.elasticsearch.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: {{ .Values.elasticsearch.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5

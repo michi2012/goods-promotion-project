@@ -1,5 +1,6 @@
 package csbot.csbot.context;
 
+import csbot.csbot.classification.CsClassification;
 import csbot.csbot.client.CsBotClient;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,18 @@ public class CsUserContext {
     @Getter
     @Setter
     private String loginId;
+
+    @Getter
+    @Setter
+    private CsClassification.Urgency urgency = CsClassification.Urgency.MEDIUM;
+
+    @Getter
+    @Setter
+    private String conversationId;
+
+    @Getter
+    @Setter
+    private String originalMessage;
 
     private Long numericId;
 
