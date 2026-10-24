@@ -1,6 +1,6 @@
 ---
 name: frontend-design-feedback
-description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더링 결과를 보고 디자인을 다듬을 때 활성화. 사용자가 화면을 보여달라, 디자인을 봐달라, 다듬어달라, 레이아웃이 이상하다, 스크린샷 을 언급하거나 frontend/src/app/, frontend/src/components/ 변경 직후 발동. 자동화 테스트 작성(frontend-testing)이나 백엔드 작업에서는 발동하지 않음.
+description: 프론트엔드 화면을 만들거나 수정한 뒤, 사람과 함께 실제 렌더링 결과를 보며 디자인을 다듬을 때 활성화. 사용자가 화면을 보여달라, 디자인을 봐달라, 다듬어달라, 레이아웃이 이상하다, 스크린샷 을 언급할 때 발동. 구현 직후 Claude 혼자 하는 "안 깨졌는지" 확인은 `frontend` skill 자가점검에서 처리하므로 이 skill의 발동 조건이 아님. 자동화 테스트 작성(frontend-testing)이나 백엔드 작업에서는 발동하지 않음.
 ---
 
 # 디자인 다듬기 루프 (Playwright MCP 기반 시각 피드백)
@@ -52,7 +52,7 @@ description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더
 
 ## 4. frontend / frontend-testing과의 관계
 
-- `frontend`: 화면/컴포넌트를 **처음 구현**할 때의 컨벤션 (구조, API 연동, shadcn 사용법).
+- `frontend`: 화면/컴포넌트를 **처음 구현**할 때의 컨벤션 (구조, API 연동, shadcn 사용법). UI를 고친 직후 **Claude가 혼자** 스크린샷으로 "안 깨졌는지"만 확인하는 것도 이 skill의 자가점검 범위다.
 - `frontend-testing`: **자동화된** 검증 (Vitest, MSW, Playwright E2E — 시각 회귀/접근성
   포함, 회귀 방지 목적).
 - `frontend-design-feedback`(이 문서): 구현 후 **사람이 보고 즉석에서 다듬는** 1회성

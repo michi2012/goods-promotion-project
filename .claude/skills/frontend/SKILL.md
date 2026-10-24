@@ -167,4 +167,4 @@ npx shadcn@latest add <component-name>
       Zustand 도입을 검토했는가? (단순한 경우엔 `useState`로 충분 — 5번 참조)
 - [ ] 페이지에 시맨틱 `<h1>`이 있는가?
 - [ ] `npm run build` (타입체크 포함) 통과하는가?
-- [ ] 브라우저에서 실제 동작을 확인했는가? (CLAUDE.md UI 검증 원칙)
+- [ ] UI를 바꿨다면 스크린샷(Playwright MCP)으로 실제 렌더링을 직접 확인했는가? `curl`/텍스트 확인만으로는 레이아웃 깨짐·CSS 미적용 같은 시각적 문제를 못 잡는다 — 사용자 요청 여부와 무관하게 UI 파일을 고친 직후엔 항상 한다 (CLAUDE.md UI 검증 원칙). 사람과 함께 디자인을 다듬고 싶으면 그 다음 `frontend-design-feedback`으로 넘어간다.
