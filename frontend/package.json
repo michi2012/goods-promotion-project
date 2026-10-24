@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "generate:api": "openapi-typescript ../contracts/openapi.yaml -o src/api/generated/types.ts",
+    "mock:api": "prism mock ../contracts/openapi.yaml -p 4010",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.64.1",
+    "@stoplight/prism-cli": "^5.14.2",
     "@tailwindcss/turbopack": "^4",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.9.1",

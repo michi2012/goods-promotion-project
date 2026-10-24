@@ -1,110 +1,83 @@
-# 계획서: 모듈별 코드 흐름 문서화 (flow.md 4종 신규 작성)
+# 계획서: 프론트엔드 전면 재작성 — Next.js + Contract-first API
 
-- 작성일: 2026-09-11
+- 작성일: 2026-10-24
 - 관련 이슈/티켓: 없음
+- 브랜치: refactor/frontend-nextjs-contract-first
 
 ## 목표
-기존 `docs/aiops-flow.md`, `docs/codebot-flow.md`, `docs/qa/cs-bot-flow.md`와 동일한 "진입점 → 클래스/메서드 단위 단계별 코드 흐름" 형식으로, 아직 flow.md가 없는 4개 영역(구매·Saga 핵심 흐름, user-service, gateway-service, frontend)의 문서를 신규 작성한다.
+기존 Vite+React+orval 기반 `frontend/`를 전부 삭제하고, Next.js(App Router)+TS+Tailwind+shadcn/ui와 contract-first(OpenAPI 계약 우선) API 연동 방식으로 재작성한다. 기존에 있던 "주문 상태 조회" 화면을 새 스택/컨벤션으로 끝까지 재구현해 컨벤션이 실제로 동작함을 검증한다.
 
 ## 성공 기준
-- [ ] `docs/purchase-saga-flow.md` 생성 — serverA/B/C 전체 구매→Saga→결제 흐름을 클래스/메서드 단위로 기술
-- [ ] `docs/user-service-flow.md` 생성 — 회원가입·로그인(JWT 발급)·Reissue·결제수단 관리 흐름 기술
-- [ ] `docs/gateway-service-flow.md` 생성 — JwtAuthFilter 인증·Rate Limiting·라우팅 흐름 기술
-- [ ] `docs/frontend-flow.md` 생성 — OrderStatusPage 폴링 흐름(App.tsx 진입 → orval 생성 클라이언트 호출 → 상태 렌더링) 기술
-- [ ] 각 문서는 실제 소스 코드(파일 경로 기준)를 읽고 작성 — 추측 서술 금지
-- [ ] 기존 `README.md`/`arch-snapshot.md`와 내용이 모순되지 않는지 교차 확인
+- [ ] `frontend/npm run build` 통과 (Next.js 타입체크 포함)
+- [ ] `frontend/npm run test` (Vitest+RTL+MSW) 통과 — 검색 폼 컴포넌트 테스트 포함
+- [ ] `frontend/npm run test:e2e` (Playwright) 통과 — 주문 조회 E2E + 접근성(axe-core, violations 0) + 시각회귀 스냅샷 포함
+- [ ] 로컬에서 serverB(8081)를 띄운 상태로 실제 주문 ID를 조회해 상태가 정확히 표시되는지 브라우저로 수동 확인
+- [ ] `.github/workflows/ci-cd.yaml`에 추가한 drift-check 스텝이 로컬에서 수동 실행 시(정상 상태 기준) 통과
 
 ## 비범위 (Out of Scope)
-- `docs/qa/interview-qa-*.md` 스타일(이력서 문장 Q&A)의 신규 문서는 만들지 않는다 (사용자가 flow.md 형식만 선택).
-- 기존 aiops-flow.md / codebot-flow.md / cs-bot-flow.md 수정 없음.
-- README.md, arch-snapshot.md 등 기존 문서 수정 없음 (내용 모순 발견 시에만 별도 보고, 임의 수정 안 함).
-- 코드 변경 없음 — 순수 문서화 작업.
+- `GET /api/v1/goods/{goodsId}/stock` 엔드포인트의 계약/화면 (현재 어떤 화면에서도 쓰이지 않음)
+- README.md가 서술하는 폴링 정책(초기 대기 2s, 지수 백오프 2→4→8→16→32s, 60s 타임아웃 등) 구현 — 현재 코드와 README가 이미 불일치 상태이며, 이번 작업에서 그 불일치를 해소하지 않음 (별도 작업으로 분리)
+- TanStack Query 도입 — 이번 화면(단순 1회 조회)엔 불필요. 폴링/optimistic update 등 실제로 필요한 화면이 생기면 그때 추가
+- React Hook Form+Zod, Zustand 도입 — 이번 화면(입력 필드 1개)엔 불필요
+- serverA/serverC/aiops/cs-bot 등 다른 백엔드 모듈에 대한 계약 작성이나 CI drift-check
+- 새 디자인 토큰/다크모드 등 디자인 시스템 작업
 
 ## 단계별 작업 계획
 
-### 단계 1: docs/purchase-saga-flow.md 작성
-- 대상 파일(읽기): serverA(PromotionController, PromotionService, RedisStockService, PurchaseKafkaConsumer, OrderCommandService, SagaOrchestratorService, SagaStateService, SagaResultConsumer, SagaTimeoutScheduler, OutboxEventService, PurchaseDltConsumer), serverB(OrderQueryController, OrderQueryService, OrderStatusKafkaConsumer, OrderStatusEventHandler, StockSnapshotConsumer), serverC(PaymentController, PaymentService, PaymentKafkaConsumer, PaymentCancelConsumer, OrderCompletedConsumer, PgClient/MockPgClient)
-- 변경 파일: docs/purchase-saga-flow.md (신규)
-- 내용 요약: 구매 요청 접수(Redis 3단계 방어) → Kafka 발행 → Saga 초기화 → 결제/상태갱신 병렬 처리 → SagaResultConsumer 판정 → 성공/실패 분기(보상 트랜잭션) → 타임아웃 처리까지 클래스·메서드 단위로 추적
-- 검증 방법: 문서 내 언급된 클래스명·메서드명·토픽명이 실제 소스에 존재하는지 grep으로 교차 확인
-- 롤백 방법: 신규 파일 삭제
-- 예상 소요: 김 (3개 모듈, 가장 핵심 로직)
-
-### 단계 2: docs/user-service-flow.md 작성
-- 대상 파일(읽기): UserController, UserService, LoginFilter, JWTUtil, ReissueController, CustomUserDetailsService, SecurityConfig, PaymentMethodController, PaymentMethodService, InternalUserController
-- 변경 파일: docs/user-service-flow.md (신규)
-- 내용 요약: 회원가입 → 로그인(LoginFilter → JWT 발급 → refresh 쿠키) → Reissue → 프로필/결제수단 CRUD → codebot/cs-bot이 호출하는 Internal API까지
-- 검증 방법: 클래스명·엔드포인트가 실제 소스와 일치하는지 확인
-- 롤백 방법: 신규 파일 삭제
+### 단계 1: skill 문서 재작성 (규칙을 먼저 고정)
+- 변경 파일: `.claude/skills/frontend/SKILL.md`(전면 재작성), `.claude/skills/frontend-testing/SKILL.md`(전면 재작성), `.claude/skills/api/SKILL.md`(계약 파일 참조 한 줄 추가)
+- 변경 내용 요약: 이번 대화에서 결정한 컨벤션(Next.js App Router 구조, contract-first API 연동, 하이브리드 데이터 페칭, Prism/CI drift-check, 테스트 피라미드)을 skill 문서로 먼저 고정한다. 이후 단계(2~7)의 실제 구현은 이 문서를 따른다 — 기존 백엔드 skill(`api`/`jpa`/`exception`)과 동일하게 "규칙 문서 먼저, 구현은 그걸 참조"하는 패턴을 유지.
+- 검증 방법: 육안 확인 — 이번 대화에서 결정한 모든 컨벤션이 문서에 빠짐없이 반영됐는지 체크
+- 롤백 방법: 아직 커밋 전이므로 파일을 이전 내용으로 되돌림
 - 예상 소요: 보통
 
-### 단계 3: docs/gateway-service-flow.md 작성
-- 대상 파일(읽기): JwtAuthFilter, RateLimiterConfig, application.yml(라우팅 테이블)
-- 변경 파일: docs/gateway-service-flow.md (신규)
-- 내용 요약: 요청 진입 → 화이트리스트 판별 → JWT 검증 → X-User-Id/X-User-Role 헤더 주입 → Redis 토큰버킷 Rate Limiting → 하위 서비스 라우팅
-- 검증 방법: 라우팅 규칙이 arch-snapshot.md 표와 일치하는지 확인
-- 롤백 방법: 신규 파일 삭제
-- 예상 소요: 짧음 (파일 수 적음)
-
-### 단계 4: docs/frontend-flow.md 작성
-- 대상 파일(읽기): App.tsx, OrderStatusPage.tsx, api/generated/order-query-controller, api/axios-instance.ts
-- 변경 파일: docs/frontend-flow.md (신규)
-- 내용 요약: 진입 → orval 생성 API 클라이언트로 serverB 폴링(Exponential Backoff) → 상태별 렌더링(PAID/FAILED/EXPIRED/PENDING)
-- 검증 방법: README에 서술된 폴링 정책(2s 초기 대기, 2→4→8→16→32s, 최대 6회, 60s 타임아웃)과 실제 코드 일치 확인
-- 롤백 방법: 신규 파일 삭제
+### 단계 2: 기존 frontend/ 삭제 + Next.js 신규 scaffold (단계 1 skill 문서 기준)
+- 변경 파일: `frontend/` 전체 삭제 후 `create-next-app`으로 재생성 (App Router, TS, Tailwind 기본값)
+- 변경 내용 요약: 기존 Vite 기반 프로젝트를 통째로 지우고 Next.js 프로젝트로 새로 시작. 패키지 매니저는 기존과 동일하게 npm 유지.
+- 검증 방법: `npm run dev` 기동 후 기본 페이지 렌더 확인, `npm run build` 통과
+- 롤백 방법: 아직 커밋 전이므로 `git checkout -- frontend/` 또는 해당 커밋 자체를 만들지 않음
 - 예상 소요: 짧음
 
-## 리스크 및 대응
-- 리스크 1: 소스가 방대해 문서가 README/arch-snapshot과 중복될 위험 → 대응: flow.md는 "코드를 따라가는 절차" 서술에 집중하고, 설계 이유/트레이드오프는 README 링크로 대체
-- 리스크 2: 클래스/메서드명 오기재(환각) → 대응: 각 단계 완료 후 Grep으로 실존 여부 교차 검증
+### 단계 3: contracts/openapi.yaml 작성 + 타입 생성 + fetch 래퍼 (단계 1 skill 문서 기준)
+- 변경 파일: `contracts/openapi.yaml`(신규, 레포 루트), `frontend/package.json`(`openapi-typescript`, `openapi-fetch` 의존성 추가 — 새 의존성), `frontend/src/api/generated/types.ts`(생성물), `frontend/src/lib/api/client.ts`(신규, openapi-fetch 래퍼)
+- 변경 내용 요약: 기존 `serverB/OrderQueryController`의 `GET /api/v1/orders/{orderId}/status` 하나만 담은 OpenAPI 3.x 스펙을 사람이 작성(제가 기존 컨트롤러/DTO를 읽고 draft를 만들어 제시 → 확인받고 확정). `npm run generate:api`로 타입만 생성(훅은 생성 안 됨). `client.ts`에서 `createClient<paths>()`로 한 번만 래핑.
+- 검증 방법: `npm run generate:api` 실행 후 `types.ts` 생성 확인, `tsc --noEmit` 통과
+- 롤백 방법: `contracts/openapi.yaml`, 생성물, `client.ts` 삭제
+- 예상 소요: 보통
 
-## 의존성
-없음 (순수 문서 생성, 코드 변경 없음)
+### 단계 4: shadcn/ui 초기화 + 공통 레이아웃
+- 변경 파일: `frontend/components.json`, `frontend/src/components/ui/{button,card,input}.tsx`(CLI로 추가), `frontend/src/app/layout.tsx`
+- 변경 내용 요약: shadcn CLI로 기존 화면에서 쓰던 컴포넌트(Button/Card/Input) 추가, 기존 헤더/푸터를 `layout.tsx`로 이식
+- 검증 방법: `npm run build` 통과, 빈 레이아웃 렌더 확인
+- 롤백 방법: 해당 파일 삭제
+- 예상 소요: 짧음
 
----
+### 단계 5: 검색 폼(`/`, Client Component) + 조회 결과(`/orders/[orderId]`, Server Component)
+- 변경 파일: `frontend/src/app/page.tsx`(Client Component, 주문 ID 입력 후 `router.push('/orders/{id}')`), `frontend/src/app/orders/[orderId]/page.tsx`(Server Component, `client.GET`으로 직접 fetch 후 상태 렌더)
+- 변경 내용 요약: 기존 `OrderStatusPage.tsx`의 "입력→조회" 동작을 "조회=Server Component, 조작(네비게이션)=Client Component" 패턴으로 재구현. 이 화면엔 생성/삭제 같은 실제 "조작"이 없으므로, 브라우저가 Spring을 직접 호출하는 경로가 생기지 않음(= CORS 설정 불필요 — 같은 단계에서 네트워크 탭으로 확인하고 `docs/context.md`에 기록, 향후 "조작"이 있는 화면이 생기면 그때 CORS 설정이 필요해진다는 점만 skill 문서에 남김).
+- 검증 방법: 로컬 serverB(8081) 기동 후 브라우저에서 실제 주문 ID로 조회해 상태 표시 확인 + 네트워크 탭에서 브라우저가 `localhost:8081`을 직접 호출하지 않음을 확인
+- 롤백 방법: 두 파일 삭제
+- 예상 소요: 보통
 
-# 계획서 추가: aiops-flow.md / codebot-flow.md 보강 (심화)
+### 단계 6: 테스트 작성 (Vitest+RTL+MSW / Playwright E2E+axe-core+시각회귀)
+- 변경 파일: `frontend/src/app/page.test.tsx`(검색 폼 컴포넌트 테스트), `frontend/src/mocks/handlers.ts`(MSW 핸들러, `satisfies` 타입 단언으로 drift 체크), `frontend/e2e/order-status.spec.ts`(E2E + axe-core + `toHaveScreenshot`)
+- 변경 내용 요약: 기존 `frontend-testing` skill의 패턴을 그대로 적용해 테스트 작성. 실행은 사용자가 직접 (CLAUDE.md 테스트 분업 원칙).
+- 검증 방법: 작성 후 사용자에게 `npm run test`, `npm run test:e2e` 실행 안내 (제가 직접 실행하지 않음)
+- 롤백 방법: 해당 테스트 파일 삭제
+- 예상 소요: 보통
 
-- 작성일: 2026-09-11
-- 관련 이슈/티켓: 없음
-- 선행 작업: 위 "모듈별 코드 흐름 문서화(flow.md 4종 신규 작성)" — 아직 커밋 전, 같은 문서화 세션의 연장.
-
-## 목표
-기존 `docs/aiops-flow.md`(127줄)·`docs/codebot-flow.md`(89줄)는 이미 상세하지만, aiops 19개 파일·codebot 14개 파일 전체를 실제로 읽고 대조한 적은 없다. 두 모듈의 전체 소스를 정독해 누락된 클래스/메서드/설정값을 찾아 기존 문서 구조를 유지한 채 보강한다.
-
-## 성공 기준
-- [ ] aiops `src/main/java` 19개 파일 전부 읽음
-- [ ] codebot `src/main/java` 14개 파일 전부 읽음
-- [ ] `docs/aiops-flow.md`에 도구별(ObservabilityTools/KubernetesTools/DltTools) 실제 메서드 목록, `ActionApprovalService`/`AlertDeduplicationService`/`IntentClassifierService`/`LinearAuditService`의 실제 동작(TTL/알고리즘/프롬프트 구조)이 반영됨
-- [ ] `docs/codebot-flow.md`에 도구별(CodeSearchTools/ObservabilityTools/KubernetesTools/DataQueryTools/LinearTools/PullRequestTools) 실제 메서드 목록과 세부 동작이 반영됨
-- [ ] 기존 문서 서술과 실제 코드가 다른 부분은 수정, 근거 없는 서술은 없음(grep 교차 확인)
-- [ ] 기존 문서의 구조(섹션 순서·제목)는 유지, 내용만 보강
-
-## 비범위 (Out of Scope)
-- 문서 전체 재작성/구조 변경 없음 (사용자가 "기존 구조 유지 + 보강" 선택)
-- 다른 flow.md(purchase-saga/user-service/gateway/frontend)는 이미 완료, 재작업 없음
-- 코드 변경 없음
-
-## 단계별 작업 계획
-
-### 단계 1: docs/aiops-flow.md 보강
-- 대상 파일(읽기): AlertDeduplicationService, ActionApprovalController/Service, PrometheusWebhookController, SlackNotificationService, LinearAuditService, ChatMemoryConfig, CodebotClient, SlackEventController, CanaryRolloutScheduler, IntentClassifierService, RouterService, SlackBotClient, InfraChatAgentService, SlackInteractiveController, KubernetesTools, ObservabilityTools, AiOpsAgentService, RestClientConfig, DltTools
-- 변경 파일: docs/aiops-flow.md (수정)
-- 내용 요약: 각 도구 클래스의 실제 메서드 시그니처·트리거 조건·설정 기본값을 표로 보강, 기존 서술과 다른 부분 정정
-- 검증 방법: 문서에 추가한 클래스/메서드명 grep 교차 확인
-- 롤백 방법: git diff로 되돌림
-- 예상 소요: 김
-
-### 단계 2: docs/codebot-flow.md 보강
-- 대상 파일(읽기): InvestigationController, InvestigationRequest/Response, ChatMemoryConfig, RestClientConfig, KubernetesTools, ObservabilityTools, CodebotAgentService, DataQueryDataSourceConfig, CodeSearchTools, DataQueryTools, LinearTools, PullRequestTools
-- 변경 파일: docs/codebot-flow.md (수정)
-- 내용 요약: 도구별 실제 메서드·화이트리스트 규칙·PR 생성 절차 세부사항 보강
-- 검증 방법: grep 교차 확인
-- 롤백 방법: git diff로 되돌림
+### 단계 7: Prism mock + CI drift-check
+- 변경 파일: `frontend/package.json`(`@stoplight/prism-cli` devDependency, `mock:api` 스크립트 추가), `frontend/src/lib/api/client.ts`(`NEXT_PUBLIC_API_MODE` 분기), `.github/workflows/ci-cd.yaml`(serverB 빌드 후 springdoc 생성 스펙 vs `contracts/openapi.yaml` 정규화 diff 스텝 추가)
+- 변경 내용 요약: 지금까지 결정한 컨벤션을 CI로 고정. drift-check는 serverB 모듈만 대상(이번에 관련 API를 제공하는 유일한 모듈).
+- 검증 방법: `npm run mock:api` 로컬 기동 확인. CI yaml 문법 검증(`actionlint` 또는 GitHub 문법 체크).
+- 롤백 방법: 각 파일을 이전 상태로 되돌림
 - 예상 소요: 보통
 
 ## 리스크 및 대응
-- 리스크: 기존 문서와 실제 코드가 달라 서술을 정정해야 하는 경우 → 대응: 정정 사실을 명확히 표시하고 근거(파일 경로) 남김
+- 리스크 1: Next.js 15 + React 19 + Tailwind v4 조합이 shadcn CLI 초기화와 충돌할 가능성 → 대응: 단계 4에서 조기 발견, 문제 시 즉시 보고 후 방향 재확인
+- 리스크 2: `openapi-fetch`가 Node(Server Component) 환경에서 브라우저와 동일하게 동작하지 않을 가능성 → 대응: 단계 5에서 직접 확인, 문제 시 네이티브 `fetch` 직접 사용으로 대체
+- 리스크 3: CI diff 정규화(yaml 키 순서/포맷)가 생각보다 까다로움 → 대응: 처음엔 `yq` 기반 단순 정렬+diff로 시작, 과도하게 정교화하지 않음(Simplicity First)
 
 ## 의존성
-없음
+- 로컬 E2E 검증을 위해 `serverB`가 로컬에서 기동되어 있어야 함(CLAUDE.md 커밋 전 E2E 기준 — 로컬에서 바로 실행 가능하므로 로컬 E2E 필수)
+- 신규 npm 의존성(`openapi-typescript`, `openapi-fetch`, `@stoplight/prism-cli`) 추가는 이번 계획 승인으로 사용자 동의 처리
