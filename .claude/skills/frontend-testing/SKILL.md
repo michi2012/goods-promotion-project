@@ -41,7 +41,7 @@ Server Component가 서버에서 가져오는 조회 데이터는 MSW 범위 밖
 import type { components } from '@/api/generated/types'
 
 export const handlers = [
-  http.delete('/api/v1/orders/:orderId', ({ params }) => {
+  http.delete('http://localhost:8081/api/v1/orders/:orderId', ({ params }) => {
     const body = { orderId: params.orderId, status: 'DELETED' } satisfies components['schemas']['OrderStatusResponse']
     return HttpResponse.json(body)
   }),
@@ -51,6 +51,7 @@ export const handlers = [
 **규칙:**
 - `onUnhandledRequest: 'error'`로 설정되어 있으므로, 핸들러 없는 요청은 테스트가 실패한다 — 누락 방지 장치.
 - 핸들러 응답에 **`satisfies components['schemas'][...]`** 타입 단언을 반드시 붙인다 — `contracts/openapi.yaml`에서 생성된 타입과 벗어나면 컴파일 타임에 바로 에러가 나서, 별도 도구 없이 계약 드리프트를 잡아준다.
+- **핸들러 경로는 상대경로(`/api/v1/...`)가 아니라 `client.ts`의 `baseUrl`과 똑같은 절대 URL로 써야 한다.** jsdom의 기본 origin은 `client.ts`가 실제로 호출하는 origin(`NEXT_PUBLIC_API_BASE_URL` 또는 기본값 `http://localhost:8081`)과 다르기 때문에, 상대경로 핸들러는 매칭되지 않고 `onUnhandledRequest: 'error'`로 테스트가 실패한다. `client.ts`의 baseUrl이 바뀌면 핸들러의 URL도 같이 바꿔야 한다.
 
 ## 3. Server Component 렌더링 결과 — Playwright E2E로 검증
 
@@ -81,6 +82,10 @@ await expect(page).toHaveScreenshot('order-status.png')
 ```bash
 npx playwright test --update-snapshots   # 베이스라인 생성/갱신
 ```
+
+**규칙:**
+- 시각 회귀는 **핵심 화면 1~2개로 제한**한다. 화면마다 전부 걸면 디자인이 바뀔 때마다 베이스라인 갱신 비용이 기하급수적으로 늘어 혼자 유지하기 부담스러워진다 (Simplicity First).
+- 스냅샷 파일명에 플랫폼이 포함된다(`-chromium-win32.png` 등). **Windows 로컬에서 만든 베이스라인은 Linux CI에서 그대로 쓸 수 없다** — CI에서 돌릴 계획이면 Linux용 베이스라인을 별도로 만들어야 하고, 로컬 전용(지금 상태)이면 문제없다.
 
 ### 3-2. 접근성 (axe-core)
 
