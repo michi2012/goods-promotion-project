@@ -1,57 +1,48 @@
-# 맥락 노트: 모듈별 코드 흐름 문서화 (flow.md 4종 신규 작성)
+# 맥락 노트: 프론트엔드 전면 재작성 — Next.js + Contract-first API
 
 ## 왜 이 방식을 선택했는가
-사용자가 오랜만에 코드베이스를 다시 보는 상황에서 "기억이 잘 안 난다"고 밝혔고, 목적은 코드 복기다. 기존 `docs/aiops-flow.md`/`docs/codebot-flow.md`/`docs/qa/cs-bot-flow.md`가 이미 "진입점 → 클래스/메서드 단위 단계별 흐름"이라는 검증된 패턴을 갖고 있어, 이 패턴을 나머지 미문서화 영역(구매·Saga 핵심, user-service, gateway-service, frontend)에 동일하게 적용하기로 했다.
-"이력서 문장 매핑(portfolio.md)" 형식은 사용자가 명시적으로 선택하지 않아 이번 범위에서 제외했다.
+사용자가 프론트엔드 규칙을 처음부터 뒤집기로 하면서 다음 세 가지를 요청함:
+1. React+Next.js+TS+Tailwind+shadcn/ui
+2. API 명세/연동을 "백/프론트가 이미 분리되어 있다"는 가정하에, OpenAPI 계약을 먼저 작성하고(code-first가 아닌 contract-first) `openapi-typescript`+`Prism`으로 연동
+3. Vitest+RTL+MSW+Playwright 테스트 피라미드 (기존과 동일 — 변경 없음)
+
+대화 중 아래 세부 결정을 거쳤다:
+- **계약 운영**: `contracts/openapi.yaml`을 사람이 먼저 쓰는 유일한 원본으로 두되, CI에 drift-check(백엔드 springdoc 생성 스펙과 정규화 diff)를 둬서 계약-구현 불일치를 잡는다. 처음엔 "스펙 파일 있으면 그걸 쓰고 없으면 코드에서 생성"하는 조건부 fallback을 고려했으나, 이러면 소스가 시점마다 바뀌어 혼란스럽고 애초에 contract-first를 쓰는 이유(백엔드 구현 순서와 프론트 분리)가 무력화돼서 폐기했다.
+- **데이터 페칭 전략**: 처음엔 "전부 Client Component+TanStack Query"를 제안했으나, 이렇게 하면 Next.js의 핵심 기능(RSC)을 안 쓰는 셈이라 "굳이 Next.js를 쓰는 이유가 뭐냐"는 반론을 받고 재검토. 사용자가 Next.js를 고른 이유가 특정 SEO 요구가 아니라 "최근 추세를 따르고 싶어서"라고 확인했으므로, 추세 자체가 RSC 활용이라는 점에서 하이브리드(조회=Server Component 직접 fetch, 조작=Client Component)로 최종 확정. TanStack Query는 폼/Zustand와 동일하게 "실제로 필요해질 때만" 도입하는 걸로 축소 — 처음엔 조작에도 TanStack Query를 끼워 넣으려 했으나, 이 화면엔 조작 자체가 없어서(순수 조회) 당장은 아예 안 씀.
+- **CI drift-check**: 한 번 "학습용이라 생략하자"로 뺐다가 사용자가 다시 "그냥 추가하자"로 뒤집어 최종적으로 포함됨.
+- **범위**: 처음엔 "scaffold+컨벤션만" vs "기존 주문조회 화면까지 재구현"을 두고 고민했는데, 컨벤션이 실제로 동작하는지 끝까지 보고 싶다는 이유로 후자(B)를 선택.
+- **단계 순서**: 최초 계획은 skill 문서(`frontend`/`frontend-testing`) 재작성을 마지막 단계(7)에 뒀었는데, 사용자가 "프론트 규칙을 미리 수정하기로 한 것 아니냐"고 지적해 바로잡음. 이 대화 전체의 목적 자체가 "새 프론트 규칙 결정"이고 실제 구현은 그 규칙을 검증하는 과정이므로, skill 문서 재작성을 1단계로 옮기고 이후 구현 단계가 그 문서를 참조하도록 재정렬함 — 기존 백엔드 skill(`api`/`jpa`/`exception`)이 "규칙 문서 먼저, 구현은 참조"하는 패턴과 일치시킴.
 
 ## 검토했으나 채택하지 않은 대안
-### 대안 A: 이력서 문장 매핑(portfolio.md) 형식
-- 무엇: `codebot-portfolio.md`처럼 이력서 문장 → 코드 근거를 짧게 매핑
-- 왜 안 썼나: 사용자가 AskUserQuestion에서 "코드 흐름 문서(flow.md)"를 명시적으로 선택. 면접/이력서 준비보다 "코드 복기"가 현재 목적.
+### 대안 A: Vite+React 유지
+- 무엇: Next.js 대신 기존 Vite 스택 유지
+- 왜 안 썼나: 사용자가 Next.js로 전환을 명시적으로 요청함. (다만 "전부 Client 렌더링"으로 갔다면 Vite가 더 단순했을 거라는 지적이 있었고, 이 지적 때문에 하이브리드 RSC 전략으로 조정됨)
 
-### 대안 B: 핵심 구매/Saga만 우선 작성
-- 무엇: serverA/B/C만 먼저 작성하고 user-service/gateway/frontend는 보류
-- 왜 안 썼나: 사용자가 "전체(프론트엔드 포함)"를 명시적으로 선택.
+### 대안 B: Code-first (백엔드 springdoc 스펙을 원본으로)
+- 무엇: Spring 컨트롤러/DTO를 먼저 구현하고 거기서 openapi.yaml을 생성, 그걸 프론트가 그대로 소비
+- 왜 안 썼나: 혼자 개발이라 "계약과 구현을 둘 다 손으로 맞추는 중복"이 번거롭다는 지적이 있었지만, 이렇게 가면 프론트가 다시 백엔드 구현 완료를 기다려야 해서 애초에 contract-first로 바꾼 이유(분리된 개발)가 사라짐. 사용자가 "백/프론트 분리돼 있다고 가정"을 재확인하면서 contract-first를 유지.
 
-### 대안 C: README.md/arch-snapshot.md에 통합 서술
-- 무엇: 별도 파일 대신 기존 대형 문서에 흐름 섹션 추가
-- 왜 안 썼나: README/arch-snapshot은 이미 500줄 이상이며 "설계 요약" 성격. flow.md는 "코드를 그대로 따라가는" 성격으로 목적이 다르고, 기존 3개 모듈도 이미 별도 파일로 분리되어 있어 일관성을 위해 유지.
+### 대안 C: 계약 파일 존재 여부에 따른 조건부 fallback (사람이 쓴 게 있으면 그거, 없으면 코드에서 생성)
+- 무엇: `contracts/openapi.yaml`이 있으면 그걸 쓰고, 없으면 백엔드 생성 스펙을 쓰는 조건문
+- 왜 안 썼나: 소스가 시점마다 바뀌어 "지금 보고 있는 타입이 계약인지 구현 결과물인지" 혼란스러워지고, 드리프트를 조용히 숨기는 효과가 있어서 폐기. 대신 "유일한 소스 + CI 상에서 사람이 판단하는 드리프트 알림"으로 정리.
 
-## 기존 코드베이스 컨벤션
-- flow.md 문서 구조(aiops-flow.md 기준): 상단에 1~2문장 요약 → "진입점" 표 또는 목록 → 흐름별 번호 매긴 단계 서술(클래스.메서드() 표기) → 필요 시 코드 스니펫 없이 절차만 텍스트로. Mermaid 다이어그램은 README/arch-snapshot에 이미 있으므로 flow.md에는 넣지 않는 경향(aiops-flow.md는 다이어그램 없이 텍스트 절차만 사용).
-- 멀티모듈 Gradle 구조: `serverA`/`serverB`/`serverC`/`user-service`/`gateway-service`/`aiops`/`codebot`/`cs-bot`/`discovery-service`가 각각 독립 Spring Boot 앱. 패키지 루트: `promotion.serverA`, `promotion.serverB`, `promotion.serverC`, `com.example.user_service`, `com.example.gateway_service`.
-- 예외 처리 패턴: 각 모듈에 `exception/GlobalExceptionHandler.java` 존재 (`.claude/skills/exception` 참고).
-- 프론트: `frontend/src/api/generated/`는 orval 자동 생성 코드 — 문서화 시 "생성됨"을 명시하고 수동 코드와 구분.
+### 대안 D: 전부 Client Component + TanStack Query로 통일
+- 무엇: Server Component를 안 쓰고 모든 데이터 페칭을 클라이언트에서
+- 왜 안 썼나: Next.js를 쓰는 의미가 없어진다는 반론(Vite가 더 단순한 대안이 됨)을 받아들여 폐기. 최종적으로 "조회=Server Component, 조작=Client Component(+필요시에만 TanStack Query)"로 조정.
 
-## 관련 파일/위치
-- serverA/src/main/java/promotion/serverA/ — Saga 오케스트레이터(구매 접수·주문·재고)
-- serverB/src/main/java/promotion/serverB/ — CQRS 읽기 전용(주문 상태·재고 뷰)
-- serverC/src/main/java/promotion/serverC/ — 결제 처리(PG 연동)
-- user-service/src/main/java/com/example/user_service/ — 회원·JWT·결제수단
-- gateway-service/src/main/java/com/example/gateway_service/ — JWT 인증 필터·Rate Limiting (파일 3개뿐, 라우팅 규칙은 application.yml에 정의)
-- frontend/src/pages/OrderStatusPage.tsx — 주문 상태 폴링 화면
-- docs/aiops-flow.md, docs/codebot-flow.md, docs/qa/cs-bot-flow.md — 참고할 기존 패턴 원본
-- docs/arch-snapshot.md, README.md — 교차 검증 기준 문서 (이미 신뢰 가능한 것으로 확인됨, 2026-06-17 기준 최신)
-
-## 외부 참조
-없음
-
----
-
-# 맥락 노트 추가: aiops-flow.md / codebot-flow.md 보강
-
-## 왜 이 방식을 선택했는가
-사용자가 aiops/codebot 코드 자체를 잘 기억하지 못한다고 밝혔고, 기존 두 문서는 실제 소스 33개 파일을 전부 대조하지 않은 상태였다(직전 작업에서는 aiops-flow.md를 60줄만 확인, codebot-flow.md는 미확인). "기존 구조 유지 + 부족한 부분만 보강"을 사용자가 명시적으로 선택 — 이미 검증된 문서 구조를 깨지 않으면서 코드 근거를 채우는 것이 목표.
-
-## 검토했으나 채택하지 않은 대안
-### 대안: 전체 재작성
-- 무엇: 33개 파일을 읽은 뒤 두 문서를 처음부터 다시 구성
-- 왜 안 썼나: 사용자가 "기존 구조 유지"를 명시적으로 선택. 기존 구조가 이미 실전 검증된 패턴(aiops-flow.md가 다른 신규 문서들의 원본 템플릿이었음)이라 재작성 리스크가 이득보다 큼.
+## 기존 코드베이스 컨벤션 (frontend/ 재작성 전 기준)
+- 기존 `frontend/src/pages/OrderStatusPage.tsx`: `useState`로 입력값 관리, 조회 버튼 클릭 시 `useGetOrderStatus`(orval 생성 훅) 호출, `isFetching`/`isError`/`data` 분기 렌더. 새 구현에서도 이 상태 전이(조회중/에러/성공) UX는 그대로 유지한다.
+- 기존 `frontend/src/api/generated/`: orval이 serverB의 `/v3/api-docs`를 읽어 생성 — 이번 작업으로 폐기, `openapi-typescript` 생성물로 대체.
+- 백엔드 `serverB/src/main/java/promotion/serverB/controller/OrderQueryController.java`: `GET /api/v1/orders/{orderId}/status`(주문 상태), `GET /api/v1/goods/{goodsId}/stock`(재고 — 프론트에서 미사용, 이번 계약에서 제외).
+- `serverB`는 로컬에서 포트 8081로 기동 (`application.yaml` 기준), Redis(6380)/Kafka(9092) 등 인프라 의존.
+- CI: `.github/workflows/ci-cd.yaml` 단일 워크플로.
 
 ## 관련 파일/위치
-- aiops/src/main/java/aiops/aiops/ — 19개 파일, 패키지: agent/approval/webhook/slack/linear/router/scheduler/tools/config
-- codebot/src/main/java/codebot/codebot/ — 14개 파일, 패키지: api/config/tools/agent
-- docs/aiops-flow.md, docs/codebot-flow.md — 보강 대상 원본
+- `frontend/src/pages/OrderStatusPage.tsx` — 재구현 대상 화면의 원본 (삭제 예정)
+- `serverB/src/main/java/promotion/serverB/controller/OrderQueryController.java` — 계약 작성 시 참조할 실제 구현
+- `docs/frontend-flow.md` — 기존 프론트 코드 흐름 문서. README 폴링 정책 불일치가 여기 "발견 사항"에 기록되어 있음(이번 작업 비범위).
+- `.claude/skills/frontend/SKILL.md`, `.claude/skills/frontend-testing/SKILL.md` — 이번 작업 완료 후 재작성 대상
+- `.claude/skills/api/SKILL.md` — 계약 파일 참조 한 줄 추가 대상
 
 ## 외부 참조
 없음

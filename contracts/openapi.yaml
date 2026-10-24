@@ -1,0 +1,49 @@
+openapi: 3.1.0
+info:
+  title: Promotion — Order Query API
+  version: 1.0.0
+  description: >
+    serverB가 제공하는 주문 상태 조회 API 계약.
+    이 파일이 유일한 원본이다 — 백엔드 구현이 여기서 벗어나면 CI drift-check가 실패한다.
+servers:
+  - url: http://localhost:8081
+    description: 로컬 serverB
+
+paths:
+  /api/v1/orders/{orderId}/status:
+    get:
+      operationId: getOrderStatus
+      summary: 주문 상태 조회
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 주문 상태 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+
+components:
+  schemas:
+    OrderStatusResponse:
+      type: object
+      required:
+        - orderId
+        - status
+      properties:
+        orderId:
+          type: string
+        status:
+          type: string
+          description: Redis에 상태가 없으면 NOT_FOUND
+          enum:
+            - PENDING
+            - PAID
+            - FAILED
+            - EXPIRED
+            - NOT_FOUND
