@@ -94,15 +94,18 @@ expect(results.violations).toEqual([])
 흔한 위반 예: 페이지에 `<h1>` 부재 (`page-has-heading-one`) — shadcn `CardTitle`은 `<div>`이므로
 `<h1 className="sr-only">제목</h1>`을 별도로 둬야 할 수 있다 (`frontend` skill 4번 참조).
 
-## 4. 실행 명령어 (CLAUDE.md 테스트 분업 원칙 — 작성은 Claude, 실행은 사용자)
+## 4. 실행 명령어 (CLAUDE.md 테스트 분업 원칙 — 비용/환경 기준)
+
+프론트는 아직 CI에 테스트 job이 없다 — 로컬 실행이 유일한 방어선이므로 Vitest는 기본적으로 Claude가 직접 돌린다.
 
 ```bash
-npm run test       # Vitest (Client Component + MSW)
+npm run test       # Vitest (Client Component + MSW) — 수 초, Claude가 직접 실행, 통과할 때까지 수정
 npm run test:e2e   # Playwright E2E (Server Component 포함 전체 흐름)
 ```
 
-테스트 코드를 작성/수정한 뒤에는 위 명령어를 실행해보라고 사용자에게 안내한다.
-실패 로그를 사용자가 붙여넣으면 그때 분석·수정한다.
+- `npm run test`(Vitest): **Claude가 직접 실행**한다. 느려야 수 초이고 외부 인프라가 필요 없다.
+- `npm run test:e2e`(Playwright): 브라우저 + 실제 백엔드(또는 Prism mock)가 필요하다. 로컬 dev 서버와 백엔드가 **이미 떠 있으면 Claude가 직접 실행**, 아니면 사용자에게 실행을 요청한다 — Claude가 그걸 위해 새로 백엔드/Prism을 띄우지는 않는다. 시각 회귀 스냅샷·axe 결과는 스크린샷을 사용자가 한 번 눈으로 확인하는 걸 권장한다.
+- Claude가 직접 실행한 경우 실행한 명령어와 결과를 보고에 포함한다. 실행하지 못한 경우(환경 없음)엔 "이 테스트를 실행해보세요"라고 명시한다.
 
 ## 5. 자가 점검
 - [ ] Client Component 단위 테스트 + MSW 통합 테스트(조작만)를 작성했는가?
@@ -110,4 +113,4 @@ npm run test:e2e   # Playwright E2E (Server Component 포함 전체 흐름)
 - [ ] Server Component가 렌더링하는 조회 결과는 Playwright E2E로 검증했는가? (MSW로 커버 안 됨)
 - [ ] E2E에 정상 흐름 시나리오가 있는가?
 - [ ] 시각 회귀 스냅샷과 접근성(axe-core, violations 0) 검사를 포함했는가?
-- [ ] `npm run test`, `npm run test:e2e` 실행을 사용자에게 안내했는가?
+- [ ] `npm run test`를 직접 실행해 통과를 확인했는가? `npm run test:e2e`는 환경이 되면 직접, 아니면 사용자에게 요청했는가?

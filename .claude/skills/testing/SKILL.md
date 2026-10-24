@@ -207,4 +207,4 @@ assertThatThrownBy(() -> service.doSomething())
 - [ ] Testcontainers로 실제 MySQL을 쓰는가?
 - [ ] 테스트가 결정적인가?
 - [ ] 한 테스트가 한 시나리오만 검증하는가?
-- [ ] `./gradlew test` 통과하는가?
+- [ ] 새로 작성/수정한 테스트를 `--tests` 필터로 직접 실행해 통과를 확인했는가? (Testcontainers 등 외부 인프라가 필요한 테스트는 환경이 이미 떠 있을 때만 직접 실행, 없으면 사용자에게 요청 — CLAUDE.md 테스트 분업 원칙)
