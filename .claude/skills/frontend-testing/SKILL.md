@@ -8,69 +8,63 @@ description: 프론트엔드 테스트 코드 작성 시에만 활성화. Vitest
 백엔드(`testing` skill의 슬라이스 테스트 피라미드)와 동일한 사고방식을
 프론트엔드에 적용한다: 빠르고 좁은 테스트를 많이, 느리고 넓은 테스트를 적게.
 
+Next.js App Router 전환으로 생긴 중요한 전제: **MSW는 브라우저(Client Component) fetch만
+가로챈다. Server Component의 fetch(Node에서 실행)는 MSW로 가짜 응답을 못 받는다.**
+그래서 두 레이어의 책임이 나뉜다.
+
 | 레이어 | 도구 | 범위 | 위치 |
 |---|---|---|---|
-| 컴포넌트 단위 | Vitest + RTL | 단일 컴포넌트 렌더링·인터랙션 | `src/**/*.test.tsx` |
-| API 통합 | Vitest + MSW | 컴포넌트 + 네트워크 모킹 | `src/**/*.test.tsx` (같은 파일에 포함 가능) |
-| E2E | Playwright | 브라우저에서 실제 화면 흐름 | `e2e/**/*.spec.ts` |
+| Client Component 단위 | Vitest + RTL | 단일 컴포넌트 렌더링·인터랙션 | `src/**/*.test.tsx` |
+| API 통합 (Client Component만) | Vitest + MSW | Client Component + 네트워크 모킹 | `src/**/*.test.tsx` |
+| Server Component 렌더링 결과 | Playwright E2E | 실제 백엔드(또는 Prism)로 끝까지 동작 확인 | `e2e/**/*.spec.ts` |
 
-## 1. 컴포넌트 단위 테스트 (Vitest + RTL)
-
-`QueryClientProvider`가 필요한 컴포넌트는 테스트 전용 클라이언트로 감싼다 (재시도 비활성화).
+## 1. Client Component 단위 테스트 (Vitest + RTL)
 
 ```tsx
-function renderWithQueryClient() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <OrderStatusPage />
-    </QueryClientProvider>,
-  )
-}
-
-it('주문 ID 입력란과 조회 버튼을 렌더링한다', () => {
-  renderWithQueryClient()
+it('주문 ID 입력란과 조회 버튼을 렌더링한다', async () => {
+  render(<SearchForm />)
   expect(screen.getByPlaceholderText('주문 ID')).toBeInTheDocument()
 })
 ```
 
 - `getByRole`/`getByPlaceholderText`/`getByText` 등 사용자 관점 쿼리를 우선한다 (`getByTestId`는 최후 수단).
 - `@testing-library/user-event`로 실제 사용자 입력을 흉내낸다 (`fireEvent`보다 우선).
+- 네비게이션(`router.push`)만 하는 Client Component는 `next/navigation`의 `useRouter`를 모킹해서 호출 여부만 검증한다 — 실제 라우팅은 Playwright E2E가 담당.
 
-## 2. API 통합 테스트 (MSW)
+## 2. API 통합 테스트 (MSW) — Client Component의 조작(mutation)만
 
-실제 네트워크 대신 `frontend/src/mocks/handlers.ts`의 핸들러로 응답을 모킹한다.
-핸들러는 백엔드의 **실제 엔드포인트 경로**(`/api/v1/orders/:orderId/status`)를 그대로 사용한다 —
-Vite dev proxy와 동일한 상대 경로이므로 `axios-instance`의 `baseURL`과 충돌하지 않는다.
+MSW는 **Client Component가 직접 호출하는** 요청만 모킹 대상이다 (예: 삭제 버튼 클릭).
+Server Component가 서버에서 가져오는 조회 데이터는 MSW 범위 밖이다 (3번 참조).
 
 ```ts
 // src/mocks/handlers.ts
+import type { components } from '@/api/generated/types'
+
 export const handlers = [
-  http.get('/api/v1/orders/:orderId/status', ({ params }) => {
-    const { orderId } = params
-    if (orderId === 'order-123') return HttpResponse.json({ orderId, status: 'SHIPPED' })
-    return HttpResponse.json({ orderId, status: 'NOT_FOUND' })
+  http.delete('/api/v1/orders/:orderId', ({ params }) => {
+    const body = { orderId: params.orderId, status: 'DELETED' } satisfies components['schemas']['OrderStatusResponse']
+    return HttpResponse.json(body)
   }),
 ]
 ```
 
-`src/test/setup.ts`에서 MSW 서버 생명주기를 관리한다 (`listen` → `resetHandlers` → `close`).
-새 엔드포인트를 호출하는 화면을 테스트하려면 `handlers.ts`에 핸들러를 추가한다.
-
 **규칙:**
 - `onUnhandledRequest: 'error'`로 설정되어 있으므로, 핸들러 없는 요청은 테스트가 실패한다 — 누락 방지 장치.
-- 핸들러의 응답 스키마는 `api/generated/model/`의 타입과 일치해야 한다 (계약 검증 역할 겸함).
+- 핸들러 응답에 **`satisfies components['schemas'][...]`** 타입 단언을 반드시 붙인다 — `contracts/openapi.yaml`에서 생성된 타입과 벗어나면 컴파일 타임에 바로 에러가 나서, 별도 도구 없이 계약 드리프트를 잡아준다.
 
-## 3. E2E 테스트 (Playwright)
+## 3. Server Component 렌더링 결과 — Playwright E2E로 검증
 
+조회 페이지(Server Component)가 실제로 올바른 데이터를 렌더링하는지는 **E2E로만** 검증할 수 있다.
 `e2e/` 디렉토리, `playwright.config.ts`에서 `npm run dev`를 자동 기동한다 (`webServer`).
-실제 브라우저에서 화면 흐름을 검증하므로 **백엔드가 로컬에서 떠 있어야** 의미 있는 응답을 받는다.
+**로컬에서 백엔드(serverB, 8081)가 떠 있어야** 의미 있는 응답을 받는다 — 안 떠 있으면
+`npm run mock:api`(Prism)로 띄운 mock을 보도록 `NEXT_PUBLIC_API_MODE=mock`으로 전환해서 돌린다.
 
 ```ts
-test('주문 ID를 입력해 조회하면 상태가 표시된다', async ({ page }) => {
+test('주문 ID로 조회하면 상태가 표시된다', async ({ page }) => {
   await page.goto('/')
   await page.getByPlaceholder('주문 ID').fill('order-123')
   await page.getByRole('button', { name: '조회' }).click()
+  await expect(page).toHaveURL('/orders/order-123')
   await expect(page.getByText(/주문 order-123의 상태/)).toBeVisible()
 })
 ```
@@ -81,7 +75,7 @@ test('주문 ID를 입력해 조회하면 상태가 표시된다', async ({ page
 `--update-snapshots`로 생성한 뒤 커밋한다. 의도적인 UI 변경 시에만 베이스라인을 갱신한다.
 
 ```ts
-await expect(page).toHaveScreenshot('order-status-initial.png')
+await expect(page).toHaveScreenshot('order-status.png')
 ```
 
 ```bash
@@ -103,16 +97,17 @@ expect(results.violations).toEqual([])
 ## 4. 실행 명령어 (CLAUDE.md 테스트 분업 원칙 — 작성은 Claude, 실행은 사용자)
 
 ```bash
-npm run test       # Vitest (컴포넌트 + MSW 통합)
-npm run test:e2e   # Playwright E2E
+npm run test       # Vitest (Client Component + MSW)
+npm run test:e2e   # Playwright E2E (Server Component 포함 전체 흐름)
 ```
 
 테스트 코드를 작성/수정한 뒤에는 위 명령어를 실행해보라고 사용자에게 안내한다.
 실패 로그를 사용자가 붙여넣으면 그때 분석·수정한다.
 
 ## 5. 자가 점검
-- [ ] 컴포넌트 단위 테스트 + MSW 통합 테스트를 모두 작성했는가?
-- [ ] MSW 핸들러 응답이 `api/generated/model/` 타입과 일치하는가?
+- [ ] Client Component 단위 테스트 + MSW 통합 테스트(조작만)를 작성했는가?
+- [ ] MSW 핸들러 응답에 `satisfies components['schemas'][...]` 단언을 붙였는가?
+- [ ] Server Component가 렌더링하는 조회 결과는 Playwright E2E로 검증했는가? (MSW로 커버 안 됨)
 - [ ] E2E에 정상 흐름 시나리오가 있는가?
 - [ ] 시각 회귀 스냅샷과 접근성(axe-core, violations 0) 검사를 포함했는가?
 - [ ] `npm run test`, `npm run test:e2e` 실행을 사용자에게 안내했는가?
