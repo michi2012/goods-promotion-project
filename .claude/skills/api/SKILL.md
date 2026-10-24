@@ -14,6 +14,8 @@ description: 새 REST 엔드포인트 생성, 컨트롤러 작성, DTO 설계, B
 
 기존 명명 규칙, 패키지 구조, 응답 형식을 **그대로 따른다**. 새 패턴을 도입하지 마라.
 
+프론트엔드가 소비하는 엔드포인트라면 레포 루트 `contracts/openapi.yaml`이 계약 원본이다 — 구현이 계약과 다르면 CI drift-check가 실패하므로, 모양이 바뀌는 경우 `contracts/openapi.yaml`도 같은 커밋에서 함께 수정한다 (`frontend` skill 참조).
+
 ## 1. 패키지 구조
 
 기존 프로젝트 구조를 따른다. 일반적인 구조 예시:src/main/java/com/example/myapp/
