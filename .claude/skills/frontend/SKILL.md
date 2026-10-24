@@ -62,7 +62,7 @@ import type { paths } from '@/api/generated/types'
 const baseUrl =
   process.env.NEXT_PUBLIC_API_MODE === 'mock'
     ? 'http://localhost:4010'
-    : 'http://localhost:8081'
+    : process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8081'
 
 export const client = createClient<paths>({ baseUrl })
 ```
@@ -105,7 +105,7 @@ async function OrderStatus({ params }: { params: Promise<{ orderId: string }> })
 }
 ```
 
-**생성/삭제 같은 조작은 Client Component에서 호출하고 `router.refresh()`로 서버 데이터를 다시 가져온다.** TanStack Query는 지금 도입하지 않는다 — 폴링, optimistic update처럼 클라이언트 캐시가 실제로 값어치 있는 화면이 생기면 그때 그 화면에만 추가한다 (Simplicity First — 4번 폼/상태 원칙과 동일).
+**생성/삭제 같은 조작은 Client Component에서 호출하고 `router.refresh()`로 서버 데이터를 다시 가져온다.** TanStack Query는 지금 도입하지 않는다 — 폴링, optimistic update처럼 클라이언트 캐시가 실제로 값어치 있는 화면이 생기면 그때 그 화면에만 추가한다 (Simplicity First — 5번 폼/상태 원칙과 동일).
 
 ```tsx
 'use client'

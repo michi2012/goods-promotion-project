@@ -1,6 +1,6 @@
 ---
 name: frontend-design-feedback
-description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더링 결과를 보고 디자인을 다듬을 때 활성화. 사용자가 화면을 보여달라, 디자인을 봐달라, 다듬어달라, 레이아웃이 이상하다, 스크린샷 을 언급하거나 frontend/src/pages/, frontend/src/components/ 변경 직후 발동. 자동화 테스트 작성(frontend-testing)이나 백엔드 작업에서는 발동하지 않음.
+description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더링 결과를 보고 디자인을 다듬을 때 활성화. 사용자가 화면을 보여달라, 디자인을 봐달라, 다듬어달라, 레이아웃이 이상하다, 스크린샷 을 언급하거나 frontend/src/app/, frontend/src/components/ 변경 직후 발동. 자동화 테스트 작성(frontend-testing)이나 백엔드 작업에서는 발동하지 않음.
 ---
 
 # 디자인 다듬기 루프 (Playwright MCP 기반 시각 피드백)
@@ -11,7 +11,7 @@ description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더
 
 ## 1. 사전 조건
 
-- `frontend/`에서 `npm run dev`가 구동 중이어야 한다 (`localhost:5173`). 떠 있지 않으면
+- `frontend/`에서 `npm run dev`가 구동 중이어야 한다 (`localhost:3000`). 떠 있지 않으면
   `run_in_background: true`로 실행한다 (CLAUDE.md 장기 실행 명령 처리 원칙).
 - Playwright MCP(`mcp__playwright__*`)가 연결되어 있어야 한다. `.mcp.json` /
   `.claude/settings.json`의 `enabledMcpServers`에 `playwright`가 등록되어 있다.
@@ -22,7 +22,7 @@ description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더
 ## 2. 루프 절차
 
 1. **이동**: `mcp__playwright__browser_navigate`로 확인할 라우트로 이동한다
-   (예: `http://localhost:5173/`). 이전 상태(입력값, 에러 등)가 남아있으면 같은 URL로
+   (예: `http://localhost:3000/`). 이전 상태(입력값, 에러 등)가 남아있으면 같은 URL로
    다시 `browser_navigate`하면 새로고침되어 초기 상태로 돌아온다.
 2. **스크린샷**: `mcp__playwright__browser_take_screenshot`(`fullPage: true`)로 전체
    화면을 캡처한다. "모바일에서는 어떻게 보여요?" 같은 화면 크기 관련 피드백이 나오면
@@ -46,7 +46,7 @@ description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더
 - 한 번의 루프에서 여러 군데를 동시에 바꾸지 않는다 — 무엇이 어떤 피드백 때문에
   바뀌었는지 추적 가능해야 한다.
 - `frontend/src/components/ui/**`(shadcn 생성 컴포넌트)는 직접 고치지 않는다.
-  `className` 합성이나 페이지/컴포넌트 레벨 래퍼로 조정한다 (`frontend` skill 3절).
+  `className` 합성이나 페이지/컴포넌트 레벨 래퍼로 조정한다 (`frontend` skill 4절).
 - 콘솔 에러가 보이면(예: API 502) 디자인 피드백과 무관한지 먼저 구분한다 — 백엔드
   미구동으로 인한 에러라면 디자인 루프와 별개 사항으로 간단히 언급만 하고 넘어간다.
 
@@ -58,6 +58,7 @@ description: 프론트엔드 화면을 만들거나 수정한 뒤, 실제 렌더
 - `frontend-design-feedback`(이 문서): 구현 후 **사람이 보고 즉석에서 다듬는** 1회성
   피드백 루프. 자동화 테스트를 대체하지 않는다 — 디자인이 확정되면 필요 시
   `frontend-testing`의 시각 회귀 스냅샷을 갱신한다.
+- **순서**: 화면 구현(`frontend`) → 디자인 다듬기(이 문서) → 시각 회귀 스냅샷 생성/갱신(`frontend-testing`). 디자인이 아직 안 확정된 상태에서 시각 회귀 베이스라인을 먼저 찍으면, 디자인이 바뀔 때마다 베이스라인을 다시 갱신해야 한다.
 
 ## 5. 자가 점검
 - [ ] 변경 전/후 스크린샷을 모두 보여줬는가?
