@@ -51,7 +51,34 @@ export const handlers = [
 **규칙:**
 - `onUnhandledRequest: 'error'`로 설정되어 있으므로, 핸들러 없는 요청은 테스트가 실패한다 — 누락 방지 장치.
 - 핸들러 응답에 **`satisfies components['schemas'][...]`** 타입 단언을 반드시 붙인다 — `contracts/openapi.yaml`에서 생성된 타입과 벗어나면 컴파일 타임에 바로 에러가 나서, 별도 도구 없이 계약 드리프트를 잡아준다.
-- **핸들러 경로는 상대경로(`/api/v1/...`)가 아니라 `client.ts`의 `baseUrl`과 똑같은 절대 URL로 써야 한다.** jsdom의 기본 origin은 `client.ts`가 실제로 호출하는 origin(`NEXT_PUBLIC_API_BASE_URL` 또는 기본값 `http://localhost:8081`)과 다르기 때문에, 상대경로 핸들러는 매칭되지 않고 `onUnhandledRequest: 'error'`로 테스트가 실패한다. `client.ts`의 baseUrl이 바뀌면 핸들러의 URL도 같이 바꿔야 한다.
+- **핸들러 경로는 상대경로(`/api/v1/...`)가 아니라 `client.ts`의 `baseUrl`과 똑같은 절대 URL로 써야 한다.** jsdom의 기본 origin은 `client.ts`가 실제로 호출하는 origin(`NEXT_PUBLIC_API_BASE_URL` 또는 기본값 `http://localhost:8081`)과 다르기 때문에, 상대경로 핸들러는 매칭되지 않고 `onUnhandledRequest: 'error'`로 테스트가 실패한다. `client.ts`의 baseUrl이 바뀌면 핸들러의 URL도 같이 바꿔야 한다. 여러 백엔드를 쓰면(`client-a.ts` 등) 원본보다 **origin 와일드카드**(`http.post('*/api/v1/...')`)로 쓰는 게 더 안전하다 — 어느 origin으로 요청이 가든 경로만 맞으면 잡힌다.
+
+### 2-1. MSW 서버 생명주기 — `server.listen()`은 반드시 setup 파일 최상위에서
+
+```ts
+// src/test/setup.ts
+import { afterEach, afterAll } from 'vitest'
+import { server } from '@/mocks/server'
+
+// beforeAll(() => server.listen()) 으로 쓰면 안 된다 — openapi-fetch의 createClient()가
+// `fetch: baseFetch = globalThis.fetch`로 fetch 참조를 **호출 시점(모듈 import 시점)에**
+// 캡처한다. beforeAll 콜백은 모든 import가 끝난 뒤에야 실행되므로, 그 안에서 server.listen()을
+// 불러봐야 이미 캡처된(= MSW가 패치하기 전의) fetch는 못 바꾼다. 결과적으로 요청이 MSW를
+// 거치지 않고 실제 네트워크로 나가 catch 블록(네트워크 에러)으로 빠진다.
+server.listen({ onUnhandledRequest: 'error' })
+afterEach(() => server.resetHandlers())
+afterAll(() => server.close())
+```
+
+### 2-2. `vitest.config.ts`에서 `e2e/` 폴더를 제외할 것
+
+Playwright `.spec.ts` 파일은 Vitest 테스트가 아닌데, 기본 설정이면 Vitest가 이것도 집어서 실행하려다 실패한다.
+
+```ts
+test: {
+  exclude: ['node_modules/**', 'e2e/**'],
+},
+```
 
 ## 3. Server Component 렌더링 결과 — Playwright E2E로 검증
 
