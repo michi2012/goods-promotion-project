@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: Promotion — Purchase & Goods API
+  version: 1.0.0
+  description: >
+    serverA가 제공하는 구매/상품 조회 API 계약.
+    이 파일이 유일한 원본이다 — 백엔드 구현이 여기서 벗어나면 CI drift-check가 실패한다.
+servers:
+  - url: http://localhost:8080
+    description: 로컬 serverA
+
+paths:
+  /api/v1/promotions/purchase:
+    post:
+      operationId: purchase
+      summary: 구매 요청 (비동기 Saga 파이프라인 진입)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseRequest'
+      responses:
+        '202':
+          description: 구매 요청 접수됨 (처리 대기중)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseResponse'
+
+  /api/v1/goods/{goodsId}:
+    get:
+      operationId: getGoods
+      summary: 상품 조회
+      parameters:
+        - name: goodsId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 상품 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoodsResponse'
+
+components:
+  schemas:
+    PurchaseRequest:
+      type: object
+      required:
+        - userId
+        - goodsId
+        - quantity
+        - paymentMethod
+        - shippingAddress
+        - zipCode
+        - phoneNumber
+        - email
+        - clientIp
+      properties:
+        userId:
+          type: integer
+          format: int64
+        goodsId:
+          type: integer
+          format: int64
+        quantity:
+          type: integer
+          minimum: 1
+        paymentMethod:
+          type: string
+        shippingAddress:
+          type: string
+        zipCode:
+          type: string
+        phoneNumber:
+          type: string
+        email:
+          type: string
+        deliveryMemo:
+          type: string
+        clientIp:
+          type: string
+    PurchaseResponse:
+      type: object
+      required:
+        - orderId
+        - message
+      properties:
+        orderId:
+          type: string
+        message:
+          type: string
+    GoodsResponse:
+      type: object
+      required:
+        - id
+        - name
+        - stock
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        stock:
+          type: integer

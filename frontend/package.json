@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "generate:api": "openapi-typescript ../contracts/openapi.yaml -o src/api/generated/types.ts",
+    "generate:api:a": "openapi-typescript ../contracts/server-a-openapi.yaml -o src/api/generated/server-a-types.ts",
     "mock:api": "prism mock ../contracts/openapi.yaml -p 4010",
     "test": "vitest run",
     "test:e2e": "playwright test"
@@ -40,6 +41,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "jsdom": "^29.1.1",
+    "msw": "^2.15.0",
     "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4",
     "typescript": "^5",

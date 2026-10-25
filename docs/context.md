@@ -1,33 +1,41 @@
-# 맥락 노트: 테스트 실행 정책 변경 + skill 문서 교정
+# 맥락 노트: 구매 플로우 프론트엔드 구현 (serverA 연동, 첫 mutation 화면)
 
 ## 왜 이 방식을 선택했는가
-PR #15(Next.js 프론트 재작성) 머지 후, 외부 코드리뷰로 skill 문서 몇 군데의 오류(구식 Vite 기준, 번호 참조, MSW 경로 불일치, client.ts 하드코딩)가 드러났다. 동시에 사용자가 "테스트 실행을 왜 전부 사용자에게 위임하냐, 현업 에이전트는 로컬에서 직접 돌리지 않냐"는 질문을 던졌고, 대화 중 다음 결론에 도달했다:
-- CI가 있으면 "로컬에서 누가 돌리냐"는 최종 안전성에 영향을 주지 않는다(어차피 CI가 재검증). 그래서 백엔드처럼 CI가 있는 영역은 Claude가 로컬에서 직접 돌려도 안전.
-- CI가 없는 영역(현재 프론트)은 로컬 실행이 유일한 방어선이라, 오히려 Claude가 더 적극적으로 직접 돌려야 한다.
-- 다만 "무겁거나 환경 의존적인 테스트"까지 Claude가 매번 인프라를 직접 구성해서 돌리는 건 비용이 크므로, "환경이 이미 떠 있을 때만 돌린다"는 선으로 제한했다. (인프라를 구성해서까지 검증하는 행위는 CLAUDE.md의 별도 규칙인 "커밋 전 로컬 E2E 검증"에서만 적용하고, 이번 "테스트 스위트 실행" 규칙과는 분리했다.)
-- "일단 시도해보고 느리면 넘긴다"는 단일 규칙 대신 사전 분류(빠른 테스트 vs 무거운 테스트)를 유지하기로 했다 — 느린 걸 느리다고 판단하려면 이미 한 번 돌려봐야 하는 역설이 있어서, 사전에 분류 기준(외부 인프라 필요 여부)으로 거르는 쪽이 더 효율적이라고 판단했다.
+지금까지 프론트는 serverB의 주문 상태 "조회" 화면 하나뿐이라, 조작(mutation)·CORS·MSW가 전부 미뤄진 상태였다. 사용자가 "serverA 구매 기능도 프론트로 구현해야 하지 않냐"고 제안했고, 학습 목적이라 인증은 빼고 구매 플로우 자체(첫 mutation 패턴 검증)에 집중하기로 합의했다.
+- `userId`는 로그인 없이 하드코딩(`1`), `clientIp`도 더미값(`"127.0.0.1"`) — 실제로 바꾸면 안 되는 값이지만 백엔드 계약이 필수 필드라 값은 채워야 함.
+- 계약/클라이언트를 serverA/serverB로 분리하기로 함 — 포트와 도메인이 다른 서버를 하나의 `servers` 블록에 억지로 합치면 이후 다른 백엔드(serverC 등) 추가 시 계속 꼬이기 때문.
+- CORS는 serverA 코드를 건드리지 않고 Next.js `rewrites`로 해결 — Server Component(Node)는 서버-서버 호출이라 애초에 CORS 영향이 없고, Client Component(브라우저)만 프록시를 거치게 했다.
+- 상품 조회 화면을 포함하기로 함(사용자가 "넣어달라"고 명시) — 구매 전에 상품명/재고를 보여주는 게 자연스러운 흐름이고, 기존 `orders/[orderId]`와 동일한 "검색 폼 → 동적 라우트 Server Component" 패턴을 그대로 재사용할 수 있어 구조적으로 깔끔하다.
 
 ## 검토했으나 채택하지 않은 대안
-### 대안 A: 모든 테스트를 Claude가 인프라까지 구성해서 직접 실행
-- 무엇: Testcontainers/Docker/Playwright 브라우저까지 Claude가 매번 띄워서 검증
-- 왜 안 썼나: 테스트 스위트 실행이라는 반복적인 행위치고는 비용(시간/토큰)이 너무 큼. "로컬 E2E 검증"(기능이 실제로 동작하는지 1회성으로 확인)은 이미 별도 규칙으로 존재하고 그건 그대로 유지.
+### 대안 A: 계약/클라이언트를 기존 serverB 파일에 합침
+- 무엇: `contracts/openapi.yaml`, `client.ts` 하나에 serverA 경로/클라이언트도 추가
+- 왜 안 썼나: `servers` 블록에 포트가 다른 두 서비스가 섞여 계약 파일이 "어느 서버 스펙인지" 모호해짐. 서버별 분리가 더 명확하다고 판단.
 
-### 대안 B: "일단 시도, 느리면 넘긴다"는 단일 규칙으로 단순화
-- 무엇: 테스트 종류를 사전에 분류하지 않고, Claude가 먼저 실행해보고 오래 걸리면 중단하고 사용자에게 넘김
-- 왜 안 썼나: 사전 분류 없이 시도하면 "느리다"는 판단 자체를 위해 이미 시간을 써버리는 역설이 생김. 어노테이션/인프라 요구사항으로 사전에 거르는 게 더 효율적.
+### 대안 B: 상품 조회 화면 생략, goodsId도 구매 폼의 단순 입력 필드로만 처리
+- 무엇: `GET /api/v1/goods/{goodsId}` 호출 없이 구매 폼 하나만 제공
+- 왜 안 썼나: 사용자가 상품 조회를 명시적으로 요청함. 또한 기존 조회 화면 패턴을 재사용할 좋은 기회이기도 함.
+
+### 대안 C: CORS를 serverA에 Spring `WebMvcConfigurer`로 직접 설정
+- 무엇: serverA 백엔드 코드에 CORS 허용 Bean 추가
+- 왜 안 썼나: 이번 작업 범위를 프론트로 한정하고 싶었고, Next.js `rewrites`만으로 충분히 해결됨 — 백엔드 코드를 안 건드리는 쪽이 더 단순함.
+
+### 대안 D: 구매 폼에 React Hook Form + Zod 도입
+- 무엇: 7개 필드 폼이라 RHF+Zod로 구조화
+- 왜 안 썼나: 각 필드가 단순 필수값 검증(서버의 `@NotBlank`/`@Min`과 동일 수준)이라 `useState` 단일 객체로도 충분 — `frontend` skill의 "복잡한 폼에만 RHF+Zod" 원칙 유지.
 
 ## 기존 코드베이스 컨벤션
-- CLAUDE.md 테스트 분업 원칙(변경 전): "작성/수정은 Claude, `gradlew test`/`npm run test` 실행은 사용자" — 이번에 변경 대상
-- `.claude/skills/testing/SKILL.md`: 백엔드 테스트 작성 규칙(슬라이스/단위/통합 테스트 패턴, Testcontainers Singleton Container 패턴) — 이번엔 자가점검 한 줄만 수정
-- `frontend/src/lib/api/client.ts`: `NEXT_PUBLIC_API_MODE` 환경변수로 Prism/실제 백엔드를 전환하는 기존 패턴이 있음 — 이번에 추가하는 `NEXT_PUBLIC_API_BASE_URL`도 같은 `process.env.NEXT_PUBLIC_*` 관례를 따름
+- `frontend/src/app/orders/[orderId]/page.tsx` — Server Component + Suspense + try/catch 에러 처리 패턴의 기준 예시 (이번 `/purchase/[goodsId]`도 동일 패턴)
+- `frontend/src/app/page.tsx` — "검색 폼 Client Component → `router.push`로 동적 라우트 이동" 패턴의 기준 예시
+- `frontend/src/lib/api/client.ts` — serverB용 openapi-fetch 래퍼, `NEXT_PUBLIC_API_MODE`/`NEXT_PUBLIC_API_BASE_URL` 환경변수 패턴. `client-a.ts`도 동일한 환경변수 네이밍 관례를 따름(`NEXT_PUBLIC_SERVER_A_BASE_URL`)
+- serverA `PromotionController`(`/api/v1/promotions/purchase`), `GoodsController`(`/api/v1/goods/{goodsId}`) — 이번에 연동할 실제 엔드포인트
+- serverA 포트 8080 (application.yaml 확인), CORS 설정 없음
 
 ## 관련 파일/위치
-- `CLAUDE.md` — 루트 지침, 테스트 분업 원칙 섹션
-- `.claude/skills/testing/SKILL.md` — 백엔드 테스트 skill
-- `.claude/skills/frontend-testing/SKILL.md` — 프론트 테스트 skill
-- `.claude/skills/frontend-design-feedback/SKILL.md` — 디자인 피드백 루프 skill (이번에 처음 교정)
-- `.claude/skills/frontend/SKILL.md` — 프론트 구현 skill
-- `frontend/src/lib/api/client.ts` — 실제 openapi-fetch 래퍼
+- `serverA/src/main/java/promotion/serverA/controller/PromotionController.java`, `GoodsController.java` — 연동 대상 실제 구현
+- `serverA/src/main/java/promotion/serverA/dto/request/PurchaseRequest.java`, `dto/response/PurchaseResponse.java`, `dto/response/GoodsResponse.java` — 계약 작성 시 참조
+- `frontend/src/app/orders/[orderId]/page.tsx` — 재사용할 Server Component 패턴
+- `gateway-service/.../filter/JwtAuthFilter.java` — 참고(이번엔 게이트웨이 경유 안 하고 serverA 직접 호출, 인증 비범위)
 
 ## 외부 참조
 없음
