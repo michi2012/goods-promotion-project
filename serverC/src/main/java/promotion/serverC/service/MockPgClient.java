@@ -9,9 +9,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import promotion.serverC.dto.PurchaseMessage;
+import promotion.serverC.exception.PgAmbiguousResponseException;
 import promotion.serverC.exception.PgPaymentException;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
@@ -19,6 +22,13 @@ import java.util.List;
 public class MockPgClient implements PgClient {
 
     private final MeterRegistry meterRegistry;
+
+    // 멱등 키(orderId) 재사용 — 한 번 확정된 결과를 영구히 기억해 재시도 시 중복 처리를 막는다.
+    // 결제 결과는 재고 품절 캐시(Caffeine)처럼 만료시킬 이유가 없어 TTL 없는 맵으로 충분하다.
+    private final Map<String, PgTransactionStatus> transactionStore = new ConcurrentHashMap<>();
+
+    private static final double AMBIGUOUS_RESPONSE_RATE = 0.01;
+    private static final double BUSINESS_REJECTION_RATE = 0.01;
 
     private Counter refundRequests;
     private Timer refundDuration;
@@ -36,15 +46,44 @@ public class MockPgClient implements PgClient {
     @Override
     @CircuitBreaker(name = "pgClientCb", fallbackMethod = "fallbackProcessPayment")
     public boolean processPayment(PurchaseMessage message) {
-        log.debug("[MockPgClient] PG 결제 요청 처리 시작: orderId={}", message.orderId());
+        String orderId = message.orderId();
+
+        // 멱등 키(orderId)로 이미 확정된 결과가 있으면 재실행 없이 그대로 반환한다.
+        PgTransactionStatus cached = transactionStore.get(orderId);
+        if (cached != null) {
+            log.info("[MockPgClient] 멱등 키 재사용 감지, 캐시된 결과 반환: orderId={}, status={}", orderId, cached);
+            return cached == PgTransactionStatus.APPROVED;
+        }
+
+        log.debug("[MockPgClient] PG 결제 요청 처리 시작: orderId={}", orderId);
         try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
-        if (Math.random() < 0.01) {
-            log.warn("🚨 [MockPgClient] 결제 실패: orderId={}", message.orderId());
+        if (Math.random() < AMBIGUOUS_RESPONSE_RATE) {
+            // 응답 전달이 안 된 상황(타임아웃성) — 내부적으로는 처리가 됐을 수도, 안 됐을 수도 있다.
+            // 결과를 알 수 없다는 걸 그대로 흉내 내기 위해 처리 완료 여부 자체를 50:50으로 결정한다.
+            if (Math.random() < 0.5) {
+                transactionStore.put(orderId, PgTransactionStatus.APPROVED);
+                log.warn("🚨 [MockPgClient] 애매한 응답(내부적으로는 처리됨): orderId={}", orderId);
+            } else {
+                log.warn("🚨 [MockPgClient] 애매한 응답(내부적으로도 미처리): orderId={}", orderId);
+            }
+            throw new PgAmbiguousResponseException("PG 응답을 받지 못함: orderId=" + orderId);
+        }
+
+        boolean success = Math.random() >= BUSINESS_REJECTION_RATE;
+        transactionStore.put(orderId, success ? PgTransactionStatus.APPROVED : PgTransactionStatus.REJECTED);
+
+        if (!success) {
+            log.warn("🚨 [MockPgClient] 결제 실패: orderId={}", orderId);
             return false;
         }
-        log.debug("✅ [MockPgClient] 결제 승인 성공: orderId={}", message.orderId());
+        log.debug("✅ [MockPgClient] 결제 승인 성공: orderId={}", orderId);
         return true;
+    }
+
+    @Override
+    public PgTransactionStatus queryTransaction(String orderId) {
+        return transactionStore.getOrDefault(orderId, PgTransactionStatus.NOT_FOUND);
     }
 
     // 차단(Open) 상태일 때 실행될 Fallback 로직

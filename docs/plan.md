@@ -1,82 +1,72 @@
-# 계획서: 구매 플로우 프론트엔드 구현 (serverA 연동, 첫 mutation 화면)
+# 계획서: serverC PG 거래 조회 API + 멱등 키 기반 재시도 방어 (가정 구현)
 
-- 작성일: 2026-10-25
+- 작성일: 2026-11-03
 - 관련 이슈/티켓: 없음
-- 브랜치: feature/purchase-flow
 
 ## 목표
-serverA의 구매 기능(`POST /api/v1/promotions/purchase`)과 상품 조회(`GET /api/v1/goods/{goodsId}`)를 프론트엔드에 구현한다. 학습 목적이라 인증은 제외하고(userId 하드코딩), 프로젝트의 첫 실제 "조작(mutation)" 화면으로서 contract-first 멀티 백엔드 구조·CORS·MSW 패턴을 실제로 검증하는 데 집중한다.
+`MockPgClient`에 "애매한 응답(타임아웃성 신호) 발생 시, 재시도 전에 거래 조회로 먼저 확인하고, 멱등 키(orderId)로 중복 처리를 막는" 패턴을 가정(mock) 수준으로 구현한다. 실제 PG 연동이나 resilience4j TimeLimiter 기반 진짜 타임아웃은 범위 밖이다.
 
 ## 성공 기준
-- [ ] `npx tsc --noEmit`, `npm run build` 통과
-- [ ] 로컬에서 serverA(+필요 인프라) 기동 후 상품 조회 → 구매 → `/orders/{orderId}` 상태 페이지까지 실제 흐름이 끝까지 동작 (스크린샷으로 확인)
-- [ ] 브라우저가 serverA를 same-origin 프록시(`/api-a/*`)로 호출함을 확인 — CORS 에러 없음
-- [ ] Vitest(PurchaseForm 단위) + MSW(구매 요청 모킹) + Playwright E2E(상품조회→구매→상태 흐름, axe-core) 작성, 환경 되는 범위는 Claude가 직접 실행해 통과 확인
-- [ ] serverA에 계약 드리프트 테스트 추가, `compileTestJava` 통과
+- [ ] `PgClient`에 `queryTransaction(orderId)` 메서드가 추가되고, `MockPgClient`가 3종 상태(`APPROVED`/`REJECTED`/`NOT_FOUND`)를 반환한다.
+- [ ] `MockPgClient.processPayment`가 애매한 응답을 별도의 낮은 확률로 `PgAmbiguousResponseException`을 던져 시뮬레이션한다.
+- [ ] `PaymentService.processPayment`가 이 예외를 잡아 `queryTransaction`으로 먼저 확인하고, `NOT_FOUND`일 때만 최대 1회 재시도한다.
+- [ ] 멱등 키(orderId) 재사용 시, `MockPgClient`가 이미 기록된 결과를 캐시에서 그대로 돌려줘 중복 처리(예: 중복 환불 집계)가 안 일어난다.
+- [ ] `gradlew :serverC:test --tests "*PaymentServiceTest*"` 통과 (기존 3개 테스트 무변경 통과 + 신규 테스트 추가 통과).
+- [ ] `docs/context.md`에 기존 `claimOrder` 멱등성과의 레이어 차이가 명확히 기록된다.
 
 ## 비범위 (Out of Scope)
-- 로그인/인증 시스템, userId 동적 처리 (계속 하드코딩)
-- `clientIp`를 실제 요청에서 유도하도록 백엔드 계약을 바꾸는 것 (더미값 유지)
-- 결제수단 값 검증/실제 결제 연동
-- `.github/workflows/ci-cd.yaml`에 프론트 E2E job 추가
-- 재고 0일 때 버튼 비활성화 등 세밀한 재고 UX (서버 에러 메시지로만 표시)
-- 기존 `client.ts`(serverB)·`generate:api`(serverB) 이름 변경 — 대칭성보다 기존 동작 코드 안 건드리는 쪽을 우선
+- resilience4j `TimeLimiter`를 이용한 진짜 호출 타임아웃 구현.
+- 실제 PG사 HTTP 연동, 멱등 키를 HTTP 헤더로 전송하는 로직.
+- DB 스키마 변경(마이그레이션 없음 — `orderId` 유니크 제약 재사용).
+- serverA/프론트엔드/Kafka 메시지 계약 변경.
 
 ## 단계별 작업 계획
 
-### 단계 1: serverA 계약 작성 + 타입 생성
-- 변경 파일: `contracts/server-a-openapi.yaml`(신규), `frontend/package.json`(`generate:api:a` 스크립트 추가), `frontend/src/api/generated/server-a-types.ts`(생성물)
-- 변경 내용 요약: `POST /api/v1/promotions/purchase`(`PurchaseRequest`/`PurchaseResponse`), `GET /api/v1/goods/{goodsId}`(`GoodsResponse`) 계약을 serverA의 실제 DTO(`PurchaseRequest`, `PurchaseResponse`, `GoodsResponse`)를 보고 작성. 기존 `contracts/openapi.yaml`(serverB)과 별개 파일로 분리.
-- 검증 방법: `npm run generate:api:a` 실행 후 `server-a-types.ts` 생성 확인, `tsc --noEmit` 통과
-- 롤백 방법: 신규 파일 삭제
+### 단계 1: `PgTransactionStatus` enum + `PgAmbiguousResponseException` 추가
+- 변경 파일: `serverC/src/main/java/promotion/serverC/service/PgTransactionStatus.java`(신규), `serverC/src/main/java/promotion/serverC/exception/PgAmbiguousResponseException.java`(신규)
+- 변경 내용 요약: 3종 상태 enum과, 애매한 응답을 나타내는 전용 런타임 예외(기존 `PgPaymentException`과 분리)를 추가한다.
+- 검증 방법: `gradlew :serverC:compileJava`
+- 롤백 방법: 두 파일 삭제
+- 예상 소요: 짧음
+
+### 단계 2: `PgClient` 인터페이스에 `queryTransaction` 추가
+- 변경 파일: `serverC/src/main/java/promotion/serverC/service/PgClient.java`
+- 변경 내용 요약: `PgTransactionStatus queryTransaction(String orderId)` 메서드 시그니처 추가.
+- 검증 방법: `gradlew :serverC:compileJava` (구현체 미구현 시 컴파일 에러로 다음 단계 필요성 확인)
+- 롤백 방법: 메서드 시그니처 제거
+- 예상 소요: 짧음
+
+### 단계 3: `MockPgClient`에 내부 상태 저장 + 조회/멱등 로직 구현
+- 변경 파일: `serverC/src/main/java/promotion/serverC/service/MockPgClient.java`
+- 변경 내용 요약: `ConcurrentHashMap<String, PgTransactionStatus>`로 orderId별 결과를 기록. `processPayment`는 (a) 이미 기록된 키면 캐시된 결과를 즉시 반환(멱등), (b) 낮은 확률로 `PgAmbiguousResponseException`을 던짐(재시도 트리거), (c) 그 외엔 기존 로직대로 처리 후 결과를 기록. `queryTransaction`은 맵을 조회해 `NOT_FOUND` 또는 기록된 상태를 반환.
+- 검증 방법: `gradlew :serverC:compileJava`
+- 롤백 방법: 파일을 이전 버전으로 되돌림(git checkout)
 - 예상 소요: 보통
 
-### 단계 2: client-a.ts + CORS 프록시
-- 변경 파일: `frontend/src/lib/api/client-a.ts`(신규), `frontend/next.config.ts`(rewrites 추가)
-- 변경 내용 요약: serverA용 openapi-fetch 클라이언트. Server Component(Node)에서는 `NEXT_PUBLIC_SERVER_A_BASE_URL`(기본값 `http://localhost:8080`)로 직접 호출(서버-서버라 CORS 무관), Client Component(브라우저)에서는 `/api-a`로 상대경로 호출하도록 `typeof window` 분기. `next.config.ts`에 `/api-a/:path*` → `http://localhost:8080/:path*` rewrites 추가해 브라우저 요청이 same-origin으로 보이게 함(serverA 코드는 안 건드림).
-- 검증 방법: `tsc --noEmit` 통과
-- 롤백 방법: 신규 파일 삭제, next.config.ts rewrites 블록 제거
+### 단계 4: `PaymentService.processPayment`에 조회+재시도 분기 추가
+- 변경 파일: `serverC/src/main/java/promotion/serverC/service/PaymentService.java`
+- 변경 내용 요약: 기존 `catch (PgPaymentException e)` 블록과 별도로 `catch (PgAmbiguousResponseException e)` 블록을 추가. 이 블록에서 `queryTransaction` 호출 → `NOT_FOUND`면 1회 재시도(재시도 중 또 애매하면 `FAILED` 처리) → 그 외 상태면 조회 결과를 최종값으로 채택.
+- 검증 방법: `gradlew :serverC:compileJava`
+- 롤백 방법: 메서드를 이전 버전으로 되돌림
 - 예상 소요: 보통
 
-### 단계 3: 상품 조회 화면 (`/purchase`, `/purchase/[goodsId]`)
-- 변경 파일: `frontend/src/app/purchase/page.tsx`(신규, Client Component — goodsId 입력 폼), `frontend/src/app/purchase/[goodsId]/page.tsx`(신규, Server Component — 상품명/재고 표시, Suspense+에러 처리, 기존 `orders/[orderId]` 패턴과 동일)
-- 변경 내용 요약: 기존 홈 화면(주문조회) 검색 폼과 동일한 패턴 재사용 — goodsId 입력 → `router.push('/purchase/{id}')` → Server Component가 `clientA.GET`으로 상품 조회.
-- 검증 방법: `npm run build` 통과, 로컬에서 실제 조회 확인(단계 5에서 종합 확인)
-- 롤백 방법: 신규 파일 삭제
+### 단계 5: 테스트 작성 및 기존 테스트 영향 확인
+- 변경 파일: `serverC/src/test/java/promotion/serverC/service/PaymentServiceTest.java`
+- 변경 내용 요약: 기존 3개 테스트(Success/Fail/DuplicateMessage)는 시그니처 무변경이므로 그대로 유지하고 통과 재확인. 신규 테스트 추가: ① 애매한 응답 후 조회가 `NOT_FOUND` → 재시도 성공, ② 애매한 응답 후 조회가 `APPROVED` → 재시도 없이 그 결과 채택, ③ 재시도도 애매함 → `FAILED` 처리.
+- 검증 방법: `gradlew :serverC:test --tests "*PaymentServiceTest*"`
+- 롤백 방법: 테스트 파일을 이전 버전으로 되돌림
 - 예상 소요: 보통
 
-### 단계 4: 구매 폼 구현
-- 변경 파일: `frontend/src/app/purchase/[goodsId]/page.tsx`(구매 폼 Client Component 추가 — 같은 파일 내 또는 별도 컴포넌트 파일)
-- 변경 내용 요약: quantity/paymentMethod/shippingAddress/zipCode/phoneNumber/email/deliveryMemo 입력 필드(필드 수가 많지만 각각 단순 필수값이라 RHF+Zod 대신 단일 state 객체+`useState`로 처리). `userId`는 `1`, `clientIp`는 `"127.0.0.1"` 하드코딩. 제출 시 `clientA.POST('/api/v1/promotions/purchase', ...)` 호출 → 202 성공 시 `router.push('/orders/{orderId}')`, 실패(네트워크/4xx) 시 에러 메시지 표시(기존 `orders/[orderId]`에서 고친 try/catch 패턴 재사용).
-- 검증 방법: `tsc --noEmit`, `npm run build` 통과
-- 롤백 방법: 추가한 컴포넌트/핸들러 제거
-- 예상 소요: 김
-
-### 단계 5: 로컬 E2E 검증
-- 변경 파일: 없음 (검증만)
-- 변경 내용 요약: serverA(+Redis 등 필요 인프라) 로컬 기동 후 실제 상품 조회→구매→`/orders/{orderId}` 흐름을 Playwright MCP 스크린샷으로 끝까지 확인. CORS 프록시가 실제로 동작하는지(브라우저가 8080을 직접 안 부르는지) 네트워크 요청 경로로 확인.
-- 검증 방법: 스크린샷 + 네트워크 요청 확인
-- 롤백 방법: 해당 없음
-- 예상 소요: 보통
-
-### 단계 6: 테스트 작성
-- 변경 파일: `frontend/src/mocks/handlers.ts`(신규 — 프로젝트 첫 MSW 핸들러, 구매 POST 모킹, `satisfies` 타입단언), `frontend/src/app/purchase/page.test.tsx` 또는 유사(Vitest+RTL), `frontend/e2e/purchase.spec.ts`(신규, Playwright — 상품조회→구매→상태 흐름 + axe-core)
-- 변경 내용 요약: `frontend-testing` skill 컨벤션대로 Client Component 단위+MSW, Server Component는 E2E로 검증. 시각 회귀는 기존 1~2개 제한 원칙에 따라 이번엔 추가하지 않음(이미 `order-status.png` 하나 있음).
-- 검증 방법: 빠른 테스트(Vitest)는 Claude가 직접 실행해 통과 확인. Playwright E2E는 로컬 환경(serverA 등)이 떠 있으면 Claude가 직접, 아니면 사용자에게 요청 (새 테스트 분업 원칙)
-- 롤백 방법: 신규 테스트 파일 삭제
-- 예상 소요: 보통
-
-### 단계 7: serverA 계약 드리프트 테스트
-- 변경 파일: `serverA/src/test/java/.../contract/OpenApiContractTest.java`(신규, serverB의 패턴 재사용)
-- 변경 내용 요약: serverA의 `/v3/api-docs`와 `contracts/server-a-openapi.yaml`을 비교해 드리프트를 잡는 JUnit 테스트. 기존 `./gradlew clean test` CI job에 자연히 포함됨(워크플로 수정 불필요).
-- 검증 방법: `compileTestJava` 통과 확인(테스트 자체 실행은 환경 있으면 직접, 커밋 전 최종 확인은 사용자 `gradlew test`)
-- 롤백 방법: 신규 파일 삭제
+### 단계 6: `docs/context.md` 마무리 및 전체 검증
+- 변경 파일: `docs/context.md`, `docs/checklist.md`
+- 변경 내용 요약: 기존 `claimOrder` 멱등성과의 레이어 차이, 채택하지 않은 대안(옵션 B: 기존 예외 재사용) 기록. 전체 `gradlew :serverC:test` 재실행.
+- 검증 방법: `gradlew :serverC:test`
+- 롤백 방법: 문서만 되돌림(코드 영향 없음)
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- 리스크 1: serverA 구매가 비동기 Saga라 202 받은 직후 `/orders/{orderId}` 상태가 아직 PENDING도 아닐 수 있음(파이프라인 처리 전) → 대응: 상태 페이지는 이미 "조회 중...에러...표시" 분기가 있으니 그대로 재사용, 별도 폴링은 비범위로 둠
-- 리스크 2: serverA 로컬 기동에 필요한 인프라(Redis/Kafka/MySQL)가 많아 E2E 검증이 무거울 수 있음 → 대응: 꼭 필요한 것만(Redis 등) 최소 구성으로 기동
+- 리스크 1: 낮은 확률의 랜덤 예외가 테스트에서 우연히 또 발생해 재시도도 실패하는 flaky 상황 → 대응: 프로덕션 코드의 랜덤 확률과 무관하게, 테스트에서는 Mockito로 예외/반환값을 결정론적으로 강제 지정(랜덤에 의존하지 않음).
+- 리스크 2: `PgAmbiguousResponseException`과 기존 `PgPaymentException` catch 블록 순서가 뒤바뀌면 의도와 다르게 잡힐 수 있음 → 대응: 두 예외는 상속 관계가 아닌 독립된 `RuntimeException` 하위 클래스로 만들어 catch 순서 문제 자체를 없앰.
 
 ## 의존성
-- 신규 npm 의존성 없음(기존 openapi-typescript/openapi-fetch 재사용)
-- 신규 Gradle 의존성 없음(serverB와 동일하게 snakeyaml 재사용)
+없음 (serverC 내부에 완전히 국한, 외부 서비스/DB 스키마 의존성 없음).
