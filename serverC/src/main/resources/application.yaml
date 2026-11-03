@@ -67,6 +67,10 @@ resilience4j.circuitbreaker:
   instances:
     pgClientCb:
       baseConfig: default
+      # 애매한 응답(타임아웃성)은 확실한 장애가 아니므로 실패율 집계에서 제외하고,
+      # fallback(PgPaymentException 변환)도 타지 않게 해 PaymentService가 원래 예외를 그대로 받게 한다.
+      ignoreExceptions:
+        - promotion.serverC.exception.PgAmbiguousResponseException
 
 management:
   observations:

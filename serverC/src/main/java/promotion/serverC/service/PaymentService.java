@@ -11,6 +11,7 @@ import promotion.serverC.dto.PaymentResponse;
 import promotion.serverC.dto.PaymentResultMessage;
 import promotion.serverC.dto.PurchaseMessage;
 import promotion.serverC.exception.PaymentNotFoundException;
+import promotion.serverC.exception.PgAmbiguousResponseException;
 import promotion.serverC.exception.PgPaymentException;
 import promotion.serverC.outbox.OutboxEventService;
 import promotion.serverC.repository.PaymentRepository;
@@ -62,9 +63,9 @@ public class PaymentService {
 
         boolean success;
         try {
-            success = pgClient.processPayment(msg);
+            success = callPgWithAmbiguousRetry(msg);
         } catch (PgPaymentException e) {
-            // 서킷브레이커 개방 또는 PG 시스템 무응답 — re-throw 금지: 트랜잭션 커밋으로 SAGA 보상 트리거 보장
+            // 서킷브레이커 개방, 또는 애매한 응답 재시도까지 실패 — re-throw 금지: 트랜잭션 커밋으로 SAGA 보상 트리거 보장
             paymentErrorPgSystemError.increment();
             paymentRepository.updateOrderStatus(List.of(msg.orderId()), "FAILED");
             outboxEventService.save(msg.orderId(), RESULT_TOPIC,
@@ -82,6 +83,34 @@ public class PaymentService {
 
         outboxEventService.save(msg.orderId(), RESULT_TOPIC,
                 new PaymentResultMessage(msg.orderId(), success, success ? null : "결제 거절"));
+    }
+
+    // 애매한 응답(PgAmbiguousResponseException)을 조회로 재확인한다. 재시도도 애매하면
+    // PgPaymentException으로 바꿔 던져 호출자의 기존 "시스템 장애" 처리 경로를 그대로 재사용한다.
+    private boolean callPgWithAmbiguousRetry(PurchaseMessage msg) {
+        try {
+            return pgClient.processPayment(msg);
+        } catch (PgAmbiguousResponseException e) {
+            return resolveAmbiguousPayment(msg);
+        }
+    }
+
+    private boolean resolveAmbiguousPayment(PurchaseMessage msg) {
+        String orderId = msg.orderId();
+        log.warn("[Payment] 애매한 응답 감지, 조회로 확인: orderId={}", orderId);
+        PgTransactionStatus status = pgClient.queryTransaction(orderId);
+
+        if (status != PgTransactionStatus.NOT_FOUND) {
+            log.info("[Payment] 조회로 상태 확정: orderId={}, status={}", orderId, status);
+            return status == PgTransactionStatus.APPROVED;
+        }
+
+        log.info("[Payment] 조회 결과 미확인, 1회 재시도: orderId={}", orderId);
+        try {
+            return pgClient.processPayment(msg);
+        } catch (PgAmbiguousResponseException e) {
+            throw new PgPaymentException("재시도 후에도 애매한 응답: orderId=" + orderId);
+        }
     }
 
     @Transactional(readOnly = true)

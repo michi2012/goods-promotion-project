@@ -14,6 +14,7 @@ import promotion.serverC.dto.PaymentResponse;
 import promotion.serverC.dto.PaymentResultMessage;
 import promotion.serverC.dto.PurchaseMessage;
 import promotion.serverC.exception.PaymentNotFoundException;
+import promotion.serverC.exception.PgAmbiguousResponseException;
 import promotion.serverC.outbox.OutboxEventService;
 import promotion.serverC.repository.PaymentRepository;
 
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -111,6 +113,76 @@ class PaymentServiceTest {
         verify(pgClient, never()).processPayment(any());
         verify(paymentRepository, never()).updateOrderStatus(anyList(), any());
         verify(outboxEventService, never()).save(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("애매한 응답 후 조회가 NOT_FOUND면 1회 재시도하고, 재시도가 성공하면 PAID로 처리한다")
+    void processPayment_AmbiguousThenNotFoundThenRetrySuccess() {
+        // given
+        String orderId = "trace-1234";
+        PurchaseMessage message = new PurchaseMessage(
+                orderId, 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"
+        );
+        when(paymentRepository.claimOrder(any())).thenReturn(true);
+        when(pgClient.processPayment(any()))
+                .thenThrow(new PgAmbiguousResponseException("ambiguous"))
+                .thenReturn(true);
+        when(pgClient.queryTransaction(orderId)).thenReturn(PgTransactionStatus.NOT_FOUND);
+
+        // when
+        paymentService.processPayment(message);
+
+        // then
+        verify(pgClient, times(2)).processPayment(any());
+        verify(paymentRepository).updateOrderStatus(List.of(orderId), "PAID");
+        verify(outboxEventService).save(eq(orderId), eq("payment-result"),
+                eq(new PaymentResultMessage(orderId, true, null)));
+    }
+
+    @Test
+    @DisplayName("애매한 응답 후 조회가 APPROVED면 재시도 없이 그 결과로 PAID를 확정한다")
+    void processPayment_AmbiguousThenApprovedByQuery() {
+        // given
+        String orderId = "trace-1234";
+        PurchaseMessage message = new PurchaseMessage(
+                orderId, 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"
+        );
+        when(paymentRepository.claimOrder(any())).thenReturn(true);
+        when(pgClient.processPayment(any())).thenThrow(new PgAmbiguousResponseException("ambiguous"));
+        when(pgClient.queryTransaction(orderId)).thenReturn(PgTransactionStatus.APPROVED);
+
+        // when
+        paymentService.processPayment(message);
+
+        // then
+        verify(pgClient, times(1)).processPayment(any());
+        verify(paymentRepository).updateOrderStatus(List.of(orderId), "PAID");
+        verify(outboxEventService).save(eq(orderId), eq("payment-result"),
+                eq(new PaymentResultMessage(orderId, true, null)));
+    }
+
+    @Test
+    @DisplayName("재시도도 애매한 응답이면 PG 시스템 장애로 분류해 FAILED 처리한다")
+    void processPayment_AmbiguousRetryExhausted() {
+        // given
+        String orderId = "trace-1234";
+        PurchaseMessage message = new PurchaseMessage(
+                orderId, 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"
+        );
+        when(paymentRepository.claimOrder(any())).thenReturn(true);
+        when(pgClient.processPayment(any()))
+                .thenThrow(new PgAmbiguousResponseException("ambiguous-1"))
+                .thenThrow(new PgAmbiguousResponseException("ambiguous-2"));
+        when(pgClient.queryTransaction(orderId)).thenReturn(PgTransactionStatus.NOT_FOUND);
+
+        // when
+        paymentService.processPayment(message);
+
+        // then
+        verify(pgClient, times(2)).processPayment(any());
+        verify(paymentRepository).updateOrderStatus(List.of(orderId), "FAILED");
+        verify(outboxEventService).save(eq(orderId), eq("payment-result"),
+                eq(new PaymentResultMessage(orderId, false, "PG 시스템 장애")));
     }
 
     @Test
