@@ -218,3 +218,30 @@ SagaOrchestratorService.handleSagaFailure()
 **채택하지 않은 대안:**
 - 고정 URL 프로퍼티(`@Value("${...url}")`)로 전환 → Java·테스트·docker-compose 환경변수까지 변경 범위가 커짐.
 - spring-cloud-kubernetes discovery → 새 의존성 + ServiceAccount RBAC(endpoints 조회) 추가 필요, Service DNS 대비 이득이 적음.
+
+---
+
+## 결제 금액: 서버 계산 + 주문 저장 단계 스냅샷 + PG 승인 금액 검증
+
+**결정:**
+1. 금액은 원화 `long`(원 단위) + DB `BIGINT`, 통화는 `VARCHAR(3)`(`KRW`)로 금액과 함께 저장한다.
+2. 클라이언트는 금액을 보내지 않는다. serverA가 **주문 저장 단계**(`OrderCommandService.processNewOrder`, Kafka 소비 후 DB 트랜잭션)에서 DB 가격 × 수량으로 계산해 `Order`에 스냅샷하고, `payment-request`(`PaymentRequestMessage`)에 실어 보낸다.
+3. serverC는 PG 승인 금액(`PgTransactionResult.approvedAmount`)이 주문 금액과 다르면 **직접 즉시 망취소**한 뒤 FAILED + `payment-result(false)`로 serverA 보상을 트리거한다.
+4. 가격 0원(가격 미설정)·상품 없음은 결제 요청 없이 기존 `handleSagaFailure("INVALID_PRICE")`로 실패 처리한다.
+
+**이유:**
+- 구매 접수(`acceptPurchase`)는 DB 없이 Redis만 거치는 TPS 핵심 경로다. 가격 조회를 여기 넣으면 그 설계가 깨지므로, 이미 DB 트랜잭션인 주문 저장 단계에서 조회한다. 프로모션 중 가격은 고정이라 접수~소비 사이 수 초 차이는 허용한다.
+- serverA의 `payment-cancel`은 Saga 상태에서 "결제 성공"으로 확인된 건에만 발행된다. 금액 불일치 건은 serverC가 FAILED로 응답하므로 serverA 경로로는 망취소가 나가지 않는다 — 그래서 serverC가 직접 취소해야 고객 돈이 묶이지 않는다.
+- 원화는 소수가 없어 정수가 가장 단순하고 오차가 없다. `BigDecimal`은 수수료율 계산이 생기는 정산 단계에서 사용한다.
+
+**제약/불변식 (확장-축소 패턴):**
+- `payment-request`는 필드 **추가만** 한다. serverA·serverC 컨슈머는 Spring Boot `ObjectMapper`(모르는 필드 무시)를 쓰므로 옛 serverC는 새 필드를 무시한다. **단, serverB는 `new ObjectMapper()`라 모르는 필드에 실패한다** — serverB가 소비하는 토픽에 필드를 추가할 때는 주의.
+- serverC는 금액 없는 옛 메시지를 검증 없이 처리하고 `business_payment_legacy_without_amount_total`을 올린다. 권장 배포 순서는 serverC → serverA. 이 카운터가 운영에서 계속 0이면 다음 단계로 금액 필수화(옛 메시지 거부)를 진행한다 — 현재 미완료.
+- `Order.unitPrice/totalAmount/currency`, `payments.amount/currency`는 금액 도입 이전 행 때문에 NULL 허용이다.
+- PG가 승인 금액을 돌려주지 않으면(null) 검증 불가로 보고 불일치와 동일하게 망취소한다.
+
+**채택하지 않은 대안:**
+- `PurchaseMessage`에 금액 필드를 넣어 두 토픽 공용 → 구매 접수 시점엔 금액을 몰라 `purchase_events`에서 항상 null인 필드가 생김.
+- 구매 접수 시점에 가격 조회 → 접수 경로에 캐시/DB 조회 추가로 TPS 설계 변경.
+- 금액 불일치 시 FAILED만 기록하고 망취소는 수동 → 고객 돈이 승인된 채 묶임.
+- 금액 없는 옛 메시지를 즉시 실패 처리 → 배포 중 들어온 정상 주문이 실패.

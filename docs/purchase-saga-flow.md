@@ -29,10 +29,12 @@
 
 1. `PurchaseKafkaConsumer.consume()` — payload 역직렬화 후 `OrderCommandService.saveOrderAndDecreaseStock()` 호출.
 2. `OrderCommandService.saveOrderAndDecreaseStock()` (`@Transactional`) — `orderRepository.findByOrderId()`로 이미 처리된 메시지인지 먼저 확인(Kafka 재전송 대비 멱등). 없으면 `processNewOrder()`:
-   - `Order` 엔티티 저장 (status=`PENDING`)
+   - **금액 계산** — `goodsRepository.findById()`로 DB 가격을 읽어 `totalAmount = unitPrice × quantity`(`Math.multiplyExact`) 계산. 클라이언트는 금액을 보내지 않는다(위변조 방지). 구매 접수(1단계)는 Redis만 거치므로 가격 조회는 여기서 한다.
+   - `Order` 엔티티 저장 (status=`PENDING`, `unitPrice`/`totalAmount`/`currency=KRW` 스냅샷 — 이후 상품 가격이 바뀌어도 이 주문 금액은 고정)
    - `goodsRepository.decreaseStock()` — DB 재고도 차감(Redis는 이미 선점됨. DB는 조회/정산용 원장)
    - `SagaStateService.initSagaState()` — Redis Hash `saga:state:{orderId}`에 `orderEntityId/userId/goodsId/quantity/statusUpdateCompleted=false/paymentCompleted=false/failed=false/createdAt` 저장
-   - `OutboxEventService.save()` 2회 — `order-status-update`(status=PENDING), `payment-request` — **같은 트랜잭션 안에서 Outbox 테이블에 INSERT만** 하고 끝. 실제 Kafka 발행은 Debezium CDC가 `outbox_event` 테이블 binlog를 감지해서 수행(직접 `kafkaTemplate.send()` 호출 없음).
+   - `OutboxEventService.save()` 2회 — `order-status-update`(status=PENDING), `payment-request`(`PaymentRequestMessage` — 구매 정보 + `unitPrice`/`totalAmount`/`currency`) — **같은 트랜잭션 안에서 Outbox 테이블에 INSERT만** 하고 끝. 실제 Kafka 발행은 Debezium CDC가 `outbox_event` 테이블 binlog를 감지해서 수행(직접 `kafkaTemplate.send()` 호출 없음).
+   - **가격 0원(가격 미설정 기존 상품) 또는 상품 없음** — `payment-request`를 저장하지 않고 `SagaOrchestratorService.handleSagaFailure(orderId, "INVALID_PRICE")`로 기존 보상(FAILED + Redis·DB 재고·유저마킹 복구)을 그대로 탄다. 0원 결제가 PG로 나가지 않게 막는 장치.
 
 ## 3. 병렬 처리 — 결제(serverC)와 상태 갱신(serverB)
 
@@ -41,12 +43,14 @@ Debezium이 두 Outbox 레코드를 각각 Kafka로 실어나르면, serverC와 
 ### 3-A. serverC — 결제 처리
 1. `PaymentKafkaConsumer.consume()` — `ConsumerRecord`에서 `traceparent` 헤더를 꺼내 분산 트레이스 Child Span을 직접 구성(`buildChildSpan`)한 뒤 `PaymentService.processPayment()` 호출.
 2. `PaymentService.processPayment()` (`@Transactional`):
-   - `paymentRepository.claimOrder(msg)` — Unique 제약 기반 원자적 클레임. 실패(중복 수신)면 즉시 반환(멱등).
-   - `pgClient.processPayment(msg)` 호출 — 구현체는 `MockPgClient`. `@CircuitBreaker(name="pgClientCb")`로 감싸져 있음.
-     - `MockPgClient.processPayment()` — 500ms 지연 시뮬레이션 후 1% 확률로 실패 반환.
+   - `paymentRepository.claimOrder(msg)` — Unique 제약 기반 원자적 클레임(`amount`/`currency` 함께 INSERT). 실패(중복 수신)면 즉시 반환(멱등).
+   - **금액 없는 옛 메시지**(배포 중 옛 serverA가 보낸 `payment-request`) — 금액 검증 없이 기존 방식으로 처리하고 `business_payment_legacy_without_amount_total` 증가 (확장-축소 패턴 1단계).
+   - `pgClient.processPayment(msg)` 호출 — 구현체는 `MockPgClient`. `@CircuitBreaker(name="pgClientCb")`로 감싸져 있음. 반환값 `PgTransactionResult(status, approvedAmount)` — 승인 여부와 PG가 실제 승인한 금액.
+     - `MockPgClient.processPayment()` — 500ms 지연 시뮬레이션 후 1% 확률로 거절, 승인 시 요청 금액 그대로 승인. 애매한 응답 뒤 조회(`queryTransaction`)도 승인 금액을 돌려주며, 조회로 확정된 승인 건도 같은 금액 검증을 거친다.
+   - **승인 금액 검증** — 승인됐는데 `approvedAmount ≠ totalAmount`(또는 PG가 승인 금액을 안 돌려줌)이면 `pgClient.cancelPayments()`로 **즉시 망취소** + `FAILED` + `payment-result(false, "금액 불일치")` + `business_payment_error_total{type=amount_mismatch}`. serverA의 `payment-cancel`은 "결제 성공" 건에만 발행되므로 이 경우는 serverC가 직접 취소하고, serverA는 실패 결과를 받아 기존 보상을 탄다.
      - 서킷 OPEN 시 `fallbackProcessPayment()`가 `PgPaymentException`을 던진다. `PaymentService`는 이를 **re-throw하지 않고** `paymentRepository.updateOrderStatus(FAILED)` + `payment-result(success=false)` Outbox 저장 후 정상 반환 — 트랜잭션을 커밋시켜 Saga 보상이 정상 트리거되도록 의도적으로 설계됨.
    - PG가 정상 응답한 경우: `updateOrderStatus(PAID 또는 FAILED)` + `payment-result` Outbox 저장 (Outbox+CDC 방식, 직접 발행 아님).
-   - 비즈니스 카운터: `business_payment_attempts_total`/`_success_total`/`_error_total{type=pg_rejection|pg_system_error}`.
+   - 비즈니스 카운터: `business_payment_attempts_total`/`_success_total`/`_error_total{type=pg_rejection|pg_system_error|amount_mismatch}`, `business_payment_legacy_without_amount_total`.
 
 ### 3-B. serverB — 상태 뷰 갱신
 1. `OrderStatusKafkaConsumer.consume()` → `OrderStatusEventHandler.handleStatusUpdate()`.
