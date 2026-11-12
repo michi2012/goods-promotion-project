@@ -1,0 +1,20 @@
+eureka:
+  client:
+    enabled: false
+
+# Eureka가 없는 K8s에서 CsBotClient(DiscoveryClient)가 대상 서비스를 찾을 수 있도록
+# Spring Cloud 기본 SimpleDiscoveryClient에 K8s Service DNS를 정적 등록한다.
+spring:
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            serverA:
+              - uri: http://server-a:8080
+            serverB:
+              - uri: http://server-b:8081
+            serverC:
+              - uri: http://server-c:8082
+            user-service:
+              - uri: http://user-service:8086
