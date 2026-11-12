@@ -15,6 +15,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import promotion.serverC.dto.PurchaseMessage;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @JdbcTest
@@ -50,6 +52,8 @@ class PaymentRepositoryTest {
                 "user_id BIGINT NOT NULL, " +
                 "goods_id BIGINT NOT NULL, " +
                 "quantity INT NOT NULL, " +
+                "amount BIGINT NULL, " +
+                "currency VARCHAR(3) NULL, " +
                 "payment_method VARCHAR(50) NOT NULL, " +
                 "shipping_address VARCHAR(500), " +
                 "zip_code VARCHAR(20), " +
@@ -82,7 +86,33 @@ class PaymentRepositoryTest {
         assertThat(paymentRepository.claimOrder(message("order-dup"))).isFalse();
     }
 
+    @Test
+    @DisplayName("금액이 있는 메시지는 결제 금액과 통화를 함께 저장한다")
+    void claimOrder_금액저장() {
+        paymentRepository.claimOrder(message("order-amount"));
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT amount, currency FROM payments WHERE order_id = ?", "order-amount");
+        assertThat(((Number) row.get("amount")).longValue()).isEqualTo(30_000L);
+        assertThat(row.get("currency")).isEqualTo("KRW");
+    }
+
+    @Test
+    @DisplayName("금액 없는 옛 메시지는 금액·통화를 NULL로 저장하고 선점에 성공한다")
+    void claimOrder_옛메시지_금액NULL() {
+        PurchaseMessage legacy = new PurchaseMessage("order-legacy", 1L, 4L, 1, null, null, null,
+                "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1");
+
+        assertThat(paymentRepository.claimOrder(legacy)).isTrue();
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT amount, currency FROM payments WHERE order_id = ?", "order-legacy");
+        assertThat(row.get("amount")).isNull();
+        assertThat(row.get("currency")).isNull();
+    }
+
     private PurchaseMessage message(String orderId) {
-        return new PurchaseMessage(orderId, 1L, 4L, 1, "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1");
+        return new PurchaseMessage(orderId, 1L, 4L, 2, 15_000L, 30_000L, "KRW",
+                "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1");
     }
 }

@@ -28,6 +28,13 @@ public class Payment {
     @Column(nullable = false, updatable = false)
     private int quantity;
 
+    // 결제 금액(원 단위). 금액 없는 옛 메시지로 생성된 결제는 null.
+    @Column(updatable = false)
+    private Long amount;
+
+    @Column(updatable = false, length = 3)
+    private String currency;
+
     @Column(name = "payment_method", nullable = false, updatable = false)
     private String paymentMethod;
 

@@ -19,12 +19,13 @@ public class PaymentRepository {
     private final JdbcTemplate jdbcTemplate;
 
     public boolean claimOrder(PurchaseMessage msg) {
-        String sql = "INSERT INTO payments (order_id, user_id, goods_id, quantity, payment_method, " +
+        String sql = "INSERT INTO payments (order_id, user_id, goods_id, quantity, amount, currency, payment_method, " +
                 "shipping_address, zip_code, phone_number, email, delivery_memo, client_ip, status, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', NOW())";
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSING', NOW())";
         try {
             jdbcTemplate.update(sql,
                     msg.orderId(), msg.userId(), msg.goodsId(), msg.quantity(),
+                    msg.totalAmount(), msg.currency(),
                     msg.paymentMethod(), msg.shippingAddress(), msg.zipCode(),
                     msg.phoneNumber(), msg.email(), msg.deliveryMemo(), msg.clientIp());
             return true;
