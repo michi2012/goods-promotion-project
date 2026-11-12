@@ -64,6 +64,11 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
+            /**
+             * Format: int64
+             * @description 원 단위 가격 (KRW). 표시용 — 실제 청구 금액은 서버가 주문 저장 시 계산한다.
+             */
+            price: number;
             stock: number;
         };
     };
