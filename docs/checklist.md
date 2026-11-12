@@ -1,28 +1,26 @@
-# 체크리스트: Saga 상태 복구 안전망
+# 체크리스트: K8s 환경 DiscoveryClient 서비스 조회 복구
 
-- 마지막 업데이트: 2026-11-12 00:00
+- 마지막 업데이트: 2026-11-12
 
-## 진행 상황
-- [x] 단계 1: PaymentQueryClient + DTO/Enum + RestClient Bean 추가
-  - [x] 검증 통과 (`PaymentQueryClientTest`)
-  - [ ] 코드리뷰 통과
-- [x] 단계 2: SagaOrchestratorService에 reconcileToPaid/reconcileToFailed 추가
-  - [x] 검증 통과 (`SagaOrchestratorServiceTest`)
-  - [ ] 코드리뷰 통과
-- [x] 단계 3: SagaTimeoutScheduler에 결제조회 보정 분기 추가
-  - [x] 검증 통과 (`SagaTimeoutSchedulerTest`)
-  - [ ] 코드리뷰 통과
-- [x] 단계 4: OrderRepository에 findByStatusAndCreatedAtBefore 추가
-  - [x] 검증 통과 (기존 OrderRepositoryTest 없음 — compileJava 통과 + 단계 5 스케줄러 테스트로 간접 검증)
-  - [ ] 코드리뷰 통과
-- [x] 단계 5: OrderReconciliationScheduler 신규 추가
-  - [x] 검증 통과 (`OrderReconciliationSchedulerTest`)
-  - [ ] 코드리뷰 통과
+## [완료] serverA
+- [x] `application-k8s.yml`에 serverC 정적 등록
+  - [x] 검증 통과 (`gradlew :serverA:test --tests K8sDiscoveryConfigTest --tests PaymentQueryClientTest` — 5건 통과)
 
-## 최종 검증
-- [x] `./gradlew.bat :serverA:test` 전체 통과 (신규/수정 테스트 전부 통과. 기존 Docker/Testcontainers 의존 8개 테스트는 로컬 Docker 미구동으로 실패 — 이번 변경과 무관)
-- [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (메트릭/알람 추가 없음, order-completed 미발행, 기존 handleSagaFailure 미수정)
-- [x] 의도하지 않은 파일 변경이 없는지 `git diff --stat`으로 최종 확인 (serverA + docs/만 변경)
+## [완료] cs-bot / aiops
+
+### 진행 상황
+- [x] 단계 1: cs-bot `application-k8s.yml` 신규 + 테스트
+  - [x] 검증 통과 (`gradlew :cs-bot:test --tests "csbot.csbot.config.K8sDiscoveryConfigTest"` — 5건 통과)
+- [x] 단계 2: aiops `application-k8s.yml` 수정 + 테스트
+  - [x] 검증 통과 (`gradlew :aiops:test --tests "aiops.aiops.config.K8sDiscoveryConfigTest"` — 1건 통과)
+- [x] 단계 3: `docs/arch-snapshot.md` 경고 문구 교체
+
+### 최종 검증
+- [x] 추가한 테스트 모두 통과 (serverA 5 / cs-bot 5 / aiops 1)
+- [x] Java 프로덕션 코드 변경 없음
+- [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인
+- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
-- `handleSagaFailure`의 조건부 UPDATE 반환값 미확인 갭 — 이번엔 손대지 않음 (context.md에 기록)
+- Helm Deployment들의 `EUREKA_DEFAULT_ZONE` 환경변수는 K8s에서 미사용 (비범위)
+- 실제 K8s DNS 연결은 로컬 테스트로 검증 불가 — kind 검증 또는 "EKS 배포 후 검증 필요" 명시 결정 필요

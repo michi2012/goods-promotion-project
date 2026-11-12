@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-06-17 (cs-bot Elasticsearch FAQ RAG·Metadata Filter·Structured Output 긴급도 분류·Linear priority 연동 추가)_
+_생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사) 반영)_
 
 ---
 
@@ -9,14 +9,14 @@ _생성일: 2026-05-28 / 업데이트: 2026-06-17 (cs-bot Elasticsearch FAQ RAG�
 |------|------|-------------------------------------------------------|----|-------------------|
 | discovery-service | 8761 | Eureka 서버. local 프로필 전용 — K8s 환경에서는 미배포               | 없음 | 없음                |
 | gateway-service | 8088 | Spring Cloud Gateway. 외부 트래픽 진입점, IP별 토큰버킷 Rate Limiting | 없음 | ✅ (Rate Limiting) |
-| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어            | order DB (3307) | ✅ (port 6379)     |
+| serverA | 8080 | Saga 오케스트레이터. 구매 접수·주문 생성·재고 차감·Saga 흐름 제어. 타임아웃/상태 유실 시 serverC 결제조회로 보정 | order DB (3307) | ✅ (port 6379)     |
 | serverB | 8081 | CQRS 읽기 전용. 주문 상태·재고 뷰 조회                             | 없음 | ✅ (port 6380)     |
-| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 전용, HTTP 엔드포인트 없음              | payment DB (3308, 전용 MySQL) | 없음                |
+| serverC | 8082 | 결제 처리(PG 연동). Kafka 소비 중심. HTTP는 결제 조회 API만 제공(serverA 보정용·cs-bot) | payment DB (3308, 전용 MySQL) | 없음                |
 | aiops | 8085 | AIOps Router. Prometheus 웹훅 수신·장애 분석·K8s 조치 제안(HPA 조정·Helm 롤백·롤링 재시작·Istio 트래픽 시프트·Outlier Detection 조정)·DLT 자동 재처리·Slack 알림. Slack 이벤트 수신 시 codebot(Worker)으로 라우팅. `CanaryRolloutScheduler`로 v2 카나리 점진 승급 자동화 | - | -                 |
 | user-service | 8086 | 회원·결제수단 관리. 로그인 JWT 발급·Refresh 토큰 관리 | user DB (3309, 전용 MySQL) | 없음 |
 | codebot | 8087 | 개발자 지원 챗봇(Worker). Slack 이벤트 수신 → 코드 검색·DB 조회(order/payment/user 화이트리스트)·Pyroscope 핫스팟 분석 → Linear 이슈 자동 생성 → 단일 파일 수정 PR 자동 생성(diff 미리보기 포함). git-sync 사이드카로 최신 코드베이스 로컬 조회 | codebot RO (order·payment·user, 3307·3308·3309) | 없음 |
 | cs-bot | 8089 | CS 자동 응대 챗봇. 고객 채팅 수신 → Spring AI ChatClient + Tool Calling → 주문·결제·환불 조회·환불 요청·에스컬레이션(Linear 이슈 생성, Structured Output 긴급도→priority 매핑). Elasticsearch VectorStore 기반 FAQ RAG(Metadata Filter)로 정책 질문 자동 답변 | Elasticsearch (FAQ, 단일 노드) | 없음 |
-| frontend | 5173 | React+TS+Vite SPA. 주문 상태 조회 화면. orval(OpenAPI codegen) + shadcn/ui | 없음 | 없음 |
+| frontend | 3000 | Next.js 16(App Router)+React 19+TS+Tailwind+shadcn/ui. 주문 상태 조회·구매 화면. contract-first(`contracts/*.yaml` → openapi-typescript + openapi-fetch, Prism mock) | 없음 | 없음 |
 
 ---
 
@@ -90,13 +90,50 @@ sequenceDiagram
     end
 ```
 
+### Saga 복구 안전망 (serverA)
+
+```mermaid
+sequenceDiagram
+    participant T as SagaTimeoutScheduler (30s)
+    participant R as OrderReconciliationScheduler (2m)
+    participant A as SagaOrchestratorService
+    participant SC as serverC (GET /api/v1/payments/{orderId})
+
+    T->>T: saga:state:* SCAN, createdAt 3분 초과 탐지
+    T->>SC: PaymentQueryClient.checkPaymentStatus
+    alt PAID
+        T->>A: reconcileToPaid (Order 기준 보정)
+    else NOT_PAID / UNKNOWN
+        T->>A: handleSagaFailure("TIMEOUT") → EXPIRED
+    end
+
+    R->>R: DB orders: status=PENDING AND createdAt < now-5분 (Redis 상태 유실 대비)
+    R->>SC: PaymentQueryClient.checkPaymentStatus
+    alt PAID
+        R->>A: reconcileToPaid
+    else NOT_PAID (404 포함)
+        R->>A: reconcileToFailed
+    else UNKNOWN
+        R->>R: 다음 주기 재시도
+    end
+```
+
+### PG 애매한 응답 처리 (serverC)
+
+`PaymentService.callPgWithAmbiguousRetry()` — `PgAmbiguousResponseException`(응답 미수신, 처리 여부 불명) 발생 시:
+1. `pgClient.queryTransaction(orderId)`로 PG 거래 조회 → `APPROVED`/`REJECTED`면 그 결과로 확정
+2. `NOT_FOUND`면 동일 멱등 키(orderId)로 1회 재시도 (`MockPgClient`가 확정 결과를 기억해 중복 승인 방지)
+3. 재시도도 애매하면 `PgPaymentException`으로 변환 → 기존 "시스템 장애" 경로(FAILED + payment-result false)
+- `pgClientCb`는 `ignoreExceptions: PgAmbiguousResponseException` — 실패율 집계·fallback 대상에서 제외
+- PG 연동은 실제 PG 미연동 상태의 **가정 구현**(MockPgClient, 인메모리 거래 저장소)
+
 ---
 
 ## 주요 엔티티
 
 | 모듈 | 엔티티 | 핵심 필드 | 비고 |
 |------|--------|-----------|------|
-| serverA | `Order` | orderId(UK), userId, goodsId, quantity, status(ENUM), paymentMethod, shippingAddress | status: PENDING/PAID/FAILED/EXPIRED |
+| serverA | `Order` | orderId(UK), userId, goodsId, quantity, status(ENUM), paymentMethod, shippingAddress, createdAt | status: PENDING/PAID/FAILED/EXPIRED. `idx_orders_status_created`로 PENDING 재대사 조회 |
 | serverA | `Goods` | id, name, stock | 재고 원본(DB) |
 | serverA | `DeadLetter` | orderId, goodsId, quantity, reason | DLT 실패 메시지 저장 |
 | serverA | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
@@ -148,7 +185,7 @@ sequenceDiagram
 ### serverC (8082)
 | 메서드 | URL | 설명 | 인증 |
 |--------|-----|------|------|
-| GET | /api/v1/payments/{orderId} | 주문 ID로 결제 단건 조회 | 퍼블릭 |
+| GET | /api/v1/payments/{orderId} | 주문 ID로 결제 단건 조회 (없으면 404). serverA `PaymentQueryClient` 보정 조회에도 사용 | 퍼블릭 |
 | GET | /api/v1/payments/users/{userId} | 사용자별 결제 내역 (page, size 파라미터) | 퍼블릭 |
 
 ### cs-bot (8089)
@@ -198,7 +235,8 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 모듈 | 클래스명 | 주기 | 역할 |
 |------|----------|------|------|
-| serverA | `SagaTimeoutScheduler` | fixedDelay=60초 | `saga:state:*` SCAN → 10분 초과 미완료 Saga → EXPIRED 처리 |
+| serverA | `SagaTimeoutScheduler` | fixedDelay=30초 | `saga:state:*` SCAN → 3분 초과 미완료 Saga → serverC 결제조회 후 PAID면 `reconcileToPaid`, 아니면 EXPIRED 처리 |
+| serverA | `OrderReconciliationScheduler` | fixedDelay=120초 | DB에서 5분 초과 PENDING 주문 조회(Redis Saga 상태 유실 대비) → 결제조회 결과로 PAID/FAILED 보정, UNKNOWN은 다음 주기 |
 | serverA | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
 | serverC | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
 
@@ -208,7 +246,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 모듈 | 클래스 | 대상 | Circuit Breaker | 실패 처리 |
 |------|--------|------|-----------------|-----------|
-| serverC | `PgClient` (interface) | PG사 결제 API | ✅ `pgClientCb` | DLT 소진 시 `payment_pg_refund_fatal_total` 카운터 증가, 수동 정산 |
+| serverC | `PgClient` (interface, 구현 `MockPgClient`) | PG사 결제·거래조회·망취소 API | ✅ `pgClientCb` (애매응답 예외는 ignore) | 애매응답 → 거래조회 → 멱등 키 1회 재시도 → 실패 시 FAILED. 망취소 DLT 소진 시 `payment_pg_refund_fatal_total` 증가, 수동 정산 |
 
 ---
 
@@ -218,7 +256,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 |------|------------------------|-----------|
 | serverA | ✅ | `PromotionException`(상태코드 직접 지정), `BusinessException`(400), `MethodArgumentNotValidException`(400), `Exception`(500) |
 | serverB | ✅ | `Exception`(500) 단일 처리 |
-| serverC | ✅ | `PgPaymentException`(400, 보상 트랜잭션 트리거용), `Exception`(500) |
+| serverC | ✅ | `PaymentNotFoundException`(404), `PgPaymentException`(400, 보상 트랜잭션 트리거용), `Exception`(500). `PgAmbiguousResponseException`은 핸들러 대상 아님(PaymentService 내부에서 처리) |
 
 **serverA 커스텀 예외 목록:**
 `SoldOutException`, `DuplicateOrderException`, `GoodsNotFoundException`, `QueueFullException`, `AlreadyResolvedDltException`, `DltNotFoundException`, `PromotionException`, `BusinessException`
@@ -232,6 +270,25 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 | serverA | serverB (8081) | `serverBClient` | 설정 존재 |
 | serverB | serverC (8082) | `serverCClient` | 설정 존재 |
 | serverB | serverA (8080) | `serverAClient` | 설정 존재 |
+| serverA | serverC (8082) `GET /api/v1/payments/{orderId}` | ❌ (RestClient connect 3s / read 5s, 실패 시 UNKNOWN) | `PaymentQueryClient`. `DiscoveryClient`로 인스턴스 조회 — local은 Eureka, K8s는 `application-k8s.yml`의 SimpleDiscoveryClient 정적 등록(`serverC` → `http://server-c:8082`) |
+| frontend | serverB (`contracts/openapi.yaml`), serverA (`contracts/server-a-openapi.yaml`) | - | serverA는 CORS 없음 → Next.js rewrite `/api-a/*` → `localhost:8080` 프록시 |
+| cs-bot | serverA (8080), serverB (8081), serverC (8082), user-service (8086) | ❌ | `CsBotClient`. local은 Eureka, K8s는 `application-k8s.yml` SimpleDiscoveryClient 정적 등록 (Eureka 비활성) |
+| aiops | codebot (8087) `POST /internal/investigations` | ❌ (실패 시 안내 문자열 반환) | `CodebotClient`. local은 Eureka, K8s는 `application-k8s.yml` SimpleDiscoveryClient 정적 등록 |
+
+> K8s에는 discovery-service(Eureka)가 배포되지 않는다. `DiscoveryClient`를 쓰는 모듈은 `application-k8s.yml`에 `spring.cloud.discovery.client.simple.instances`로 K8s Service DNS를 정적 등록해야 한다 (등록 누락 시 인스턴스가 비어 조용히 실패). 바인딩은 각 모듈의 `K8sDiscoveryConfigTest`로 검증.
+
+---
+
+## 프론트엔드 (frontend/)
+
+| 라우트 | 화면 | 호출 API |
+|--------|------|----------|
+| `/` | 주문 ID 입력 → 상태 조회 이동 | - |
+| `/orders/[orderId]` | 주문 상태 조회 | serverB `GET /api/v1/orders/{orderId}/status` |
+| `/purchase`, `/purchase/[goodsId]` | 상품 조회·구매 요청 (첫 mutation 화면) | serverA `GET /api/v1/goods/{goodsId}`, `POST /api/v1/promotions/purchase` |
+
+- 계약: `contracts/openapi.yaml`(serverB), `contracts/server-a-openapi.yaml`(serverA) → `npm run generate:api[:a]`로 타입 생성
+- 테스트: Vitest + RTL(단위), Playwright + axe-core(E2E/접근성), Prism mock(`npm run mock:api`, 4010)
 
 ---
 

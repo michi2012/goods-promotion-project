@@ -199,3 +199,22 @@ SagaOrchestratorService.handleSagaFailure()
 **제약/불변식:**
 - `CanaryRolloutScheduler`의 PromQL은 `istio_requests_total{destination_service_name="<service>", destination_version="v2"}` 라벨 조합을 사용한다. `destination_service_name`의 실제 값(예: `server-a` vs `server-a.promotion.svc.cluster.local`)은 waypoint 메트릭 배포 후 EKS Prometheus에서 직접 확인이 필요하다 — 실제 값이 다르면 `canary.rollout.services`를 그 형식에 맞게 설정해야 한다.
 - `getCanaryWeight`가 -1(조회 실패)을 반환하는 경우도 weight 0/100과 동일하게 "스킵 + 상태 초기화"로 처리한다. 일시적 kubectl 실패 시 진행 카운터가 리셋될 수 있지만, 다음 정상 틱부터 다시 누적되므로 별도 재시도/구분 로직 없이 단순성을 우선했다.
+
+---
+
+## K8s 서비스 간 호출: DiscoveryClient + SimpleDiscoveryClient 정적 등록
+
+**결정:** `DiscoveryClient`로 다른 서비스를 찾는 클라이언트(serverA `PaymentQueryClient`, cs-bot `CsBotClient`, aiops `CodebotClient`)는 코드를 그대로 두고, 각 모듈의 `application-k8s.yml`에 `spring.cloud.discovery.client.simple.instances.<serviceId>`로 K8s Service DNS(`http://<helm name>:<port>`)를 정적 등록한다.
+
+**이유:**
+- K8s에는 discovery-service(Eureka)를 배포하지 않는다. 등록이 없으면 `getInstances()`가 빈 리스트를 반환해 **예외 없이 조용히 실패**한다 (serverA는 결제조회 UNKNOWN → 결제 성공 주문도 EXPIRED, cs-bot은 조회 Tool 전부 실패, aiops는 codebot 라우팅 불가).
+- `SimpleDiscoveryClient`는 spring-cloud-commons 기본 구성이라 새 의존성·Java 변경 없이 yml만으로 해결되고, local(Eureka) 동작은 그대로다. K8s Service가 이미 파드 로드밸런싱을 하므로 동적 조회 이득이 없다.
+
+**제약/불변식:**
+- 새 모듈이나 새 호출 대상에서 `DiscoveryClient`를 쓰면 그 모듈 `application-k8s.yml`에 정적 등록을 함께 추가해야 한다. 키는 코드의 서비스 ID 문자열(`serverC`, `user-service` 등)과 정확히 일치해야 한다.
+- 바인딩은 각 모듈의 `config/K8sDiscoveryConfigTest`로 검증한다. 실제 DNS 연결은 로컬 테스트로 검증되지 않는다.
+- Helm Service 이름/포트(`helm/promotion-app/values.yaml`)가 바뀌면 이 등록도 함께 바꿔야 한다.
+
+**채택하지 않은 대안:**
+- 고정 URL 프로퍼티(`@Value("${...url}")`)로 전환 → Java·테스트·docker-compose 환경변수까지 변경 범위가 커짐.
+- spring-cloud-kubernetes discovery → 새 의존성 + ServiceAccount RBAC(endpoints 조회) 추가 필요, Service DNS 대비 이득이 적음.
