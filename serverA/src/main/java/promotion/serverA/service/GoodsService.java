@@ -26,6 +26,7 @@ public class GoodsService {
 
         Goods goods = Goods.builder()
                            .name(createGoodsRequest.name())
+                           .price(createGoodsRequest.price())
                            .stock(createGoodsRequest.stock())
                            .build();
 
@@ -37,13 +38,14 @@ public class GoodsService {
         return new CreateGoodsResponse(
                 savedGoods.getId(),
                 savedGoods.getName(),
+                savedGoods.getPrice(),
                 savedGoods.getStock()
         );
     }
 
     public GoodsResponse findById(Long id) {
         Goods goods = goodsRepository.findById(id).orElseThrow(GoodsNotFoundException::new);
-        return new GoodsResponse(goods.getId(), goods.getName(), goods.getStock());
+        return new GoodsResponse(goods.getId(), goods.getName(), goods.getPrice(), goods.getStock());
     }
 
 }

@@ -34,6 +34,17 @@ public class Order extends BaseTimeEntity {
     @Column(updatable = false)
     private int quantity;
 
+    // 주문 시점 가격 스냅샷 (원 단위). 이후 상품 가격이 바뀌어도 이 주문의 금액은 바뀌지 않는다.
+    // 금액 도입 이전 주문은 null.
+    @Column(updatable = false)
+    private Long unitPrice;
+
+    @Column(updatable = false)
+    private Long totalAmount;
+
+    @Column(updatable = false, length = 3)
+    private String currency;
+
     @Column(updatable = false)
     private String paymentMethod;
 
@@ -61,6 +72,7 @@ public class Order extends BaseTimeEntity {
 
     @Builder
     public Order(String orderId, Long userId, Long goodsId, int quantity,
+                 Long unitPrice, Long totalAmount, String currency,
                  String paymentMethod, String shippingAddress, String zipCode,
                  String phoneNumber, String email, String deliveryMemo,
                  String clientIp, OrderStatus status) {
@@ -68,6 +80,9 @@ public class Order extends BaseTimeEntity {
         this.userId = userId;
         this.goodsId = goodsId;
         this.quantity = quantity;
+        this.unitPrice = unitPrice;
+        this.totalAmount = totalAmount;
+        this.currency = currency;
         this.paymentMethod = paymentMethod;
         this.shippingAddress = shippingAddress;
         this.zipCode = zipCode;

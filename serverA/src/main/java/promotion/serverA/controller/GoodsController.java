@@ -1,5 +1,6 @@
 package promotion.serverA.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -23,7 +24,7 @@ public class GoodsController {
     private final GoodsService goodsService;
 
     @PostMapping
-    public ResponseEntity<CreateGoodsResponse> createGoods(@RequestBody CreateGoodsRequest createGoodsRequest) {
+    public ResponseEntity<CreateGoodsResponse> createGoods(@Valid @RequestBody CreateGoodsRequest createGoodsRequest) {
         log.info("[GoodsController] 상품 생성 요청 수신: name={}", createGoodsRequest.name());
 
         CreateGoodsResponse createGoodsResponse = goodsService.createGoods(createGoodsRequest);
