@@ -12,6 +12,7 @@ import promotion.serverA.dto.OrderStatusMessage;
 import promotion.serverA.dto.PaymentCancelMessage;
 import promotion.serverA.dto.SagaStateData;
 import promotion.serverA.dto.StockSnapshotMessage;
+import promotion.serverA.entity.Order;
 import promotion.serverA.entity.OrderStatus;
 import promotion.serverA.outbox.OutboxEventService;
 import promotion.serverA.repository.GoodsRepository;
@@ -122,5 +123,58 @@ public class SagaOrchestratorService {
 
         sagaStateService.deleteSagaState(orderId);
         log.info("[Saga 보상 완료] {} | 사유: {} | orderId={}", failStatus, reason, orderId);
+    }
+
+    // Redis Saga 상태(SagaStateData)에 의존하지 않고, Order 엔티티에서 직접 데이터를 읽어 보정한다.
+    // 타임아웃 직전 결제완료 확인(SagaTimeoutScheduler) 및 DB 기반 재대사(OrderReconciliationScheduler) 양쪽에서 사용.
+    @Transactional
+    public void reconcileToPaid(String orderId) {
+        Order order = orderRepository.findByOrderId(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[Saga 복구] Order 없음, 보정 건너뜀: orderId={}", orderId);
+            return;
+        }
+
+        int updated = orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID);
+        if (updated == 0) {
+            log.warn("[Saga 복구] Order 상태 변경 실패(이미 처리됨): orderId={}", orderId);
+            sagaStateService.deleteSagaState(orderId);
+            return;
+        }
+
+        outboxEventService.save(orderId, ORDER_STATUS_TOPIC,
+                new OrderStatusMessage(orderId, order.getUserId(), "PAID"));
+
+        sagaStateService.deleteSagaState(orderId);
+        log.info("[Saga 복구] PENDING→PAID 보정: orderId={}", orderId);
+    }
+
+    @Transactional
+    public void reconcileToFailed(String orderId) {
+        Order order = orderRepository.findByOrderId(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[Saga 복구] Order 없음, 보정 건너뜀: orderId={}", orderId);
+            return;
+        }
+
+        int updated = orderRepository.updateStatusIfPending(orderId, OrderStatus.FAILED);
+        if (updated == 0) {
+            log.warn("[Saga 복구] Order 상태 변경 실패(이미 처리됨): orderId={}", orderId);
+            sagaStateService.deleteSagaState(orderId);
+            return;
+        }
+
+        redisStockService.releaseStock(order.getGoodsId(), order.getQuantity());
+        redisStockService.releaseUserPurchase(order.getUserId(), order.getGoodsId());
+        goodsRepository.increaseStockAtomically(order.getGoodsId(), order.getQuantity());
+
+        Long remaining = redisStockService.getCurrentStock(order.getGoodsId());
+        outboxEventService.save(String.valueOf(order.getGoodsId()), STOCK_SNAPSHOT_TOPIC,
+                new StockSnapshotMessage(order.getGoodsId(), remaining));
+        outboxEventService.save(orderId, ORDER_STATUS_TOPIC,
+                new OrderStatusMessage(orderId, order.getUserId(), "FAILED"));
+
+        sagaStateService.deleteSagaState(orderId);
+        log.info("[Saga 복구] PENDING→FAILED 보정 + 재고 복구: orderId={}", orderId);
     }
 }

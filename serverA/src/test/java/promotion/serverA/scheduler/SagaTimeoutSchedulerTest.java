@@ -11,6 +11,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import promotion.serverA.client.PaymentCheckStatus;
+import promotion.serverA.client.PaymentQueryClient;
 import promotion.serverA.service.SagaOrchestratorService;
 import promotion.serverA.service.SagaStateService;
 
@@ -33,6 +35,9 @@ class SagaTimeoutSchedulerTest {
 
     @Mock
     private SagaOrchestratorService sagaOrchestratorService;
+
+    @Mock
+    private PaymentQueryClient paymentQueryClient;
 
     @Mock
     private MeterRegistry meterRegistry;
@@ -58,6 +63,7 @@ class SagaTimeoutSchedulerTest {
 
         given(sagaStateService.isFailed(orderId)).willReturn(false);
         given(sagaStateService.getCreatedAt(orderId)).willReturn(expiredTime);
+        given(paymentQueryClient.checkPaymentStatus(orderId)).willReturn(PaymentCheckStatus.NOT_PAID);
         given(meterRegistry.counter(anyString())).willReturn(sagaExpiredCounter);
 
         // when
@@ -66,6 +72,32 @@ class SagaTimeoutSchedulerTest {
         // then
         verify(sagaOrchestratorService, times(1)).handleSagaFailure(orderId, "TIMEOUT");
         verify(sagaExpiredCounter, times(1)).increment();
+    }
+
+    @Test
+    @DisplayName("타임아웃이지만 결제가 실제로 완료됐으면 EXPIRED 대신 PAID로 보정한다")
+    void checkTimeouts_reconciles_to_paid_when_payment_confirmed() {
+        // given
+        String orderId = "trace-4";
+        String redisKey = "saga:state:" + orderId;
+        long currentTime = System.currentTimeMillis();
+        long expiredTime = currentTime - (4 * 60 * 1000L); // 4분 전
+
+        given(redisTemplate.scan(any(ScanOptions.class))).willReturn(cursor);
+        given(cursor.hasNext()).willReturn(true, false);
+        given(cursor.next()).willReturn(redisKey);
+
+        given(sagaStateService.isFailed(orderId)).willReturn(false);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(expiredTime);
+        given(paymentQueryClient.checkPaymentStatus(orderId)).willReturn(PaymentCheckStatus.PAID);
+
+        // when
+        sagaTimeoutScheduler.checkTimeouts();
+
+        // then
+        verify(sagaOrchestratorService, times(1)).reconcileToPaid(orderId);
+        verify(sagaOrchestratorService, never()).handleSagaFailure(anyString(), anyString());
+        verify(meterRegistry, never()).counter(anyString());
     }
 
     @Test

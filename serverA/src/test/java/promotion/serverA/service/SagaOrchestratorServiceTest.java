@@ -11,10 +11,13 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import promotion.serverA.dto.SagaStateData;
+import promotion.serverA.entity.Order;
 import promotion.serverA.entity.OrderStatus;
 import promotion.serverA.outbox.OutboxEventService;
 import promotion.serverA.repository.GoodsRepository;
 import promotion.serverA.repository.OrderRepository;
+
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -145,5 +148,85 @@ class SagaOrchestratorServiceTest {
         verify(sagaStateService, never()).getSagaState(orderId);
         verify(orderRepository, never()).updateStatusIfPending(anyString(), any());
         verify(redisStockService, never()).releaseStock(anyLong(), anyInt());
+    }
+
+    private Order order() {
+        return Order.builder()
+                .orderId(orderId)
+                .userId(userId)
+                .goodsId(goodsId)
+                .quantity(quantity)
+                .status(OrderStatus.PENDING)
+                .build();
+    }
+
+    @Test
+    @DisplayName("reconcileToPaid: Order를 직접 조회해 PAID로 보정하고 Outbox 이벤트를 저장한다 (Redis SagaState 불필요)")
+    void reconcileToPaid_success() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(order()));
+        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(1);
+
+        // when
+        sagaOrchestratorService.reconcileToPaid(orderId);
+
+        // then
+        verify(orderRepository).updateStatusIfPending(orderId, OrderStatus.PAID);
+        verify(outboxEventService).save(eq(orderId), eq("order-status-update"), any());
+        verify(redisStockService, never()).releaseStock(anyLong(), anyInt());
+        verify(sagaStateService).deleteSagaState(orderId);
+    }
+
+    @Test
+    @DisplayName("reconcileToPaid: 이미 처리된 주문(조건부 UPDATE 0건)이면 보정을 건너뛴다")
+    void reconcileToPaid_alreadyProcessed_skips() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(order()));
+        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(0);
+
+        // when
+        sagaOrchestratorService.reconcileToPaid(orderId);
+
+        // then
+        verify(outboxEventService, never()).save(any(), any(), any());
+        verify(sagaStateService).deleteSagaState(orderId);
+    }
+
+    @Test
+    @DisplayName("reconcileToFailed: Order를 직접 조회해 FAILED로 보정하고 재고를 복구한다 (Redis SagaState 불필요)")
+    void reconcileToFailed_success() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(order()));
+        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.FAILED)).willReturn(1);
+        given(redisStockService.getCurrentStock(goodsId)).willReturn(98L);
+
+        // when
+        sagaOrchestratorService.reconcileToFailed(orderId);
+
+        // then
+        verify(orderRepository).updateStatusIfPending(orderId, OrderStatus.FAILED);
+        verify(redisStockService).releaseStock(goodsId, quantity);
+        verify(redisStockService).releaseUserPurchase(userId, goodsId);
+        verify(goodsRepository).increaseStockAtomically(goodsId, quantity);
+        verify(outboxEventService).save(eq(String.valueOf(goodsId)), eq("stock-snapshot"), any());
+        verify(outboxEventService).save(eq(orderId), eq("order-status-update"), any());
+        verify(sagaStateService).deleteSagaState(orderId);
+    }
+
+    @Test
+    @DisplayName("reconcileToFailed: 이미 처리된 주문(조건부 UPDATE 0건)이면 재고 보상을 건너뛴다")
+    void reconcileToFailed_alreadyProcessed_skipsCompensation() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(order()));
+        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.FAILED)).willReturn(0);
+
+        // when
+        sagaOrchestratorService.reconcileToFailed(orderId);
+
+        // then
+        verify(redisStockService, never()).releaseStock(anyLong(), anyInt());
+        verify(goodsRepository, never()).increaseStockAtomically(anyLong(), anyInt());
+        verify(outboxEventService, never()).save(any(), any(), any());
+        verify(sagaStateService).deleteSagaState(orderId);
     }
 }
