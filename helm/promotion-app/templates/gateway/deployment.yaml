@@ -56,8 +56,6 @@ spec:
               value: {{ .Values.gateway.redis.port | quote }}
             - name: CORS_ALLOWED_ORIGIN
               value: {{ .Values.gateway.corsAllowedOrigin | quote }}
-            - name: EUREKA_DEFAULT_ZONE
-              value: {{ .Values.gateway.eurekaDefaultZone | quote }}
             {{- if .Values.gateway.otlpEndpoint }}
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.gateway.otlpEndpoint | quote }}

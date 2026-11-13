@@ -15,21 +15,6 @@ ingress:
 nodeSelector:
   role: app
 
-discovery:
-  name: discovery-service
-  replicas: 1
-  port: 8761
-  image: ""
-  springProfilesActive: "k8s"  # --set discovery.image=<ECR_URL>/discovery-service:tag
-  otlpEndpoint: ""
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "256Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-
 gateway:
   name: gateway-service
   replicas: 1
@@ -40,7 +25,6 @@ gateway:
     host: ""   # --set gateway.redis.host=<ELASTICACHE_ENDPOINT>
     port: 6379
   corsAllowedOrigin: ""  # --set gateway.corsAllowedOrigin=https://yourdomain.com
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
   profiler:
     enabled: true  # Pyroscope continuous profiling (Java agent, initContainer로 jar 주입)
@@ -72,7 +56,6 @@ serverA:
     port: 6379
   kafka:
     bootstrapServers: "kafka-service:9092"
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
   profiler:
     enabled: true  # Pyroscope continuous profiling 파일럿 (Java agent, initContainer로 jar 주입)
@@ -121,7 +104,6 @@ serverB:
     port: 6379
   kafka:
     bootstrapServers: "kafka-service:9092"
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
   profiler:
     enabled: true  # Pyroscope continuous profiling 파일럿 (Java agent, initContainer로 jar 주입)
@@ -171,7 +153,6 @@ serverC:
     password: ""  # --set serverC.datasource.password=<password>
   kafka:
     bootstrapServers: "kafka-service:9092"
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
   profiler:
     enabled: true  # Pyroscope continuous profiling 파일럿 (Java agent, initContainer로 jar 주입)
@@ -221,7 +202,6 @@ userService:
     password: ""  # --set userService.datasource.password=<password>
   jwtSecret: ""        # --set userService.jwtSecret=<secret>
   corsAllowedOrigins: ""  # --set userService.corsAllowedOrigins=https://yourdomain.com
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   otlpEndpoint: ""
   profiler:
     enabled: true  # Pyroscope continuous profiling (Java agent, initContainer로 jar 주입)
@@ -274,7 +254,6 @@ aiops:
   googleGenaiApiKey: ""  # --set aiops.googleGenaiApiKey=<key>
   slackWebhookUrl: ""    # --set aiops.slackWebhookUrl=<url>
   slackBotToken: ""      # --set aiops.slackBotToken=<token>
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   serverAUrl: "http://server-a:8080"
   otlpEndpoint: ""
   resources:
@@ -310,7 +289,6 @@ codebot:
       url: ""       # --set codebot.datasource.user.url=jdbc:mysql://<RDS_USER_ENDPOINT>:3306/user?...
       username: ""  # --set codebot.datasource.user.username=codebot_ro
       password: ""  # --set codebot.datasource.user.password=<password>
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   resources:
     requests:
       cpu: "100m"
@@ -338,7 +316,6 @@ csBot:
   aiApiKey: ""           # --set csBot.aiApiKey=<Gemini API key>
   linearApiKey: ""       # --set csBot.linearApiKey=<key>
   linearTeamId: ""       # --set csBot.linearTeamId=<team-id>
-  eurekaDefaultZone: "http://discovery-service:8761/eureka/"
   elasticsearchUris: "http://elasticsearch:9200"
   kafka:
     bootstrapServers: "kafka-service:9092"

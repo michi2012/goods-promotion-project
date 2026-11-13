@@ -52,8 +52,6 @@ spec:
               value: {{ .Values.serverC.datasource.password | quote }}
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.serverC.kafka.bootstrapServers | quote }}
-            - name: EUREKA_DEFAULT_ZONE
-              value: {{ .Values.serverC.eurekaDefaultZone | quote }}
             {{- if .Values.serverC.otlpEndpoint }}
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.serverC.otlpEndpoint | quote }}

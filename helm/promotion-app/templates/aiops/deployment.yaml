@@ -58,8 +58,6 @@ spec:
               value: {{ .Values.aiops.slackBotToken | quote }}
             - name: SERVER_A_URL
               value: {{ .Values.aiops.serverAUrl | quote }}
-            - name: EUREKA_DEFAULT_ZONE
-              value: {{ .Values.aiops.eurekaDefaultZone | quote }}
             {{- if .Values.aiops.otlpEndpoint }}
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.aiops.otlpEndpoint | quote }}
