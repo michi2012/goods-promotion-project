@@ -1,28 +1,25 @@
-# 체크리스트: 필수 체크 대비 CI result job + main 브랜치 보호 (BL-019)
+# 체크리스트: Helm 로컬 values DB 이름 수정 + 죽은 Eureka 설정 제거 (BL-010, BL-012)
 
 - 마지막 업데이트: 2026-11-13
 
-## [완료] BL-019
+## [진행 중] BL-010 + BL-012
 
 ### 진행 상황
-- [x] 단계 1: backend-ci 변경 감지·result job
-  - [x] 검증 통과 (actionlint 1.7.7, exit 0)
-- [x] 단계 2: frontend-ci 같은 구조
-  - [x] 검증 통과 (actionlint 1.7.7, exit 0)
-- [x] 단계 3: 문서 갱신 (backlog BL-023 추가, design-notes 섹션 추가)
-- [x] 단계 4: push + PR → 실제 CI 실행 확인 (PR #27)
-  - [x] test 9개·check·result 2개 성공 (`gh pr checks 27`)
-- [x] 단계 5: 머지 후 main 보호 적용 (명령 재확인 후)
-  - [x] 설정 조회로 확인 (checks: backend-ci-result·frontend-ci-result, strict false, admins true, approvals 0)
-- [x] 단계 6: 문서 전용 PR로 skip 동작 검증 (PR #28)
-  - [x] 테스트 skipped, result 성공, mergeStateStatus CLEAN (`gh pr checks 28`)
+- [x] 단계 1: 변경 전 렌더링 기준선 저장 (canary 3종 활성화 포함)
+  - [x] 검증 통과 (`helm template` 두 조합 exit 0, EUREKA 11건)
+- [x] 단계 2: BL-010 values-local.yaml DB 이름 `order`
+- [x] 단계 3: BL-012 EUREKA env 11곳 + values 키 8개 + `discovery:` 섹션 삭제
+  - [x] 검증 통과 (`helm/` grep 0건)
+- [x] 단계 4: 렌더링 diff + `helm lint`
+  - [x] diff에 의도한 변경만 있음 (기본: EUREKA 22줄 삭제 / local: + DB URL 2줄, `rollme` 무작위 값 제외)
+  - [x] `helm lint` 두 조합 0 failed
+- [x] 단계 5: 문서 갱신 (backlog BL-024 추가)
 
 ### 최종 검증
-- [x] 성공 기준 5개 확인
-  - main push 경로 필터 유지 확인: #27 머지(cccec68)에서 backend-ci 실행, 문서 전용 #26(6905917)에선 미실행
-- [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (`ci-cd.yaml` 미변경)
-- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (#27: 워크플로 2개 + 문서 5개)
+- [x] 성공 기준 4개 확인
+- [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (앱 yml·docker-compose 미변경)
+- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (Helm 12개 + values-local + 문서 4개)
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
-- ~~`ci-cd.yaml` dev 흔적~~ → 백로그 BL-023으로 이전 완료
-- 계획 변경: 부정 패턴은 extglob 대신 paths-filter `predicate-quantifier: some-with-excludes` 사용 (v4 기능, GitHub `paths`와 같은 의미)
+- ~~codebot `application-k8s.yml` 없음~~ → 백로그 BL-024로 이전 완료
+- 계획 수정: 대상 템플릿은 10개가 아니라 11개 (server-c·user-service 포함, 렌더링으로 확인)
