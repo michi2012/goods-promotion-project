@@ -73,7 +73,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 빌드 환경
 - 멀티 모듈 Gradle 프로젝트. gradlew.bat은 루트에 있음.
-- Windows + PowerShell 환경. bash 명령어 사용 금지.
+- 로컬 OS·셸 규칙은 개인 환경마다 다르므로 각자의 `CLAUDE.local.md`(git 미추적)에 둔다.
 
 ## 파일 읽기 규칙
 - 지시된 파일을 우선 읽되, 해당 파일만으로 판단이 불가능한 경우에만 관련 파일을 최소한으로 추가 참조할 것. 불필요한 탐색 금지.
@@ -85,6 +85,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 이전 작업이 **아직 미커밋**이면 → 새 관련 작업을 각 파일에 섹션으로 **추가**한다. 덮어쓰기 금지.
 - 이전 작업이 **커밋 완료**됐으면 → 다음 /plan 시 파일을 새로 작성한다.
 - 섹션 제목 형식: `## [완료] 작업명` / `## [진행 중] 작업명`
+- checklist의 "발견 사항"은 임시 기록이다. 작업을 커밋하기 전에 백로그로 옮긴다 ("백로그 관리" 참조).
+
+## 백로그 관리
+- 로드맵·후속 작업·범위 밖 발견 사항은 단일 백로그에서 관리한다. **백로그 위치: `docs`** → `docs/backlog.md` (이슈 트래커 도입 시 이 값을 바꾸고 미완료 항목을 옮긴다. 두 곳에 동시 기록 금지)
+- 진행 중 작업의 세부는 3종 문서, 결정 이유는 `docs/design-notes.md`. 백로그에는 넣지 않는다.
+- `/plan` 시작 시 해당 항목을 "진행 중"으로, 작업 중 발견 사항은 checklist에 임시 기록 → **커밋 전 백로그로 이전**, 완료 시 PR 링크와 함께 "완료"로.
+- 남은 작업·로드맵 질문에는 백로그를 기준으로 답한다.
 
 ## 대형 설계 문서 관리 원칙
 `docs/system-design.md`, `docs/arch-snapshot.md` 등 설계/아키텍처 문서가 일정 규모(약 500줄) 이상으로 커지면, 매 작업마다 전체를 읽지 않는다.
@@ -102,6 +109,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 테스트 작성 시 `.claude/skills/testing` 매뉴얼을 활용할 것.
 - Kafka 컨슈머/프로듀서/토픽/DLT/Debezium 작업 시 `.claude/skills/kafka` 매뉴얼을 활용할 것.
 - Kubernetes/Helm/kubectl/HPA/RBAC/values.yaml/Deployment 작업 시 `.claude/skills/k8s` 매뉴얼을 활용할 것.
+- E2E·전체 흐름 검증·사전 점검·스모크 테스트 작업 시 `.claude/skills/e2e` 매뉴얼을 활용할 것.
 
 ## 디버깅 루프 탈출 조건
 같은 이슈(테스트 실패, 빌드 오류 등)를 해결하기 위한 첫 수정을 시도하기 전, 현재 작업 트리 상태를 체크포인트로 기록한다 (예: `git stash` 후 즉시 재적용, 또는 변경 파일 목록 기록).
@@ -191,20 +199,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
   - 문서 업데이트 → 1 커밋
 - 커밋 나누기는 구현 완료 후 `git add -p`로 파일 단위로 골라서 정리한다.
 
-## 커밋 전 E2E 테스트 기준
-
-**로컬에서 실행 가능한 기능은 커밋 전에 직접 검증한다. 인프라 의존 기능은 컴파일/렌더링으로 대체한다.**
-
-| 상황 | 커밋 전 검증 기준 |
-|------|-----------------|
-| 로컬에서 바로 실행 가능 | 로컬 E2E 후 커밋 |
-| 기본 환경은 없지만 우회 수단이 있음 (kind, ngrok, docker compose 등) | 우회 수단을 설치·구성해서라도 검증 후 커밋. "귀찮다"는 이유로 생략 금지 |
-| 진짜 로컬 불가 (AWS ALB, EKS RBAC 등 클라우드 전용) | `gradle build` + `helm template` 통과 후 커밋. EKS 배포 후 사후 검증 |
-| 값 조정, 문서 변경 | 육안 확인으로 충분 |
-
-- 로컬 E2E를 건너뛰고 커밋하려 하면, 먼저 사용자에게 이유를 물어볼 것. "환경이 없어서"는 이유가 되지 않는다 — 구성 가능하면 구성한다.
-- 진짜 로컬 불가한 경우, 커밋 메시지에 "EKS 배포 후 검증 필요" 명시를 권고할 것.
-- **로컬 kubectl 통과 = RBAC 통과가 아니다.** 로컬 kubeconfig는 cluster-admin이므로 ServiceAccount 권한 제약이 전혀 검증되지 않는다. rbac.yaml에서 누락된 권한은 EKS에서만 발견된다.
+## 커밋 전 검증
+- 로컬에서 실행 가능한 변경은 E2E로 검증한 뒤 커밋한다. 건너뛰려면 먼저 사용자에게 이유를 묻는다 ("환경이 없어서"는 이유가 아님 — 구성 가능하면 구성).
+- 클라우드 전용(EKS RBAC, ALB 등)은 `gradle build` + `helm template` 통과 후 커밋하고, 커밋 메시지에 "EKS 배포 후 검증 필요"를 권고한다.
+- E2E 원칙과 이 프로젝트의 시나리오·점검 대상·실행 시점은 `.claude/skills/e2e`(SKILL.md + project.md).
 
 ## 보고 형식
 작업 완료 시 다음 형식으로 보고할 것:
