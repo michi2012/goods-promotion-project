@@ -144,4 +144,20 @@ class SagaStateServiceTest {
         verify(hashOperations, never()).put(eq(stateKey), eq("failed"), anyString());
         assertThat(result).isFalse();
     }
+
+    @Test
+    @DisplayName("Saga 상태 키가 있으면 exists는 true를 반환한다")
+    void exists_true_when_key_present() {
+        given(redisTemplate.hasKey(stateKey)).willReturn(true);
+
+        assertThat(sagaStateService.exists(orderId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("Saga 상태 키가 없으면(이미 종료되어 삭제) exists는 false를 반환한다")
+    void exists_false_when_key_absent() {
+        given(redisTemplate.hasKey(stateKey)).willReturn(false);
+
+        assertThat(sagaStateService.exists(orderId)).isFalse();
+    }
 }

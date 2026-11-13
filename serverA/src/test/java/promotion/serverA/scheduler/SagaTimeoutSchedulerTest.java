@@ -101,6 +101,34 @@ class SagaTimeoutSchedulerTest {
     }
 
     @Test
+    @DisplayName("타임아웃이지만 결제 상태를 모르면(UNKNOWN) EXPIRED 처리하지 않고 다음 주기로 미룬다")
+    void checkTimeouts_defers_when_payment_status_unknown() {
+        // given
+        String orderId = "trace-5";
+        String redisKey = "saga:state:" + orderId;
+        long expiredTime = System.currentTimeMillis() - (4 * 60 * 1000L); // 4분 전
+
+        given(redisTemplate.scan(any(ScanOptions.class))).willReturn(cursor);
+        given(cursor.hasNext()).willReturn(true, false);
+        given(cursor.next()).willReturn(redisKey);
+
+        given(sagaStateService.isFailed(orderId)).willReturn(false);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(expiredTime);
+        given(paymentQueryClient.checkPaymentStatus(orderId)).willReturn(PaymentCheckStatus.UNKNOWN);
+        given(meterRegistry.counter("saga.timeout.payment_unknown")).willReturn(sagaExpiredCounter);
+
+        // when
+        sagaTimeoutScheduler.checkTimeouts();
+
+        // then
+        verify(sagaOrchestratorService, never()).handleSagaFailure(anyString(), anyString());
+        verify(sagaOrchestratorService, never()).reconcileToPaid(anyString());
+        verify(sagaStateService, never()).deleteSagaState(anyString());
+        verify(meterRegistry, never()).counter("saga.expired.total");
+        verify(sagaExpiredCounter, times(1)).increment();
+    }
+
+    @Test
     @DisplayName("이미 실패한 Saga는 타임아웃 검사에서 제외된다")
     void checkTimeouts_skips_already_failed_saga() {
         // given
