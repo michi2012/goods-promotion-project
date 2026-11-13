@@ -263,3 +263,29 @@ SagaOrchestratorService.handleSagaFailure()
 - 구매 접수 시점에 가격 조회 → 접수 경로에 캐시/DB 조회 추가로 TPS 설계 변경.
 - 금액 불일치 시 FAILED만 기록하고 망취소는 수동 → 고객 돈이 승인된 채 묶임.
 - 금액 없는 옛 메시지를 즉시 실패 처리 → 배포 중 들어온 정상 주문이 실패.
+
+---
+
+## E2E 두 층과 도구: 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`), 둘 다 Playwright
+
+**결정:** 백엔드팀·프론트팀이 분리돼 있다고 가정하고, E2E를 "무엇을 검증하느냐"로 두 층으로 나눠 각 팀이 소유한다.
+- 백엔드 E2E: 독립 폴더 `backend-e2e/`. 떠 있는 serverA·B·C에 HTTP로 요청해 구매 → 결제 금액·PAID → 주문 PAID를 확인. 프론트·브라우저 불필요(Playwright `request`만 사용).
+- UI E2E: `frontend/e2e/`. 화면 흐름(구매 화면 → 주문 상태 PAID 표시).
+- "둘 다 구현됨"일 때 별도의 세 번째 E2E는 없다 — 두 층을 함께 돌린다.
+
+**이유:**
+- 백엔드 E2E를 `frontend/` 안에 두면 백엔드 흐름 검증이 프론트 빌드·서버에 묶이고, 팀이 나뉘면 소유권이 맞지 않는다.
+- 도구를 Playwright 하나로 통일하면 사전 점검·환경변수·리포트 보는 법이 API·UI에서 같다. HTML 리포트(단계별 응답 첨부)와 trace 뷰어로 결과를 사람이 직접 확인하기 좋고, 새 의존성이 없다. `expect.poll`로 비동기 결과(PAID) 대기가 간단하다.
+- 같은 검증을 두 도구(예: Postman 컬렉션 + Playwright)에 중복 자동화하지 않는다 — 원본은 `backend-e2e/` 하나.
+
+**제약/불변식:**
+- 백엔드 E2E는 DB를 직접 조회하지 않고 공개 API로만 확인한다(블랙박스). 그래서 serverC 결제 조회 응답에 `amount`·`currency`를 포함한다.
+- `backend-e2e/SCENARIOS.md`가 도구와 무관한 시나리오 명세다. 테스트의 단계 이름(①~④)과 번호를 맞춘다.
+- 사전 점검은 HTTP(health·Kafka Connect REST)만 쓴다 — 셸·Docker CLI 의존 없음. 백엔드·프론트가 각자 같은 점검을 가진다(팀 소유 분리).
+
+**전환 조건 (REST Assured로 바꿀 때):** 백엔드팀이 Node·TypeScript를 다루지 않기로 하거나, 백엔드 테스트를 Gradle 안에서만 돌리는 것이 표준이 되거나, 서버 DTO와 응답 구조를 컴파일 시점에 맞춰야 할 때. 이때 `SCENARIOS.md`를 기준으로 Gradle 모듈(JUnit 5 + REST Assured + Awaitility)로 다시 만든다. 그 경우에도 UI E2E는 Playwright로 남아 도구가 두 벌이 되는 비용을 감수한다.
+
+**채택하지 않은 대안:**
+- Postman 컬렉션 + Newman → 현업에서 흔하고 팀 공유에 좋지만, 비동기 대기를 스크립트로 반복 요청해야 하고 큰 JSON이라 리뷰가 어렵다. Claude가 앱 화면을 조작할 수 없어 결과를 보여주려면 HTML 리포터 의존성이 더 필요. 수동 확인·공유용으로는 별도 검토(백로그).
+- REST Assured(Java 모듈) → 백엔드 언어로 소유하기 좋지만, UI E2E와 도구가 두 벌이 되고 결과를 화면으로 보기 불편, 새 의존성 2개.
+- 전환 대비 주석 코드 → 실행되지 않는 코드는 금방 낡는다. 시나리오 명세 + 전환 조건 기록으로 대신.

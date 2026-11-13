@@ -1,28 +1,37 @@
 # E2E 적용 값 — promotion 프로젝트
 
 범용 원칙은 같은 폴더의 `SKILL.md`. 이 파일은 이 프로젝트에만 해당하는 값이다.
+팀 가정: 백엔드팀·프론트팀이 분리돼 있다고 보고 각 팀이 자기 E2E를 소유한다 (실제 구현은 함께 해도).
 
-## 시나리오와 스크립트 위치 (작업 B에서 생성 예정)
+## E2E 두 층 — 무엇을 검증하느냐로 나누고, 필요한 것이 준비됐을 때 실행
 
-| 층 | 위치 | 대표 시나리오 |
-|------|------|------|
-| API E2E | `frontend/e2e/api/` (Playwright `request`) | 상품 생성 → 구매 → 주문·결제가 금액과 함께 PAID → 주문 상태 조회도 PAID |
-| UI E2E | `frontend/e2e/` | 구매 화면에서 구매 → 주문 상태 페이지에 PAID 표시 |
-| 사전 점검 | `frontend/e2e/preflight.ts` (Playwright `globalSetup`) | 아래 점검 대상 |
+| 층 | 검증하는 것 | 실행에 필요한 것 | 위치·실행 | 소유 |
+|------|------|------|------|------|
+| 백엔드 E2E | 서버 간 흐름의 최종 결과 (구매 → 결제 30,000 KRW PAID → 주문 PAID) | 백엔드만 (프론트·브라우저 불필요) | `backend-e2e/` — `npm test`, 시나리오 명세 `backend-e2e/SCENARIOS.md` | 백엔드팀 |
+| UI E2E | 사용자가 보는 화면 흐름 (구매 화면 30,000원 → 주문 상태 PAID 표시) | 프론트 + 백엔드 | `frontend/e2e/` — `npm run test:e2e` | 프론트팀 |
 
-## 사전 점검 대상
-- 컨테이너: `mysql`, `mysql-c`, `redis`, `redis-b`, `kafka`, `kafka-connect`, `discovery-service`, `server-a`, `server-b`, `server-c`
-- Debezium 커넥터 2개(`promotion-outbox-connector`, `payment-outbox-connector`)와 각 태스크가 RUNNING
-- serverA·B·C의 health 엔드포인트 응답
+| 상황 | 실행 |
+|------|------|
+| 백엔드만 구현됨 | 백엔드 E2E |
+| 프론트만 구현됨 | E2E 불가 — 프론트 컴포넌트 테스트(Vitest + MSW)로 검증 |
+| 둘 다 구현됨 | 백엔드 E2E + UI E2E (세 번째 별도 E2E는 없음) |
+
+- 도구: 두 층 모두 Playwright (백엔드 E2E는 `request`만 사용). 선택 이유·REST Assured 전환 조건은 `docs/design-notes.md`.
+- 근거: 백엔드 E2E는 단계(①~④)별 응답을 리포트에 첨부하고 trace를 항상 남긴다(`npm run report`). UI E2E는 확인 시점 스크린샷을 첨부한다(`E2E_SCREENSHOTS=1`이면 모든 화면 저장).
+
+## 사전 점검 대상 (HTTP만 사용 — `backend-e2e/preflight.ts`, `frontend/e2e/preflight.ts`)
+- serverA·B·C `/actuator/health` → UP (DB·Redis 상태 포함)
+- Debezium 커넥터 2개(`promotion-outbox-connector`, `payment-outbox-connector`)와 각 태스크가 RUNNING (Kafka Connect REST 8083)
+- 타임아웃 10초, 실패 시 1회 재확인. `E2E_SKIP_PREFLIGHT=1`로 생략 가능
 
 ## 실행 시점
 
 | 시점 | 실행 범위 |
 |------|------|
-| 로컬 (커밋 전) | 바꾼 부분의 테스트. 흐름을 건드렸으면 API E2E, 화면을 건드렸으면 UI E2E까지 |
-| CI – PR마다 | 백엔드 단위·통합·계약 테스트 + 프론트 lint·Vitest·build (UI E2E는 mock 기준) |
-| CI – main 머지 후 / 야간 / 수동 | 전체 스택 E2E (docker compose + API·UI E2E) |
-| 배포 후 | 스모크. 저장소 변수 `DEPLOY_ENABLED=true`로 배포가 실제로 돌았을 때만 실행 |
+| 로컬 (커밋 전) | 바꾼 부분의 테스트. 백엔드 흐름을 건드렸으면 백엔드 E2E, 화면을 건드렸으면 UI E2E까지 |
+| CI – PR마다 | `backend-ci.yml`: 백엔드 모듈별 병렬 테스트(단위·통합·계약, Gradle 빌드 캐시) / `frontend-ci.yml`: lint·Vitest·build. 경로 필터로 바뀐 쪽만 실행. E2E는 돌리지 않음 |
+| CI – main 머지 후 / 야간 / 수동 | 전체 스택 E2E — 백엔드 E2E + UI E2E (백로그 BL-007, 미구현) |
+| 배포 후 | 스모크 — 백엔드 E2E 재사용. 저장소 변수 `DEPLOY_ENABLED=true`로 배포가 실제로 돌았을 때만 (백로그 BL-018, 미구현) |
 
 ## 로컬 검증이 불가능할 때
 
