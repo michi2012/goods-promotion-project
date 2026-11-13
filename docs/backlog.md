@@ -23,10 +23,9 @@
 | BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준 (지금은 Vitest+MSW 컴포넌트 테스트로 대체) | 후속 작업 | 낮음 | BL-001 작업 중 논의 |
 | BL-008 | **결제 로드맵 3단계**: 대용량 배치 vs 실시간 분리 — 시드 데이터로 OFFSET vs 키셋 실측, 배치 전용 커넥션 풀. 읽기 복제본은 설계·답변 위주 | 로드맵 | 중간 | 결제 로드맵 |
 | BL-009 | 정산 2차: 부분 취소, PG 정산 내역 대사 | 로드맵 | 낮음 | 결제 로드맵 |
-| BL-010 | `values-local.yaml`(로컬 kind) serverA 데이터소스 DB 이름이 `promotion` — 실제는 `order` | 기술 부채 | 낮음 | PR #22 검증 |
-| BL-012 | Helm 각 Deployment의 `EUREKA_DEFAULT_ZONE` 환경변수가 K8s에서 미사용 | 기술 부채 | 낮음 | PR #21 |
 | BL-013 | `/plan` skill 문서의 Windows 전용 지시(PowerShell 빈 파일 생성, 백슬래시 경로) — 팀 운영 시 정리 | 기술 부채 | 낮음 | BL-000 작업 중 발견 |
 | BL-023 | `ci-cd.yaml`에 Git Flow 흔적: `branches: [dev, main]`, dev 환경 분기, `create-pr`(dev 배포 후 main PR 생성) job — 브랜치 전략은 GitHub Flow(main + 기능 브랜치). EKS 재가동 시 배포 환경(staging/prod) 설계와 함께 정리 | 기술 부채 | 낮음 | BL-019 작업 중 발견 |
+| BL-024 | codebot에 `application-k8s.yml` 없음 → K8s에서도 Eureka 클라이언트가 켜져 없는 서버에 등록 시도(실패 로그). 다른 모듈처럼 `eureka.client.enabled: false` + `K8sDiscoveryConfigTest` 추가 | 기술 부채 | 낮음 | BL-012 작업 중 발견 |
 | BL-014 | 로컬 DB 테스트 데이터 정리 (상품 id 19·21, userId 9001~9005 주문) | 정리 | 낮음 | PR #22 검증 |
 
 ## 검증 대기 (EKS 재가동 후)
@@ -47,3 +46,4 @@
 | BL-001 백엔드 E2E(`backend-e2e/`) + UI E2E PAID 확인·사전 점검 + 프론트 CI + PR CI 분리·병렬·Gradle 캐시 | #25 |
 | BL-011 orders 페이지 lint 3건 정리 (BL-001에 포함) | #25 |
 | BL-019 PR CI 필수 체크 대비 result job + `dev` 트리거 정리 + main 브랜치 보호 적용(필수 체크 `backend-ci-result`·`frontend-ci-result`) | #27 |
+| BL-010 `values-local.yaml` serverA DB 이름 `order` + BL-012 Helm 미사용 Eureka 설정 제거(`EUREKA_DEFAULT_ZONE` env 11곳·`eurekaDefaultZone`·`discovery:` 섹션) | #29 |

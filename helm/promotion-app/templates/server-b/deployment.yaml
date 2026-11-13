@@ -60,8 +60,6 @@ spec:
               value: {{ .Values.serverB.redis.port | quote }}
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.serverB.kafka.bootstrapServers | quote }}
-            - name: EUREKA_DEFAULT_ZONE
-              value: {{ .Values.serverB.eurekaDefaultZone | quote }}
             {{- if .Values.serverB.otlpEndpoint }}
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.serverB.otlpEndpoint | quote }}

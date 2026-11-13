@@ -63,8 +63,6 @@ spec:
               value: {{ .Values.userService.jwtSecret | quote }}
             - name: CORS_ALLOWED_ORIGINS
               value: {{ .Values.userService.corsAllowedOrigins | quote }}
-            - name: EUREKA_DEFAULT_ZONE
-              value: {{ .Values.userService.eurekaDefaultZone | quote }}
             {{- if .Values.userService.otlpEndpoint }}
             - name: MANAGEMENT_OTLP_TRACING_ENDPOINT
               value: {{ .Values.userService.otlpEndpoint | quote }}

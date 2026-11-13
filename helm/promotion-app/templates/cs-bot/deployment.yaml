@@ -48,8 +48,6 @@ spec:
               value: {{ .Values.csBot.linearApiKey | quote }}
             - name: LINEAR_TEAM_ID
               value: {{ .Values.csBot.linearTeamId | quote }}
-            - name: EUREKA_DEFAULT_ZONE
-              value: {{ .Values.csBot.eurekaDefaultZone | quote }}
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: {{ .Values.csBot.kafka.bootstrapServers | quote }}
             - name: ELASTICSEARCH_URIS
