@@ -54,7 +54,6 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 
 ## Step 2. `docs/plan.md` 작성
 사용자 답변을 받은 후, 다음 형식으로 작성한다.
-파일을 처음 작성할 때 내부 Write 도구에서 에러가 발생하지 않도록, 파일이 존재하지 않는다면 PowerShell 명령어(예: New-Item -Path docs\plan.md -ItemType File)를 사용해 빈 파일을 먼저 생성한 후 내용을 작성하라. 경로 작성 시 윈도우 환경에 맞게 백슬래시(\)를 사용하라.
 
 ```markdown
 # 계획서: [작업 제목]
@@ -103,7 +102,6 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 ## Step 3. `docs/context.md` 작성
 
 미래의 나(또는 다른 개발자)가 이 결정을 이해할 수 있도록 작성한다.
-파일을 처음 작성할 때 내부 Write 도구에서 에러가 발생하지 않도록, 파일이 존재하지 않는다면 PowerShell 명령어(예: New-Item -Path docs\context.md -ItemType File)를 사용해 빈 파일을 먼저 생성한 후 내용을 작성하라. 경로 작성 시 윈도우 환경에 맞게 백슬래시(\)를 사용하라.
 
 ```markdown
 # 맥락 노트: [작업 제목]
@@ -140,7 +138,6 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 ## Step 4. `docs/checklist.md` 작성
 
 작업 진행 추적용. 단순하고 실용적으로.
-파일을 처음 작성할 때 내부 Write 도구에서 에러가 발생하지 않도록, 파일이 존재하지 않는다면 PowerShell 명령어(예: New-Item -Path docs\checklist.md -ItemType File)를 사용해 빈 파일을 먼저 생성한 후 내용을 작성하라. 경로 작성 시 윈도우 환경에 맞게 백슬래시(\)를 사용하라.
 
 ```markdown
 # 체크리스트: [작업 제목]
@@ -189,7 +186,7 @@ description: 비단순 작업 시작 전 반드시 호출. 가정 정리 → 계
 이 자동 연동이 동작하려면 브랜치명에 이슈 식별자가 포함되어야 한다 — `feature/mic-{n}-{설명}` 형식(예: `feature/mic-15-promotion-api`)으로 브랜치를 생성할 것을 사용자에게 안내한다.
 
 승인을 받으면, Step 6(코드 작성)을 시작하기 전에 다음만 수행한다:
-1. `save_comment`로 해당 이슈에 `docs/plan.md` 경로를 코멘트로 남긴다 (예: "계획서 작성 완료: docs\\plan.md").
+1. `save_comment`로 해당 이슈에 `docs/plan.md` 경로를 코멘트로 남긴다 (예: "계획서 작성 완료: docs/plan.md").
 
 ---
 

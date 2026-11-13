@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-13
-- **다음 ID: BL-025** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-026** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -25,6 +25,7 @@
 | BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준 (지금은 Vitest+MSW 컴포넌트 테스트로 대체) | 후속 작업 | 낮음 | M | BL-001 작업 중 논의 |
 | BL-009 | 정산 2차: 부분 취소, PG 정산 내역 대사 | 로드맵 | 낮음 | L | 결제 로드맵 |
 | BL-013 | `/plan` skill 문서의 Windows 전용 지시(PowerShell 빈 파일 생성, 백슬래시 경로) — 팀 운영 시 정리 | 기술 부채 | 낮음 | S | BL-000 작업 중 발견 |
+| BL-025 | 명령 문서의 OS 의존: `/db-migration`·`/coverage`·`/release-notes`가 PowerShell 스크립트로 집계·필터링, `/codex-review`에 "Windows 절대경로" — 팀 운영 시 Mac/Linux에서 동작 안 함. 프로젝트 런타임(Node/Gradle) 또는 OS 중립 지시로 전환 | 기술 부채 | 낮음 | M | BL-013 작업 중 발견 |
 | BL-024 | codebot에 `application-k8s.yml` 없음 → K8s에서도 Eureka 클라이언트가 켜져 없는 서버에 등록 시도(실패 로그). 다른 모듈처럼 `eureka.client.enabled: false` + `K8sDiscoveryConfigTest` 추가 | 기술 부채 | 낮음 | S | BL-012 작업 중 발견 |
 | BL-014 | 로컬 DB 테스트 데이터 정리 (상품 id 19·21, userId 9001~9005 주문) | 정리 | 낮음 | S | PR #22 검증 |
 
