@@ -191,6 +191,7 @@ sequenceDiagram
 | GET | /api/v1/admin/dlt | UNRESOLVED DLT 전체 목록 조회 (aiops DltTools 전용) | 퍼블릭 (내부망) |
 | POST | /api/v1/admin/dlt/{dltId}/retry | DLT 메시지 수동·자동 재처리 | 퍼블릭 (내부망) |
 | GET | /api/v1/admin/dlt/orders/{orderId} | 주문별 DLT 단건 조회 (cs-bot 내부 호출) | 퍼블릭 (내부망) |
+| GET | /v3/api-docs | OpenAPI 스펙 (springdoc `webmvc-api`, Swagger UI 없음). `OpenApiContractTest`가 `contracts/server-a-openapi.yaml`과 비교 | 퍼블릭 (Gateway 미라우팅) |
 
 ### serverB (8081)
 | 메서드 | URL | 설명 | 인증 |

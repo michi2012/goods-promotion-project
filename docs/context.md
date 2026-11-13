@@ -1,38 +1,34 @@
-# 맥락 노트: Saga 안전망 공백 수정
+# 맥락 노트: serverA 계약 테스트 동작시키기
 
 ## 왜 이 방식을 선택했는가
-결제 금액 기본기 작업의 서버 간 흐름 검증 중, serverC에는 PAID 30,000원이 남았는데 주문은 EXPIRED이고 망취소가 나가지 않은 사례가 재현됐다(order 01a1ce44…). 원인은 두 갈래다.
+`OpenApiContractTest`(#18 추가)는 serverA가 노출하는 `/v3/api-docs`를 계약 원본 `contracts/server-a-openapi.yaml`과 비교하는 drift-check다. 그런데 두 겹으로 항상 실패하고 있었다(main에서도 동일, worktree로 확인).
+1. serverA에 springdoc 의존성이 없어 `/v3/api-docs` 자체가 없다 → 500.
+2. 테스트가 그냥 `@SpringBootTest`라 실제 DB 설정을 그대로 쓴다. 로컬은 `localhost:3306/order`(없음), CI는 `SPRING_DATASOURCE_URL=jdbc:h2:mem`인데 `driver-class-name`이 MySQL로 고정 → 컨텍스트 로드 실패.
 
-1. `SagaTimeoutScheduler`(#20)가 serverC 결제조회 결과 UNKNOWN(인스턴스 미발견·조회 실패)을 NOT_PAID와 똑같이 EXPIRED로 처리한다. `handleSagaFailure`는 Redis Saga 상태의 `paymentCompleted=true`일 때만 `payment-cancel`을 보내는데, 결과 이벤트가 아직 안 왔으면 이 플래그가 없다.
-2. 실패 확정(Saga 상태 삭제) 뒤 `payment-result(success)`가 늦게 오면 `markPaymentCompleted()`가 삭제된 키에 HSET해 `createdAt` 없는 좀비 키를 되살리고, `tryCompleteSaga()`는 상태 불완전으로 반환한다 — 망취소 없음. 좀비 키는 타임아웃 스캐너가 `createdAt=0`이라 영원히 건너뛴다. 처리 중(PROCESSING) 타임아웃, DB 재대사 `reconcileToFailed` 뒤에도 같은 경로가 생긴다.
-
-사용자 결정 (2026-11-12):
-- **UNKNOWN → 건너뛰고 다음 주기 재시도.** 모르는 상태에서 판단하지 않는다. `OrderReconciliationScheduler`가 이미 같은 방식(UNKNOWN 재시도)이라 일관된다.
-- **늦은 결제 성공 보상 포함.** 결과 컨슈머에서 Saga 상태가 없으면 플래그를 찍지 않고, 주문이 EXPIRED/FAILED면 `payment-cancel`을 보낸다. 늦은 성공이 생기는 모든 경로(UNKNOWN 이후·처리 중 타임아웃·DB 재대사 실패)를 한 곳에서 막는다.
+결정 (2026-11-13):
+- springdoc은 **`webmvc-api` 2.8.5** (사용자 선택). 계약 테스트에 필요한 건 `/v3/api-docs`뿐이고, Swagger UI를 추가로 노출할 이유가 없다. 버전은 같은 Boot 3.5.14에서 동작 중인 serverB와 맞춘다.
+- DB 문제는 **테스트가 기존 `AbstractSpringBootTest`를 상속**하게 해서 푼다. `@DynamicPropertySource`가 환경변수보다 우선하므로 CI의 H2 URL도 Testcontainers MySQL로 덮인다. `ServerAApplicationTests`가 이미 같은 방식으로 통과 중이다.
 
 ## 검토했으나 채택하지 않은 대안
-### 대안 A: UNKNOWN이면 EXPIRED + 무조건 망취소
-- 왜 안 썼나: 결제가 아직 처리 전이면 취소가 먼저 도착하고 결제가 나중에 승인되는 경쟁이 생긴다(serverC는 취소 대상 행이 없으면 0건 갱신 후 끝, 이후 결제 진행). 막으려면 serverC에 취소 선기록·결제 차단 로직이 필요해 범위가 커진다.
+### 대안 A: `webmvc-ui` (serverB와 동일)
+- 왜 안 썼나: Swagger UI 정적 리소스·`/swagger-ui` 노출이 계약 테스트에 불필요. 사용자가 api 모듈 선택.
 
-### 대안 B: `PaymentQueryClient`가 PROCESSING을 UNKNOWN으로 분류
-- 왜 안 썼나: 처리 중 타임아웃은 늦은 성공 보상으로 커버된다. serverA·serverC 조회 계약 변경까지 필요해 이번 범위에서 제외.
+### 대안 B: `driver-class-name` 제거 + H2 테스트 의존성
+- 왜 안 썼나: 컨텍스트에 Redis·Kafka도 필요하고, Flyway MySQL 마이그레이션(`MODIFY COLUMN`, 다중 `ADD COLUMN`)의 H2 호환을 따로 맞춰야 한다. 기존 Testcontainers 베이스 재사용이 단순.
 
-### 대안 C: Saga 플래그 기록을 Lua로 원자화(키 있을 때만 HSET)
-- 왜 안 썼나: `exists` 확인과 HSET 사이 경쟁 창이 매우 짧고, 발생해도 결과가 기존 동작(좀비 키)과 같다. 과설계로 판단.
+### 대안 C: 계약 테스트 삭제·비활성화
+- 왜 안 썼나: contract-first 구조의 유일한 백엔드 drift-check.
 
 ## 기존 코드베이스 컨벤션
-- 스케줄러: `serverA/.../scheduler/SagaTimeoutScheduler.java`, `OrderReconciliationScheduler.java` (`switch` on `PaymentCheckStatus`)
-- 보상: `SagaOrchestratorService` `@Transactional` 메서드 + Outbox 저장 (`handleSagaFailure`, `reconcileToPaid/Failed`)
-- 메트릭: `meterRegistry.counter("saga.expired.total")` 패턴
-- 테스트: `SagaTimeoutSchedulerTest`, `SagaOrchestratorServiceTest`(Mockito), `SagaStateServiceTest`
+- 통합 테스트 베이스: `serverA/src/test/java/promotion/serverA/support/AbstractSpringBootTest.java` (Singleton Container 패턴)
+- 계약 테스트: `serverA/.../contract/OpenApiContractTest.java`, `serverB/.../contract/OpenApiContractTest.java`
+- springdoc 사용 예: `serverB/build.gradle`
 
 ## 관련 파일/위치
-- `serverA/.../scheduler/SagaTimeoutScheduler.java` — 타임아웃 + 결제조회
-- `serverA/.../kafka/SagaResultConsumer.java` — `payment-result`/`status-update-result` 수신
-- `serverA/.../service/SagaOrchestratorService.java` — 완료·실패·보정·늦은 성공 보상
-- `serverA/.../service/SagaStateService.java` — Redis Saga 상태
-- `serverA/.../client/PaymentQueryClient.java` — PAID/NOT_PAID/UNKNOWN 분류 (변경 없음)
-- `serverC/.../kafka/PaymentCancelConsumer.java` — 망취소 (변경 없음)
+- `serverA/build.gradle` — 의존성
+- `serverA/src/test/java/promotion/serverA/contract/OpenApiContractTest.java` — 계약 테스트
+- `contracts/server-a-openapi.yaml` — 계약 원본
+- `.github/workflows/ci-cd.yaml` — CI (H2 환경변수, `./gradlew clean test`)
 
 ## 외부 참조
-- 없음
+- springdoc-openapi 2.x (Spring Boot 3)
