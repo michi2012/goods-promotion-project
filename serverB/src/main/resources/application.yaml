@@ -51,6 +51,11 @@ spring:
       # 프로듀서가 메시지를 발행할 때 트레이스 헤더를 자동으로 주입합니다.
       observation-enabled: true
 
+# springdoc은 produces 미지정 응답을 */*로 기술한다. 실제 응답은 JSON이고 계약(contracts/openapi.yaml)도
+# application/json이므로, 생성 스펙이 사실과 계약에 맞도록 기본값을 지정한다 (OpenApiContractTest 비교 대상).
+springdoc:
+  default-produces-media-type: application/json
+
 external:
   server-c:
     url: http://localhost:8082
