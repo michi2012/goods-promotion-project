@@ -1,21 +1,36 @@
 name: frontend-ci
 
-# 프론트 검사. 프론트나 API 계약이 바뀐 PR에서만 실행한다.
+# 프론트 검사. 프론트나 API 계약이 바뀐 PR에서만 검사한다 (그 외 PR은 check skip).
+# 워크플로 자체는 모든 PR에서 실행되고, frontend-ci-result job이 항상 실행되어 필수 체크로 쓰인다 (BL-019).
 # UI E2E는 실제 백엔드가 필요해 여기서 돌리지 않는다 (로컬 + 백로그 BL-007).
 on:
   pull_request:
-    branches: [dev, main]
-    paths:
-      - 'frontend/**'
-      - 'contracts/**'
-      - '.github/workflows/frontend-ci.yml'
+    branches: [main]
 
 concurrency:
   group: frontend-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - 'contracts/**'
+              - '.github/workflows/frontend-ci.yml'
+
   check:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,3 +49,13 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
+
+  # 필수 체크 대상. skipped(프론트 변경 없음)는 통과, failure/cancelled는 실패.
+  result:
+    name: frontend-ci-result
+    needs: [changes, check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
