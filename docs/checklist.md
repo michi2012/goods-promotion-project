@@ -2,7 +2,7 @@
 
 - 마지막 업데이트: 2026-11-13
 
-## [진행 중] BL-019
+## [완료] BL-019
 
 ### 진행 상황
 - [x] 단계 1: backend-ci 변경 감지·result job
@@ -10,17 +10,18 @@
 - [x] 단계 2: frontend-ci 같은 구조
   - [x] 검증 통과 (actionlint 1.7.7, exit 0)
 - [x] 단계 3: 문서 갱신 (backlog BL-023 추가, design-notes 섹션 추가)
-- [ ] 단계 4: push + PR → 실제 CI 실행 확인 (승인 후)
-  - [ ] test 9개·check·result 2개 성공 (`gh pr checks`)
-- [ ] 단계 5: 머지 후 main 보호 적용 (명령 재확인 후)
-  - [ ] 설정 조회로 확인
-- [ ] 단계 6: 문서 전용 PR로 skip 동작 검증
-  - [ ] 테스트 skipped, result 성공, mergeStateStatus CLEAN
+- [x] 단계 4: push + PR → 실제 CI 실행 확인 (PR #27)
+  - [x] test 9개·check·result 2개 성공 (`gh pr checks 27`)
+- [x] 단계 5: 머지 후 main 보호 적용 (명령 재확인 후)
+  - [x] 설정 조회로 확인 (checks: backend-ci-result·frontend-ci-result, strict false, admins true, approvals 0)
+- [x] 단계 6: 문서 전용 PR로 skip 동작 검증 (PR #28)
+  - [x] 테스트 skipped, result 성공, mergeStateStatus CLEAN (`gh pr checks 28`)
 
 ### 최종 검증
-- [ ] 성공 기준 5개 확인
-- [ ] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (`ci-cd.yaml` 미변경)
-- [ ] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인
+- [x] 성공 기준 5개 확인
+  - main push 경로 필터 유지 확인: #27 머지(cccec68)에서 backend-ci 실행, 문서 전용 #26(6905917)에선 미실행
+- [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (`ci-cd.yaml` 미변경)
+- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (#27: 워크플로 2개 + 문서 5개)
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
 - ~~`ci-cd.yaml` dev 흔적~~ → 백로그 BL-023으로 이전 완료

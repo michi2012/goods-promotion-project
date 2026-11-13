@@ -8,7 +8,6 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-019 | 필수 체크 대비 CI result job(skip 처리) + main 브랜치 보호 + CI의 `dev` 트리거 정리 | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순)
 | ID | 항목 | 분류 | 우선순위 | 출처 |
@@ -47,3 +46,4 @@
 | BL-000 작업 규칙 정비 (범용 e2e skill + 단일 백로그 + 개인 환경 규칙 분리) | #24 |
 | BL-001 백엔드 E2E(`backend-e2e/`) + UI E2E PAID 확인·사전 점검 + 프론트 CI + PR CI 분리·병렬·Gradle 캐시 | #25 |
 | BL-011 orders 페이지 lint 3건 정리 (BL-001에 포함) | #25 |
+| BL-019 PR CI 필수 체크 대비 result job + `dev` 트리거 정리 + main 브랜치 보호 적용(필수 체크 `backend-ci-result`·`frontend-ci-result`) | #27 |
