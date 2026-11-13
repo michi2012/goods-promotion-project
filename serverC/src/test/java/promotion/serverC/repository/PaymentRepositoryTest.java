@@ -13,6 +13,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import promotion.serverC.dto.PaymentResponse;
 import promotion.serverC.dto.PurchaseMessage;
 
 import java.util.Map;
@@ -109,6 +110,30 @@ class PaymentRepositoryTest {
                 "SELECT amount, currency FROM payments WHERE order_id = ?", "order-legacy");
         assertThat(row.get("amount")).isNull();
         assertThat(row.get("currency")).isNull();
+    }
+
+    @Test
+    @DisplayName("주문 ID로 조회하면 결제 금액과 통화를 함께 반환한다")
+    void findByOrderId_금액포함() {
+        paymentRepository.claimOrder(message("order-find"));
+
+        PaymentResponse found = paymentRepository.findByOrderId("order-find").orElseThrow();
+
+        assertThat(found.amount()).isEqualTo(30_000L);
+        assertThat(found.currency()).isEqualTo("KRW");
+        assertThat(found.status()).isEqualTo("PROCESSING");
+    }
+
+    @Test
+    @DisplayName("금액 없는 옛 결제는 조회 시 금액·통화가 null이다")
+    void findByOrderId_옛결제_금액null() {
+        paymentRepository.claimOrder(new PurchaseMessage("order-find-legacy", 1L, 4L, 1, null, null, null,
+                "CARD", "주소", "01234", "010-1234-5678", "test@test.com", "메모", "127.0.0.1"));
+
+        PaymentResponse found = paymentRepository.findByOrderId("order-find-legacy").orElseThrow();
+
+        assertThat(found.amount()).isNull();
+        assertThat(found.currency()).isNull();
     }
 
     private PurchaseMessage message(String orderId) {
