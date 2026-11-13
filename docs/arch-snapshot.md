@@ -103,9 +103,13 @@ sequenceDiagram
     T->>SC: PaymentQueryClient.checkPaymentStatus
     alt PAID
         T->>A: reconcileToPaid (Order 기준 보정)
-    else NOT_PAID / UNKNOWN
+    else NOT_PAID
         T->>A: handleSagaFailure("TIMEOUT") → EXPIRED
+    else UNKNOWN
+        T->>T: 판단 보류, 다음 주기(30s) 재조회
     end
+
+    Note over A: Saga 종료 뒤 payment-result(success)가 늦게 오면<br/>주문이 EXPIRED/FAILED일 때 payment-cancel 발행 (compensateLatePaymentSuccess)
 
     R->>R: DB orders: status=PENDING AND createdAt < now-5분 (Redis 상태 유실 대비)
     R->>SC: PaymentQueryClient.checkPaymentStatus
@@ -247,7 +251,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 모듈 | 클래스명 | 주기 | 역할 |
 |------|----------|------|------|
-| serverA | `SagaTimeoutScheduler` | fixedDelay=30초 | `saga:state:*` SCAN → 3분 초과 미완료 Saga → serverC 결제조회 후 PAID면 `reconcileToPaid`, 아니면 EXPIRED 처리 |
+| serverA | `SagaTimeoutScheduler` | fixedDelay=30초 | `saga:state:*` SCAN → 3분 초과 미완료 Saga → serverC 결제조회 후 PAID면 `reconcileToPaid`, NOT_PAID면 EXPIRED, UNKNOWN이면 판단 보류(다음 주기 재조회) |
 | serverA | `OrderReconciliationScheduler` | fixedDelay=120초 | DB에서 5분 초과 PENDING 주문 조회(Redis Saga 상태 유실 대비) → 결제조회 결과로 PAID/FAILED 보정, UNKNOWN은 다음 주기 |
 | serverA | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
 | serverC | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |

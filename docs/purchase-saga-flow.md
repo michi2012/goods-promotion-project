@@ -64,7 +64,10 @@ Debezium이 두 Outbox 레코드를 각각 Kafka로 실어나르면, serverC와 
 `payment-result`와 `status-update-result` 두 토픽을 각각 별도 `@KafkaListener` 메서드로 구독한다. 어느 쪽이 먼저 와도 동일하게 처리:
 
 1. 메시지의 `success`가 `false`면 즉시 `SagaOrchestratorService.handleSagaFailure(orderId, errorMessage)` 호출하고 종료.
-2. `success`가 `true`면 `SagaStateService.markStatusUpdateCompleted()` 또는 `markPaymentCompleted()`로 Redis Hash 플래그를 세우고, **두 플래그가 모두 true**가 된 순간(먼저 도착한 메시지는 `false` 반환, 나중 메시지가 `true` 반환)에만 `SagaOrchestratorService.tryCompleteSaga(orderId)`를 호출한다.
+2. `success`가 `true`면 먼저 `SagaStateService.exists(orderId)`로 Saga가 아직 진행 중인지 확인한다. **Saga 상태가 이미 없으면(종료·삭제됨) 플래그를 기록하지 않는다** — 없는 키에 HSET하면 `createdAt` 없는 좀비 키가 생겨 타임아웃 스캐너가 영원히 건너뛰기 때문이다.
+   - `payment-result(success)`가 늦게 온 경우 → `SagaOrchestratorService.compensateLatePaymentSuccess()` (아래 4-C).
+   - `status-update-result(success)`가 늦게 온 경우 → 로그만 남기고 무시.
+3. 진행 중이면 `markStatusUpdateCompleted()` 또는 `markPaymentCompleted()`로 Redis Hash 플래그를 세우고, **두 플래그가 모두 true**가 된 순간(먼저 도착한 메시지는 `false` 반환, 나중 메시지가 `true` 반환)에만 `SagaOrchestratorService.tryCompleteSaga(orderId)`를 호출한다.
 
 ### 4-A. 성공 확정 — `tryCompleteSaga()`
 1. `SagaStateData` 조회 — 없으면(이미 삭제됨) 또는 `isFailed()`가 true면 즉시 반환.
@@ -84,11 +87,21 @@ Debezium이 두 Outbox 레코드를 각각 Kafka로 실어나르면, serverC와 
 7. `SagaState` 삭제.
 8. serverC `PaymentCancelConsumer`가 `payment-cancel`을 소비해 `pgClient.cancelPayments()` 호출 후 결제 상태를 `CANCELLED`로 변경.
 
+> 5번의 "결제 성공 여부"는 **그 시점의 Saga 플래그**로만 판단한다. 실패 확정 뒤 결제 성공이 늦게 도착하면 여기서는 놓치므로 4-C가 따로 보상한다.
+
+### 4-C. 늦게 도착한 결제 성공 보상 — `compensateLatePaymentSuccess(orderId)`
+Saga가 끝난(상태 삭제) 뒤 `payment-result(success)`가 오는 경우. 처리 중(PROCESSING) 타임아웃, DB 재대사 `reconcileToFailed` 이후, 결과 이벤트 지연 등에서 생긴다.
+1. `orderRepository.findByOrderId()`로 주문 상태 확인.
+2. **EXPIRED/FAILED** → 고객 결제만 승인된 채 남아 있으므로 `payment-cancel` Outbox 저장(망취소) + `saga.late_payment_cancel.total` 증가.
+3. **PAID** → 중복 수신이라 무시. **PENDING** → Saga 상태만 유실된 경우라 DB 재대사(`OrderReconciliationScheduler`)에 맡긴다. 주문 없음 → 경고 로그.
+
 ## 5. 타임아웃 처리 — `SagaTimeoutScheduler`
 
 - `@Scheduled(fixedDelay=30_000)` — 30초마다 `saga:state:*` 패턴을 `SCAN`(count=100)으로 순회.
-- 이미 `failed`인 항목은 스킵. `createdAt` 대비 경과시간이 `TIMEOUT_MS=3*60*1000`(**3분**)을 넘으면 `handleSagaFailure(orderId, "TIMEOUT")` 호출 + `saga.expired.total` 카운터 증가.
-- > ⚠️ `docs/arch-snapshot.md`의 "스케줄러 및 배치 잡" 표는 이 스케줄러를 `fixedDelay=60초 / 10분 초과`로 기재하고 있으나, 실제 코드는 `30초 / 3분`이다(README.md 본문 서술과는 일치). arch-snapshot.md는 이번 작업 범위가 아니라 수정하지 않았다 — 별도 확인 필요.
+- 이미 `failed`인 항목, `createdAt`이 없는 항목은 스킵. `createdAt` 대비 경과시간이 `TIMEOUT_MS=3*60*1000`(**3분**)을 넘으면 EXPIRED 처리 전에 `PaymentQueryClient.checkPaymentStatus()`로 serverC 실제 결제 상태를 조회한다.
+  - `PAID` → `reconcileToPaid()` (EXPIRED 대신 PAID 보정).
+  - `NOT_PAID` → `handleSagaFailure(orderId, "TIMEOUT")` + `saga.expired.total` 증가.
+  - `UNKNOWN`(serverC 인스턴스 미발견·조회 실패) → **판단하지 않고 건너뛴다.** Saga 상태를 그대로 두고 다음 30초 주기에 재조회 + `saga.timeout.payment_unknown` 증가. EXPIRED로 처리하면 Saga 플래그에 결제완료가 없어 실제 승인된 결제가 망취소 없이 남을 수 있기 때문이다. serverC가 오래 내려가 있으면 주문은 PENDING으로 남고, 복구되면 밀린 결제가 처리되어 정상 경로로 확정된다.
 
 ## 6. DLT (Dead Letter) 처리
 

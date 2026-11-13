@@ -85,12 +85,30 @@ SagaOrchestratorService.handleSagaFailure()
 
 ## Saga 타임아웃
 
-**결정:** `SagaTimeoutScheduler`가 60초마다 Redis SCAN으로 미완료 Saga 탐지
+**결정:** `SagaTimeoutScheduler`가 30초마다 Redis SCAN으로 미완료 Saga 탐지
 
 - 키 패턴: `saga:state:*`
-- 타임아웃 기준: 생성 후 **10분** 초과
+- 타임아웃 기준: 생성 후 **3분** 초과
 - 결과: `handleSagaFailure(orderId, "TIMEOUT")` → Order 상태 **EXPIRED** (FAILED와 구분)
 - 이유: 결제 응답이 없는 Saga를 무한 대기하면 Redis 상태 영구 잠김
+
+**결정 (추가): EXPIRED 전에 serverC 결제를 조회하고, 결과를 모르면(UNKNOWN) 판단을 미룬다. 실패 확정 뒤 늦게 온 결제 성공은 망취소로 보상한다.**
+
+- 조회 결과 `PAID` → PAID 보정, `NOT_PAID` → EXPIRED, `UNKNOWN`(serverC 미발견·조회 실패) → 건너뛰고 다음 주기 재조회.
+- `SagaResultConsumer`는 Saga 상태가 이미 없으면 플래그를 기록하지 않는다. `payment-result(success)`면 `compensateLatePaymentSuccess` — 주문이 EXPIRED/FAILED면 `payment-cancel` 발행.
+
+**이유:**
+- `handleSagaFailure`의 망취소 여부는 **그 시점 Saga 플래그(`paymentCompleted`)**로만 정해진다. 결과 이벤트가 아직 안 왔는데 UNKNOWN을 EXPIRED로 처리하면, serverC에서 실제 승인된 결제가 망취소 없이 남는다 (로컬 재현: serverC PAID 30,000원 + 주문 EXPIRED).
+- 실패 확정 뒤 결제 성공이 늦게 오면 기존 코드는 삭제된 키에 HSET해 `createdAt` 없는 **좀비 키**를 만들고(타임아웃 스캐너가 영원히 스킵) 망취소도 하지 않았다. 늦은 성공은 UNKNOWN 이후·처리 중 타임아웃·DB 재대사 실패 등 여러 경로에서 생기므로 결과 수신 지점 한 곳에서 막는다.
+
+**제약/불변식:**
+- serverC 장애가 길면 주문이 PENDING으로 남고 재고가 묶인다(`saga.timeout.payment_unknown`으로 관측). 최대 대기·알람은 미구현.
+- 결과 이벤트가 **영영 오지 않는** 경우(CDC 유실)는 막지 못한다 — serverC 측 재대사 등 별도 장치 필요.
+- 늦은 성공이 중복 수신되면 `payment-cancel`이 두 번 나갈 수 있다. serverC 취소는 상태 무관 CANCELLED 덮어쓰기라 모의 PG에서는 멱등이지만, 실제 PG의 중복 취소 응답 처리는 미검증.
+
+**채택하지 않은 대안:**
+- UNKNOWN이면 EXPIRED + 무조건 망취소 → 결제가 아직 처리 전이면 취소가 먼저 도착하고 결제가 나중에 승인되는 경쟁 발생(serverC 수정 필요).
+- Saga 플래그 기록을 Lua로 원자화(키 있을 때만 HSET) → `exists` 확인과 기록 사이 경쟁 창이 매우 짧고 결과가 기존 동작과 같아 과설계로 판단.
 
 ---
 
