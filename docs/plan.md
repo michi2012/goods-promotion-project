@@ -1,53 +1,44 @@
-# 계획서: serverA 계약 테스트(OpenApiContractTest) 동작시키기
+# 계획서: main CI 정상화 (serverB 계약 테스트 + 배포 스위치)
 
 - 작성일: 2026-11-13
-- 관련 이슈/티켓: 없음 (결제 금액 기본기 최종 검증 중 발견 — main에서도 항상 실패)
-- 브랜치: `feature/payment-amount` (후속 작업)
+- 관련 이슈/티켓: 없음 (PR #22 머지 후 main CI 테스트 실패 발견)
+- 브랜치: `fix/main-ci` (main 기준)
 
 ## 목표
-serverA의 계약 drift-check(`OpenApiContractTest`)가 실제로 실행되어, 구현 스펙(`/v3/api-docs`)과 `contracts/server-a-openapi.yaml`의 불일치를 잡도록 한다.
+main의 CI 테스트 job을 다시 통과시키고, EKS가 꺼져 있는 동안 머지할 때마다 배포 파이프라인이 실패로 표시되지 않게 한다.
 
 ## 성공 기준
-- [ ] serverA가 `/v3/api-docs`를 제공한다 (`springdoc-openapi-starter-webmvc-api:2.8.5`, 사용자 승인 완료)
-- [ ] `OpenApiContractTest` 2건 통과 (`gradlew :serverA:test --tests OpenApiContractTest`)
-- [ ] CI와 같은 환경변수(`SPRING_DATASOURCE_URL=jdbc:h2:mem:...`)로 실행해도 통과 (Testcontainers MySQL로 덮어쓰기 확인)
-- [ ] serverA 전체 테스트 82/82 통과 (`gradlew :serverA:test`)
+- [ ] serverB `OpenApiContractTest` 통과 (`gradlew :serverB:test --tests "promotion.serverB.contract.OpenApiContractTest"`, CI H2 환경변수 설정 상태 포함)
+- [ ] 이 PR의 CI `test` job이 초록색 (serverC·user-service 등 serverB 이후 모듈 테스트까지 실행·통과)
+- [ ] `DEPLOY_ENABLED`가 `'true'`가 아니면 머지 시 `set-environment`·`image-build`·`deploy`·`create-pr`이 실패가 아닌 skipped (워크플로 조건 검토 + 이 PR 머지 시 실제 실행 결과로 확인)
 
 ## 비범위 (Out of Scope)
-- CI 워크플로(`.github/workflows/ci-cd.yaml`)의 H2 환경변수 정리
-- `application.yaml`의 `driver-class-name` 변경
-- 운영 프로파일에서 `/v3/api-docs` 비활성화
-- Swagger UI 도입
-- 계약 비교 로직(필드명 집합 비교) 강화
+- CI 테스트 job의 H2 환경변수 정리, 프론트 CI 추가 (작업 B)
+- 배포 후 스모크 테스트 job (작업 B 이후)
+- AWS 자격 증명·EKS 재가동
+- 저장소 변수 `DEPLOY_ENABLED` 생성 (미설정 = 배포 꺼짐이 기본값이라 지금은 불필요)
 
 ## 단계별 작업 계획
 
-### 단계 1: springdoc 의존성 추가 ⚠️ 새 의존성 (승인 완료)
-- 변경 파일: `serverA/build.gradle`
-- 변경 내용 요약: `implementation 'org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.5'` 추가 (serverB와 같은 버전, UI 없는 api 모듈).
-- 검증 방법: `.\gradlew.bat :serverA:compileJava` + 단계 2 테스트에서 `/v3/api-docs` 응답 확인
-- 롤백 방법: `git checkout -- serverA/build.gradle`
+### 단계 1: serverB springdoc 응답 콘텐츠 타입 기본값
+- 변경 파일: `serverB/src/main/resources/application.yaml`
+- 변경 내용 요약: `springdoc.default-produces-media-type: application/json` 추가 (serverA와 동일). produces 미지정 응답이 `*/*`로 기술되어 계약 테스트가 `application/json`을 못 찾던 문제.
+- 검증 방법: `.\gradlew.bat :serverB:test --tests "promotion.serverB.contract.OpenApiContractTest"` (그대로 + CI H2 환경변수), 이어서 `.\gradlew.bat :serverB:test`
+- 롤백 방법: `git checkout -- serverB/src/main/resources/application.yaml`
 - 예상 소요: 짧음
 
-### 단계 2: 계약 테스트를 공용 통합 테스트 베이스에 연결
-- 변경 파일: `serverA/src/test/java/promotion/serverA/contract/OpenApiContractTest.java`
-- 변경 내용 요약: `AbstractSpringBootTest`(Testcontainers MySQL·Redis + EmbeddedKafka + `@DynamicPropertySource`)를 상속. 기존 `@SpringBootTest(webEnvironment = RANDOM_PORT)`와 비교 로직은 유지.
-- 검증 방법: `.\gradlew.bat :serverA:test --tests "promotion.serverA.contract.OpenApiContractTest"`, 이어서 CI 환경변수(H2 URL)를 설정한 채 같은 명령 재실행
-- 롤백 방법: `git checkout --` 해당 파일
+### 단계 2: 배포 스위치 `DEPLOY_ENABLED` ⚠️ 인프라(CI/CD) 변경
+- 변경 파일: `.github/workflows/ci-cd.yaml`
+- 변경 내용 요약: `set-environment` 조건을 `github.event.pull_request.merged == true && vars.DEPLOY_ENABLED == 'true'`로 변경. 이 job을 `needs`로 기다리는 `image-build`·`deploy`·`create-pr`이 함께 skipped. 주석으로 스위치 의미와 켜는 방법(저장소 변수 `DEPLOY_ENABLED=true`) 명시.
+- 검증 방법: 워크플로 YAML 문법 확인(파싱), job 의존 관계 검토. 실제 동작은 이 PR 머지 시 Actions 실행 결과로 확인
+- 롤백 방법: `git checkout -- .github/workflows/ci-cd.yaml`
 - 예상 소요: 짧음
-
-### 단계 3: 전체 회귀 + 문서
-- 변경 파일: `docs/arch-snapshot.md`
-- 변경 내용 요약: serverA 전체 테스트 실행. arch-snapshot에 serverA `/v3/api-docs`(springdoc api) 및 계약 테스트 동작 반영.
-- 검증 방법: `.\gradlew.bat :serverA:test` 82/82
-- 롤백 방법: `git checkout --` 해당 파일
-- 예상 소요: 보통
 
 ## 리스크 및 대응
-- 리스크: springdoc 2.8.5와 Boot 3.5.14 호환성 → 대응: serverB가 같은 조합으로 동작 중
-- 리스크: 하위 클래스의 `@SpringBootTest(webEnvironment = RANDOM_PORT)`가 베이스의 `@SpringBootTest`와 다른 컨텍스트를 만들어 테스트 시간이 늘어남 → 대응: 컨텍스트 1개 추가 수준, 허용
-- 리스크: 계약 테스트가 실제로 불일치를 찾아 실패 → 대응: 계약을 고칠지 구현을 고칠지는 사용자 판단 (테스트 주석 원칙), 발견 시 정지 후 보고
+- 리스크: serverB 이후 모듈(serverC, user-service 등) 테스트가 CI에서 오랜만에 실행되어 다른 실패가 드러남 → 대응: 이 PR CI 결과로 확인, 드러나면 정지 후 보고(범위 결정)
+- 리스크: 변수 미설정 시 배포가 꺼지는 기본값이라, EKS를 다시 켤 때 변수 설정을 잊으면 배포가 안 됨 → 대응: 워크플로 주석 + `docs/design-notes.md`/PR 본문에 명시
+- 리스크: `create-pr`(dev → main 릴리스 PR 자동 생성)도 함께 꺼짐 → 대응: 원래 `deploy`에 의존하던 job이라 동작 변화 없음
 
 ## 의존성
-- Docker (Testcontainers)
-- 신규 Gradle 의존성: `org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.5` (사용자 승인 2026-11-13)
+- GitHub Actions 저장소 변수(`vars.DEPLOY_ENABLED`) — 미설정 시 배포 꺼짐
+- 로컬 검증: Docker (serverB 테스트 컨텍스트)

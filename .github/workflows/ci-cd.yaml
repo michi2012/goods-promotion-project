@@ -40,7 +40,10 @@ jobs:
         run: ./gradlew clean test
 
   set-environment:
-    if: github.event.pull_request.merged == true
+    # 배포 스위치: 저장소 변수 DEPLOY_ENABLED가 'true'일 때만 머지 시 배포 파이프라인을 실행한다.
+    # 미설정/false면 set-environment가 skipped → image-build·deploy·create-pr도 needs로 연쇄 skipped (실패 아님).
+    # EKS를 다시 켤 때: Settings → Secrets and variables → Actions → Variables에 DEPLOY_ENABLED=true
+    if: github.event.pull_request.merged == true && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
