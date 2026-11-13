@@ -36,14 +36,16 @@ class PaymentControllerTest {
     void getByOrderId_Success() throws Exception {
         // given
         String orderId = "trace-1234";
-        PaymentResponse response = new PaymentResponse(orderId, 1L, 4L, 1, "CARD", "PAID", LocalDateTime.now());
+        PaymentResponse response = new PaymentResponse(orderId, 1L, 4L, 1, 15_000L, "KRW", "CARD", "PAID", LocalDateTime.now());
         when(paymentService.getByOrderId(orderId)).thenReturn(response);
 
         // when & then
         mockMvc.perform(get("/api/v1/payments/{orderId}", orderId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value(orderId))
-                .andExpect(jsonPath("$.status").value("PAID"));
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.amount").value(15000))
+                .andExpect(jsonPath("$.currency").value("KRW"));
     }
 
     @Test
@@ -64,8 +66,8 @@ class PaymentControllerTest {
         // given
         Long userId = 1L;
         List<PaymentResponse> responses = List.of(
-                new PaymentResponse("order-1", userId, 4L, 1, "CARD", "PAID", LocalDateTime.now()),
-                new PaymentResponse("order-2", userId, 5L, 2, "CARD", "PAID", LocalDateTime.now())
+                new PaymentResponse("order-1", userId, 4L, 1, 15_000L, "KRW", "CARD", "PAID", LocalDateTime.now()),
+                new PaymentResponse("order-2", userId, 5L, 2, 30_000L, "KRW", "CARD", "PAID", LocalDateTime.now())
         );
         when(paymentService.getByUserId(userId, 0, 20)).thenReturn(responses);
 

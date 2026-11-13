@@ -131,12 +131,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 테스트 분업 원칙
 
-**기준은 "누가 실행하냐"가 아니라 "실행 비용과 환경 의존성"이다.** CI가 이미 재검증하는 영역(현재 백엔드)에서는 로컬 실행이 속도 최적화일 뿐이라 Claude가 직접 돌려도 안전하다. CI가 없는 영역(현재 프론트)은 로컬 실행이 유일한 방어선이라 오히려 Claude가 더 적극적으로 돌려야 한다.
+**기준은 "누가 실행하냐"가 아니라 "실행 비용과 환경 의존성"이다.** PR CI(`backend-ci`·`frontend-ci`)가 재검증하는 영역(백엔드 테스트, 프론트 lint·Vitest·build)에서는 로컬 실행이 속도 최적화일 뿐이라 Claude가 직접 돌려도 안전하다. CI가 돌리지 않는 영역(E2E — 백엔드 E2E·UI E2E)은 로컬 실행이 유일한 방어선이라 오히려 Claude가 더 적극적으로 돌려야 한다.
 
 | 테스트 종류 | 예시 | 실행 담당 |
 |------|------|------|
 | 빠르고 외부 인프라 불필요 | 백엔드 단위/슬라이스(`@WebMvcTest`, `@DataJpaTest`, Mockito 순수 단위, 외부 인프라 없이 뜨는 `@SpringBootTest`), 프론트 `npm run test`(Vitest) | **Claude가 직접 실행.** 백엔드는 방금 작성/수정한 클래스만 `--tests` 필터로, 프론트는 전체 스위트로. 통과할 때까지 수정 |
-| 외부 인프라 필요 또는 전체 스위트 | Testcontainers, 다중 모듈 `gradlew test`, `npm run test:e2e`(Playwright — 브라우저+실제 백엔드/Prism 필요) | 필요한 환경(DB/Redis/Kafka/백엔드 서버 등)이 **이미 떠 있으면** Claude가 직접 실행. 없으면 사용자에게 실행을 요청 — Claude가 그 인프라를 새로 띄우면서까지 실행하지는 않음(그건 "커밋 전 로컬 E2E 검증" 규칙의 영역) |
+| 외부 인프라 필요 또는 전체 스위트 | Testcontainers, 다중 모듈 `gradlew test`, 백엔드 E2E `backend-e2e/ npm test`(실제 백엔드 필요), UI E2E `npm run test:e2e`(브라우저+실제 백엔드 필요) | 필요한 환경(DB/Redis/Kafka/백엔드 서버 등)이 **이미 떠 있으면** Claude가 직접 실행. 없으면 사용자에게 실행을 요청 — Claude가 그 인프라를 새로 띄우면서까지 실행하지는 않음(그건 "커밋 전 로컬 E2E 검증" 규칙의 영역) |
 
 - 프로덕션 코드 변경 시 → 대응하는 테스트도 반드시 함께 수정할 것.
 - 새 클래스 추가 시 → 테스트 파일도 함께 생성할 것.

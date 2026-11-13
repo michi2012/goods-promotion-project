@@ -1,0 +1,13 @@
+{
+  "name": "backend-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "백엔드 E2E — 떠 있는 serverA·B·C·Kafka·CDC 전체에 HTTP로 요청해 최종 결과를 확인한다. 프론트·브라우저 불필요",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

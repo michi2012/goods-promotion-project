@@ -255,7 +255,7 @@ class PaymentServiceTest {
     @DisplayName("orderId로 결제 정보를 조회하면 PaymentResponse를 반환한다")
     void getByOrderId_Success() {
         // given
-        PaymentResponse expected = new PaymentResponse(ORDER_ID, 1L, 4L, 1, "CARD", "PAID", LocalDateTime.now());
+        PaymentResponse expected = new PaymentResponse(ORDER_ID, 1L, 4L, 1, 15_000L, "KRW", "CARD", "PAID", LocalDateTime.now());
         when(paymentRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(expected));
 
         // when
@@ -283,8 +283,8 @@ class PaymentServiceTest {
         // given
         Long userId = 1L;
         List<PaymentResponse> expected = List.of(
-                new PaymentResponse("order-1", userId, 4L, 1, "CARD", "PAID", LocalDateTime.now()),
-                new PaymentResponse("order-2", userId, 5L, 2, "CARD", "PAID", LocalDateTime.now())
+                new PaymentResponse("order-1", userId, 4L, 1, 15_000L, "KRW", "CARD", "PAID", LocalDateTime.now()),
+                new PaymentResponse("order-2", userId, 5L, 2, 30_000L, "KRW", "CARD", "PAID", LocalDateTime.now())
         );
         when(paymentRepository.findByUserId(userId, 0, 20)).thenReturn(expected);
 

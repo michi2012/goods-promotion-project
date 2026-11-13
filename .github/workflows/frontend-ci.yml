@@ -1,0 +1,36 @@
+name: frontend-ci
+
+# 프론트 검사. 프론트나 API 계약이 바뀐 PR에서만 실행한다.
+# UI E2E는 실제 백엔드가 필요해 여기서 돌리지 않는다 (로컬 + 백로그 BL-007).
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'frontend/**'
+      - 'contracts/**'
+      - '.github/workflows/frontend-ci.yml'
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests (Vitest)
+        run: npm run test
+      - name: Build
+        run: npm run build
