@@ -1,26 +1,18 @@
 name: backend-ci
 
-# 백엔드 모듈 테스트. 백엔드 관련 파일이 바뀐 PR에서만 실행한다 (문서·프론트만 바뀌면 실행 안 함).
+# 백엔드 모듈 테스트. 백엔드 관련 파일이 바뀐 PR에서만 테스트한다 (문서·프론트만 바뀌면 테스트 skip).
+# - 워크플로 자체는 모든 PR에서 실행되고, changes job이 백엔드 변경 여부를 판단한다.
+#   backend-ci-result job은 항상 실행되어 main 브랜치 보호의 필수 체크로 쓰인다
+#   (워크플로 단위 paths 필터면 실행되지 않은 필수 체크가 대기로 남아 머지가 막힘 — BL-019).
 # - 모듈별 job으로 병렬 실행하고, 한 모듈이 실패해도 다른 모듈은 계속 돈다 (fail-fast: false).
 # - Gradle 빌드 캐시(--build-cache)가 입력이 바뀌지 않은 모듈의 테스트 결과를 재사용한다.
 #   루트 빌드 설정이 바뀌면 입력이 달라져 자동으로 전체가 다시 돈다.
 # - 캐시는 기본 브랜치(main)에서만 저장된다(setup-gradle 기본값). 그래서 main push에서도 실행해 캐시를 채운다.
 # - 백엔드 E2E(backend-e2e/)는 전체 백엔드 환경이 필요해 여기서 돌리지 않는다 (백로그 BL-007).
 on:
-  # paths는 pull_request·push에 같은 목록을 둔다 (바꿀 때 두 곳을 함께 고칠 것)
+  # 경로 목록은 push.paths와 changes job의 filters에 같은 목록을 둔다 (바꿀 때 두 곳을 함께 고칠 것)
   pull_request:
-    branches: [dev, main]
-    paths:
-      - '*/src/**'
-      - '!frontend/**'
-      - '**/build.gradle'
-      - '**/gradle.properties'
-      - 'settings.gradle'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - 'contracts/**'
-      - '.github/workflows/backend-ci.yml'
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -40,8 +32,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # PR에서만 실행. main push는 이미 push.paths로 걸러졌으므로 바로 test로 간다.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          # 'some-with-excludes': 하나라도 매칭 + '!' 패턴에는 매칭 안 됨 (push.paths와 같은 의미)
+          predicate-quantifier: 'some-with-excludes'
+          filters: |
+            backend:
+              - '*/src/**'
+              - '!frontend/**'
+              - '**/build.gradle'
+              - '**/gradle.properties'
+              - 'settings.gradle'
+              - 'gradle/**'
+              - 'gradlew'
+              - 'gradlew.bat'
+              - 'contracts/**'
+              - '.github/workflows/backend-ci.yml'
+
   test:
     name: test (${{ matrix.module }})
+    needs: changes
+    # push에선 changes가 skipped이므로 !cancelled()로 계속 진행한다
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,3 +80,13 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew :${{ matrix.module }}:test --build-cache
+
+  # 필수 체크 대상. skipped(백엔드 변경 없음)는 통과, failure/cancelled는 실패.
+  result:
+    name: backend-ci-result
+    needs: [changes, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

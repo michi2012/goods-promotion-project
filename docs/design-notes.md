@@ -289,3 +289,23 @@ SagaOrchestratorService.handleSagaFailure()
 - Postman 컬렉션 + Newman → 현업에서 흔하고 팀 공유에 좋지만, 비동기 대기를 스크립트로 반복 요청해야 하고 큰 JSON이라 리뷰가 어렵다. Claude가 앱 화면을 조작할 수 없어 결과를 보여주려면 HTML 리포터 의존성이 더 필요. 수동 확인·공유용으로는 별도 검토(백로그).
 - REST Assured(Java 모듈) → 백엔드 언어로 소유하기 좋지만, UI E2E와 도구가 두 벌이 되고 결과를 화면으로 보기 불편, 새 의존성 2개.
 - 전환 대비 주석 코드 → 실행되지 않는 코드는 금방 낡는다. 시나리오 명세 + 전환 조건 기록으로 대신.
+
+---
+
+## PR CI 필수 체크: 워크플로마다 항상 실행되는 result job
+
+**결정:** `backend-ci`·`frontend-ci`는 모든 PR에서 실행되고, job 안에서 `dorny/paths-filter`로 변경 여부를 판단해 테스트를 건너뛴다. 항상 실행되는 `backend-ci-result`·`frontend-ci-result` 두 job만 main 브랜치 보호의 필수 체크로 지정한다.
+
+**이유:**
+- 워크플로 단위 `paths` 필터면 해당 경로가 안 바뀐 PR에서 체크가 아예 생성되지 않고, 필수 체크는 "대기"로 남아 머지가 막힌다. skipped job은 통과로 인정되므로 job 단위로 건너뛴다.
+- matrix 9개를 각각 필수로 지정하면 모듈 추가·삭제 때마다 보호 설정을 고쳐야 한다. result 하나로 모은다.
+
+**제약/불변식:**
+- result job의 `name`(`backend-ci-result`·`frontend-ci-result`)은 보호 규칙의 체크 이름이다. 바꾸면 보호 설정도 함께 바꿔야 한다(아니면 모든 PR이 대기로 막힘). 두 워크플로에서 이름이 겹치면 안 된다.
+- 테스트 job을 추가하면 result의 `needs`에도 넣는다. 빠지면 그 job이 실패해도 머지된다.
+- 백엔드 경로 목록은 `backend-ci.yml`의 `push.paths`와 `changes` filters 두 곳에 있다. `'!frontend/**'` 같은 제외 패턴이 GitHub `paths`와 같은 의미가 되도록 `predicate-quantifier: some-with-excludes`를 쓴다.
+
+**채택하지 않은 대안:**
+- 경로 필터 제거(항상 전체 실행) → 문서 PR에도 백엔드 9개 job이 돌아 러너 낭비, BL-001의 "문서만 바뀌면 CI 안 돌림" 결정과 충돌.
+- 반대 조건(`paths-ignore`)의 같은 이름 더미 워크플로 → 두 파일의 경로 목록을 정확히 반대로 유지해야 하고 결과가 섞일 수 있음.
+- 백엔드·프론트 CI를 한 워크플로로 통합 → BL-001의 분리 결정과 충돌, 변경 범위 큼.

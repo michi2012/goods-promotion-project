@@ -8,6 +8,7 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
+| BL-019 | 필수 체크 대비 CI result job(skip 처리) + main 브랜치 보호 + CI의 `dev` 트리거 정리 | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순)
 | ID | 항목 | 분류 | 우선순위 | 출처 |
@@ -18,7 +19,6 @@
 | BL-005 | 중복 망취소(금액 불일치 망취소, 늦은 성공 보상 중복 수신) 시 실제 PG 응답 처리 미검증 (모의 PG는 멱등) | 버그·정합성 | 중간 | PR #22 |
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | PR #22 |
 | BL-007 | 전체 스택 E2E CI 워크플로 (main 머지 후 / 야간 / 수동, docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`)를 함께 실행. 러너 메모리·시간 실측 후 결정 | 후속 작업 | 중간 | E2E 회고 |
-| BL-019 | GitHub 브랜치 보호의 "필수 체크"를 도입할 때: 경로 필터로 `backend-ci`·`frontend-ci`가 실행되지 않은 PR은 필수 체크가 대기 상태로 남아 머지가 막힘 → skip 처리 방식(항상 실행되는 요약 job 등) 함께 결정 | 후속 작업 | 낮음 | BL-001 작업 중 발견 |
 | BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음 | 후속 작업 | 낮음 | BL-001 작업 중 논의 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 — **조건부**: 전환 조건은 `docs/design-notes.md` "E2E 두 층과 도구" | 후속 작업 | 낮음 | BL-001 작업 중 논의 |
 | BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준 (지금은 Vitest+MSW 컴포넌트 테스트로 대체) | 후속 작업 | 낮음 | BL-001 작업 중 논의 |
@@ -27,6 +27,7 @@
 | BL-010 | `values-local.yaml`(로컬 kind) serverA 데이터소스 DB 이름이 `promotion` — 실제는 `order` | 기술 부채 | 낮음 | PR #22 검증 |
 | BL-012 | Helm 각 Deployment의 `EUREKA_DEFAULT_ZONE` 환경변수가 K8s에서 미사용 | 기술 부채 | 낮음 | PR #21 |
 | BL-013 | `/plan` skill 문서의 Windows 전용 지시(PowerShell 빈 파일 생성, 백슬래시 경로) — 팀 운영 시 정리 | 기술 부채 | 낮음 | BL-000 작업 중 발견 |
+| BL-023 | `ci-cd.yaml`에 Git Flow 흔적: `branches: [dev, main]`, dev 환경 분기, `create-pr`(dev 배포 후 main PR 생성) job — 브랜치 전략은 GitHub Flow(main + 기능 브랜치). EKS 재가동 시 배포 환경(staging/prod) 설계와 함께 정리 | 기술 부채 | 낮음 | BL-019 작업 중 발견 |
 | BL-014 | 로컬 DB 테스트 데이터 정리 (상품 id 19·21, userId 9001~9005 주문) | 정리 | 낮음 | PR #22 검증 |
 
 ## 검증 대기 (EKS 재가동 후)
