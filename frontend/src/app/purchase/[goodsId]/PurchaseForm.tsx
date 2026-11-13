@@ -1,10 +1,11 @@
 'use client'
 
-import { use, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { clientA } from '@/lib/api/client-a'
+import { formatKrw } from '@/lib/format'
 
 // 학습 목적 범위 — 로그인/인증이 없어 하드코딩. clientIp도 서버가 유도해야 할 값이라
 // 실제 입력 필드로 받지 않고 더미값으로 채운다 (docs/context.md 참조).
@@ -31,12 +32,15 @@ const initialState: FormState = {
   deliveryMemo: '',
 }
 
-export function PurchaseForm({ params }: { params: Promise<{ goodsId: string }> }) {
-  const { goodsId } = use(params)
+export function PurchaseForm({ goodsId, unitPrice }: { goodsId: string; unitPrice: number }) {
   const router = useRouter()
   const [form, setForm] = useState<FormState>(initialState)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // 화면 표시용 예상 금액. 구매 요청에는 금액을 보내지 않는다 — 실제 청구 금액은 서버가 계산한다.
+  const quantity = Number(form.quantity)
+  const expectedAmount = Number.isInteger(quantity) && quantity >= 1 ? unitPrice * quantity : null
 
   function update<K extends keyof FormState>(key: K, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -84,6 +88,11 @@ export function PurchaseForm({ params }: { params: Promise<{ goodsId: string }> 
         value={form.quantity}
         onChange={(e) => update('quantity', e.target.value)}
       />
+      {expectedAmount !== null && (
+        <p className="text-sm text-muted-foreground">
+          예상 결제 금액 <span className="font-medium text-foreground">{formatKrw(expectedAmount)}</span>
+        </p>
+      )}
       <Input
         placeholder="결제 수단"
         value={form.paymentMethod}

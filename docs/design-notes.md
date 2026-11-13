@@ -85,12 +85,30 @@ SagaOrchestratorService.handleSagaFailure()
 
 ## Saga 타임아웃
 
-**결정:** `SagaTimeoutScheduler`가 60초마다 Redis SCAN으로 미완료 Saga 탐지
+**결정:** `SagaTimeoutScheduler`가 30초마다 Redis SCAN으로 미완료 Saga 탐지
 
 - 키 패턴: `saga:state:*`
-- 타임아웃 기준: 생성 후 **10분** 초과
+- 타임아웃 기준: 생성 후 **3분** 초과
 - 결과: `handleSagaFailure(orderId, "TIMEOUT")` → Order 상태 **EXPIRED** (FAILED와 구분)
 - 이유: 결제 응답이 없는 Saga를 무한 대기하면 Redis 상태 영구 잠김
+
+**결정 (추가): EXPIRED 전에 serverC 결제를 조회하고, 결과를 모르면(UNKNOWN) 판단을 미룬다. 실패 확정 뒤 늦게 온 결제 성공은 망취소로 보상한다.**
+
+- 조회 결과 `PAID` → PAID 보정, `NOT_PAID` → EXPIRED, `UNKNOWN`(serverC 미발견·조회 실패) → 건너뛰고 다음 주기 재조회.
+- `SagaResultConsumer`는 Saga 상태가 이미 없으면 플래그를 기록하지 않는다. `payment-result(success)`면 `compensateLatePaymentSuccess` — 주문이 EXPIRED/FAILED면 `payment-cancel` 발행.
+
+**이유:**
+- `handleSagaFailure`의 망취소 여부는 **그 시점 Saga 플래그(`paymentCompleted`)**로만 정해진다. 결과 이벤트가 아직 안 왔는데 UNKNOWN을 EXPIRED로 처리하면, serverC에서 실제 승인된 결제가 망취소 없이 남는다 (로컬 재현: serverC PAID 30,000원 + 주문 EXPIRED).
+- 실패 확정 뒤 결제 성공이 늦게 오면 기존 코드는 삭제된 키에 HSET해 `createdAt` 없는 **좀비 키**를 만들고(타임아웃 스캐너가 영원히 스킵) 망취소도 하지 않았다. 늦은 성공은 UNKNOWN 이후·처리 중 타임아웃·DB 재대사 실패 등 여러 경로에서 생기므로 결과 수신 지점 한 곳에서 막는다.
+
+**제약/불변식:**
+- serverC 장애가 길면 주문이 PENDING으로 남고 재고가 묶인다(`saga.timeout.payment_unknown`으로 관측). 최대 대기·알람은 미구현.
+- 결과 이벤트가 **영영 오지 않는** 경우(CDC 유실)는 막지 못한다 — serverC 측 재대사 등 별도 장치 필요.
+- 늦은 성공이 중복 수신되면 `payment-cancel`이 두 번 나갈 수 있다. serverC 취소는 상태 무관 CANCELLED 덮어쓰기라 모의 PG에서는 멱등이지만, 실제 PG의 중복 취소 응답 처리는 미검증.
+
+**채택하지 않은 대안:**
+- UNKNOWN이면 EXPIRED + 무조건 망취소 → 결제가 아직 처리 전이면 취소가 먼저 도착하고 결제가 나중에 승인되는 경쟁 발생(serverC 수정 필요).
+- Saga 플래그 기록을 Lua로 원자화(키 있을 때만 HSET) → `exists` 확인과 기록 사이 경쟁 창이 매우 짧고 결과가 기존 동작과 같아 과설계로 판단.
 
 ---
 
@@ -218,3 +236,30 @@ SagaOrchestratorService.handleSagaFailure()
 **채택하지 않은 대안:**
 - 고정 URL 프로퍼티(`@Value("${...url}")`)로 전환 → Java·테스트·docker-compose 환경변수까지 변경 범위가 커짐.
 - spring-cloud-kubernetes discovery → 새 의존성 + ServiceAccount RBAC(endpoints 조회) 추가 필요, Service DNS 대비 이득이 적음.
+
+---
+
+## 결제 금액: 서버 계산 + 주문 저장 단계 스냅샷 + PG 승인 금액 검증
+
+**결정:**
+1. 금액은 원화 `long`(원 단위) + DB `BIGINT`, 통화는 `VARCHAR(3)`(`KRW`)로 금액과 함께 저장한다.
+2. 클라이언트는 금액을 보내지 않는다. serverA가 **주문 저장 단계**(`OrderCommandService.processNewOrder`, Kafka 소비 후 DB 트랜잭션)에서 DB 가격 × 수량으로 계산해 `Order`에 스냅샷하고, `payment-request`(`PaymentRequestMessage`)에 실어 보낸다.
+3. serverC는 PG 승인 금액(`PgTransactionResult.approvedAmount`)이 주문 금액과 다르면 **직접 즉시 망취소**한 뒤 FAILED + `payment-result(false)`로 serverA 보상을 트리거한다.
+4. 가격 0원(가격 미설정)·상품 없음은 결제 요청 없이 기존 `handleSagaFailure("INVALID_PRICE")`로 실패 처리한다.
+
+**이유:**
+- 구매 접수(`acceptPurchase`)는 DB 없이 Redis만 거치는 TPS 핵심 경로다. 가격 조회를 여기 넣으면 그 설계가 깨지므로, 이미 DB 트랜잭션인 주문 저장 단계에서 조회한다. 프로모션 중 가격은 고정이라 접수~소비 사이 수 초 차이는 허용한다.
+- serverA의 `payment-cancel`은 Saga 상태에서 "결제 성공"으로 확인된 건에만 발행된다. 금액 불일치 건은 serverC가 FAILED로 응답하므로 serverA 경로로는 망취소가 나가지 않는다 — 그래서 serverC가 직접 취소해야 고객 돈이 묶이지 않는다.
+- 원화는 소수가 없어 정수가 가장 단순하고 오차가 없다. `BigDecimal`은 수수료율 계산이 생기는 정산 단계에서 사용한다.
+
+**제약/불변식 (확장-축소 패턴):**
+- `payment-request`는 필드 **추가만** 한다. serverA·serverC 컨슈머는 Spring Boot `ObjectMapper`(모르는 필드 무시)를 쓰므로 옛 serverC는 새 필드를 무시한다. **단, serverB는 `new ObjectMapper()`라 모르는 필드에 실패한다** — serverB가 소비하는 토픽에 필드를 추가할 때는 주의.
+- serverC는 금액 없는 옛 메시지를 검증 없이 처리하고 `business_payment_legacy_without_amount_total`을 올린다. 권장 배포 순서는 serverC → serverA. 이 카운터가 운영에서 계속 0이면 다음 단계로 금액 필수화(옛 메시지 거부)를 진행한다 — 현재 미완료.
+- `Order.unitPrice/totalAmount/currency`, `payments.amount/currency`는 금액 도입 이전 행 때문에 NULL 허용이다.
+- PG가 승인 금액을 돌려주지 않으면(null) 검증 불가로 보고 불일치와 동일하게 망취소한다.
+
+**채택하지 않은 대안:**
+- `PurchaseMessage`에 금액 필드를 넣어 두 토픽 공용 → 구매 접수 시점엔 금액을 몰라 `purchase_events`에서 항상 null인 필드가 생김.
+- 구매 접수 시점에 가격 조회 → 접수 경로에 캐시/DB 조회 추가로 TPS 설계 변경.
+- 금액 불일치 시 FAILED만 기록하고 망취소는 수동 → 고객 돈이 승인된 채 묶임.
+- 금액 없는 옛 메시지를 즉시 실패 처리 → 배포 중 들어온 정상 주문이 실패.

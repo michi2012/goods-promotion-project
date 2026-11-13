@@ -38,7 +38,7 @@ class GoodsRepositoryTest {
     @Test
     @DisplayName("재고 감소 성공: 남아있는 재고가 차감하려는 수량보다 많거나 같으면 차감되고 1(업데이트된 행 수)을 반환한다.")
     void decreaseStockAtomically_Success() {
-        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10));
+        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10_000L, 10));
 
         int updatedRows = goodsRepository.decreaseStockAtomically(goods.getId(), 3);
 
@@ -49,7 +49,7 @@ class GoodsRepositoryTest {
     @Test
     @DisplayName("재고 감소 실패: 차감하려는 수량이 남은 재고보다 많으면 업데이트되지 않고 0을 반환한다.")
     void decreaseStockAtomically_Fail_WhenNotEnoughStock() {
-        Goods goods = goodsRepository.save(new Goods("테스트 상품", 2));
+        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10_000L, 2));
 
         int updatedRows = goodsRepository.decreaseStockAtomically(goods.getId(), 5);
 
@@ -60,7 +60,7 @@ class GoodsRepositoryTest {
     @Test
     @DisplayName("재고 증가: 서버 B의 보상 트랜잭션 요청 시 재고를 다시 원상 복구한다.")
     void increaseStockAtomically_Success() {
-        Goods goods = goodsRepository.save(new Goods("테스트 상품", 5));
+        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10_000L, 5));
 
         int updatedRows = goodsRepository.increaseStockAtomically(goods.getId(), 2);
 
@@ -71,7 +71,7 @@ class GoodsRepositoryTest {
     @Test
     @DisplayName("단순 재고 차감 성공: Redis 검증을 신뢰하고 WHERE 조건 없이 즉시 재고를 차감한다.")
     void decreaseStock_Success() {
-        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10));
+        Goods goods = goodsRepository.save(new Goods("테스트 상품", 10_000L, 10));
 
         goodsRepository.decreaseStock(goods.getId(), 3);
 

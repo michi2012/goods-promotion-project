@@ -45,16 +45,25 @@ public class SagaTimeoutScheduler {
 
                 if ((now - createdAt) >= TIMEOUT_MS) {
                     // EXPIRED 처리 전, 결제가 실제로는 완료됐는지 serverC에 직접 확인한다.
-                    // (조회 실패 시에는 안전하게 기존 동작(EXPIRED)으로 폴백)
-                    if (paymentQueryClient.checkPaymentStatus(orderId) == PaymentCheckStatus.PAID) {
-                        log.warn("[SagaTimeout] 타임아웃이지만 결제 완료 확인, PAID로 보정: orderId={}", orderId);
-                        sagaOrchestratorService.reconcileToPaid(orderId);
-                    } else {
-                        log.warn("[SagaTimeout] 3분 초과 미완료 Saga 탐지: orderId={}", orderId);
-                        sagaOrchestratorService.handleSagaFailure(orderId, "TIMEOUT");
-                        meterRegistry.counter("saga.expired.total").increment();
+                    switch (paymentQueryClient.checkPaymentStatus(orderId)) {
+                        case PAID -> {
+                            log.warn("[SagaTimeout] 타임아웃이지만 결제 완료 확인, PAID로 보정: orderId={}", orderId);
+                            sagaOrchestratorService.reconcileToPaid(orderId);
+                            expiredCount++;
+                        }
+                        case NOT_PAID -> {
+                            log.warn("[SagaTimeout] 3분 초과 미완료 Saga 탐지: orderId={}", orderId);
+                            sagaOrchestratorService.handleSagaFailure(orderId, "TIMEOUT");
+                            meterRegistry.counter("saga.expired.total").increment();
+                            expiredCount++;
+                        }
+                        // 결제 상태를 모르면 판단하지 않는다. EXPIRED로 처리하면 serverC에서 실제로 승인된 결제가
+                        // 망취소 없이 남을 수 있다(Saga 상태에 결제완료 플래그가 없으므로). Saga 상태를 그대로 두고 다음 주기에 재조회한다.
+                        case UNKNOWN -> {
+                            log.warn("[SagaTimeout] 결제 상태 확인 불가, 다음 주기 재시도: orderId={}", orderId);
+                            meterRegistry.counter("saga.timeout.payment_unknown").increment();
+                        }
                     }
-                    expiredCount++;
                 }
             }
         }

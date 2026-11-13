@@ -53,7 +53,7 @@ class GoodsRepositoryConcurrencyTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @DisplayName("과매도 방지: 재고 10개에 스레드 20개가 동시에 1개씩 차감 시도하면 정확히 10건만 성공하고 재고는 0이 된다.")
     void preventOverselling_20Threads_Stock10() throws InterruptedException {
-        Goods goods = goodsRepository.save(new Goods("동시성 테스트 상품", 10));
+        Goods goods = goodsRepository.save(new Goods("동시성 테스트 상품", 10_000L, 10));
         Long goodsId = goods.getId();
 
         try {
@@ -98,7 +98,7 @@ class GoodsRepositoryConcurrencyTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @DisplayName("과매도 방지: 재고 1개에 스레드 100개가 동시에 차감 시도하면 정확히 1건만 성공하고 음수 재고는 발생하지 않는다.")
     void preventOverselling_100Threads_Stock1() throws InterruptedException {
-        Goods goods = goodsRepository.save(new Goods("마지막 재고 상품", 1));
+        Goods goods = goodsRepository.save(new Goods("마지막 재고 상품", 10_000L, 1));
         Long goodsId = goods.getId();
 
         try {

@@ -10,6 +10,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import promotion.serverA.dto.PaymentCancelMessage;
 import promotion.serverA.dto.SagaStateData;
 import promotion.serverA.entity.Order;
 import promotion.serverA.entity.OrderStatus;
@@ -228,5 +229,75 @@ class SagaOrchestratorServiceTest {
         verify(goodsRepository, never()).increaseStockAtomically(anyLong(), anyInt());
         verify(outboxEventService, never()).save(any(), any(), any());
         verify(sagaStateService).deleteSagaState(orderId);
+    }
+
+    private Order orderWithStatus(OrderStatus status) {
+        return Order.builder().orderId(orderId).userId(userId).goodsId(goodsId).quantity(quantity).status(status).build();
+    }
+
+    @Test
+    @DisplayName("EXPIRED 확정 뒤 결제 성공이 늦게 오면 망취소(payment-cancel)를 발행한다")
+    void compensateLatePaymentSuccess_expired_publishes_cancel() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.EXPIRED)));
+
+        // when
+        sagaOrchestratorService.compensateLatePaymentSuccess(orderId);
+
+        // then
+        verify(outboxEventService).save(eq(orderId), eq("payment-cancel"), any(PaymentCancelMessage.class));
+        assertThat(meterRegistry.get("saga.late_payment_cancel.total").counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("FAILED 확정 뒤 결제 성공이 늦게 와도 망취소를 발행한다")
+    void compensateLatePaymentSuccess_failed_publishes_cancel() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.FAILED)));
+
+        // when
+        sagaOrchestratorService.compensateLatePaymentSuccess(orderId);
+
+        // then
+        verify(outboxEventService).save(eq(orderId), eq("payment-cancel"), any(PaymentCancelMessage.class));
+    }
+
+    @Test
+    @DisplayName("이미 PAID인 주문에 결제 성공이 다시 오면(중복 수신) 아무것도 하지 않는다")
+    void compensateLatePaymentSuccess_paid_ignored() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.PAID)));
+
+        // when
+        sagaOrchestratorService.compensateLatePaymentSuccess(orderId);
+
+        // then
+        verify(outboxEventService, never()).save(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("PENDING 주문(Saga 상태만 유실)은 망취소하지 않고 DB 재대사에 맡긴다")
+    void compensateLatePaymentSuccess_pending_ignored() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.PENDING)));
+
+        // when
+        sagaOrchestratorService.compensateLatePaymentSuccess(orderId);
+
+        // then
+        verify(outboxEventService, never()).save(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("주문이 없으면 보상 없이 넘어간다")
+    void compensateLatePaymentSuccess_order_not_found() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+
+        // when
+        sagaOrchestratorService.compensateLatePaymentSuccess(orderId);
+
+        // then
+        verify(outboxEventService, never()).save(any(), any(), any());
     }
 }

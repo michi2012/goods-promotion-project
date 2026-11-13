@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.yaml.snakeyaml.Yaml;
+import promotion.serverA.support.AbstractSpringBootTest;
 
 import java.io.FileInputStream;
 import java.util.Map;
@@ -19,9 +20,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * serverA가 실제로 노출하는 OpenAPI 스펙(/v3/api-docs)이 계약 원본(contracts/server-a-openapi.yaml)과
  * 어긋나지 않는지 확인한다. 계약은 사람이 먼저 쓰는 쪽이 원본이므로, 여기서 실패하면
  * 계약을 고칠지 구현을 고칠지는 사람이 판단한다 (자동으로 어느 쪽이 맞다고 판정하지 않음).
+ *
+ * 컨텍스트에 DB·Redis·Kafka가 필요하므로 AbstractSpringBootTest(Testcontainers + EmbeddedKafka)를 상속한다.
+ * @DynamicPropertySource가 환경변수보다 우선하므로 CI의 SPRING_DATASOURCE_URL(H2)도 Testcontainers MySQL로 덮인다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class OpenApiContractTest {
+class OpenApiContractTest extends AbstractSpringBootTest {
 
     private static final String CONTRACT_PATH = "../contracts/server-a-openapi.yaml";
 

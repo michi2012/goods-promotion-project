@@ -7,7 +7,7 @@ let goodsId: number
 
 test.beforeAll(async ({ request }) => {
   const res = await request.post('http://localhost:8080/api/v1/goods', {
-    data: { name: 'E2E 테스트 상품', stock: 5 },
+    data: { name: 'E2E 테스트 상품', price: 15000, stock: 5 },
   })
   const body = await res.json()
   goodsId = body.id
@@ -16,6 +16,10 @@ test.beforeAll(async ({ request }) => {
 test('상품을 조회하고 구매하면 주문 상태 페이지로 이동한다', async ({ page }) => {
   await page.goto(`/purchase/${goodsId}`)
   await expect(page.getByText('E2E 테스트 상품')).toBeVisible()
+
+  // 단가 표시 + 수량 변경 시 예상 결제 금액(표시용) 갱신
+  await page.getByPlaceholder('수량').fill('2')
+  await expect(page.getByText('30,000원')).toBeVisible()
 
   await page.getByPlaceholder('결제 수단').fill('CARD')
   await page.getByPlaceholder('배송지 주소').fill('서울시 강남구 테헤란로 1')

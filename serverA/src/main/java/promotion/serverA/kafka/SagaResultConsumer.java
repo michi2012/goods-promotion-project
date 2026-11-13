@@ -29,6 +29,12 @@ public class SagaResultConsumer {
             return;
         }
 
+        // Saga가 이미 끝났으면(상태 삭제) 플래그를 기록하지 않는다 — 없는 키에 HSET하면 좀비 키가 생긴다.
+        if (!sagaStateService.exists(msg.orderId())) {
+            log.info("[Saga] 종료된 Saga의 status-update-result 무시: orderId={}", msg.orderId());
+            return;
+        }
+
         boolean bothDone = sagaStateService.markStatusUpdateCompleted(msg.orderId());
         if (bothDone) {
             sagaOrchestratorService.tryCompleteSaga(msg.orderId());
@@ -42,6 +48,12 @@ public class SagaResultConsumer {
 
         if (!msg.success()) {
             sagaOrchestratorService.handleSagaFailure(msg.orderId(), msg.errorMessage());
+            return;
+        }
+
+        // Saga가 이미 끝난 뒤 도착한 결제 성공 — 주문이 실패로 확정됐다면 망취소가 필요하다.
+        if (!sagaStateService.exists(msg.orderId())) {
+            sagaOrchestratorService.compensateLatePaymentSuccess(msg.orderId());
             return;
         }
 

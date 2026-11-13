@@ -46,6 +46,12 @@ public class SagaStateService {
     }
 
     // 완료 플래그 설정 후 두 플래그 모두 true면 true 반환
+    // 결과 이벤트가 Saga 종료(상태 삭제) 뒤에 늦게 도착했는지 판별할 때 사용한다.
+    // 없는 키에 mark*()로 HSET하면 createdAt 없는 좀비 키가 생기므로, 기록 전에 먼저 확인한다.
+    public boolean exists(String orderId) {
+        return Boolean.TRUE.equals(redisTemplate.hasKey(STATE_PREFIX + orderId));
+    }
+
     public boolean markStatusUpdateCompleted(String orderId) {
         redisTemplate.opsForHash().put(STATE_PREFIX + orderId, "statusUpdateCompleted", "true");
         return isBothCompleted(orderId);

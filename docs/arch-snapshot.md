@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사) 반영)_
+_생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영)_
 
 ---
 
@@ -26,7 +26,7 @@ _생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·con
 |--------|-----------|-----------|-----------------|--------|-----|
 | `purchase_events` | serverA/PromotionService | 직접(동기 3s) | serverA/PurchaseKafkaConsumer | 3 | ✅ |
 | `purchase_events.DLT` | Kafka 자동 | - | serverA/PurchaseDltConsumer | 1 | - |
-| `payment-request` | serverA/OrderCommandService | Outbox+CDC | serverC/PaymentKafkaConsumer | 3 | ✅ |
+| `payment-request` | serverA/OrderCommandService (`PaymentRequestMessage`, 금액 포함) | Outbox+CDC | serverC/PaymentKafkaConsumer | 3 | ✅ |
 | `payment-result` | serverC/PaymentService | 직접 | serverA/SagaResultConsumer | 3 | ✅ |
 | `order-status-update` | serverA/OrderCommandService, SagaOrchestratorService | Outbox+CDC | serverB/OrderStatusKafkaConsumer | 3 | ✅ |
 | `status-update-result` | serverB/OrderStatusEventHandler | 직접 | serverA/SagaResultConsumer | 3 | ✅ |
@@ -103,9 +103,13 @@ sequenceDiagram
     T->>SC: PaymentQueryClient.checkPaymentStatus
     alt PAID
         T->>A: reconcileToPaid (Order 기준 보정)
-    else NOT_PAID / UNKNOWN
+    else NOT_PAID
         T->>A: handleSagaFailure("TIMEOUT") → EXPIRED
+    else UNKNOWN
+        T->>T: 판단 보류, 다음 주기(30s) 재조회
     end
+
+    Note over A: Saga 종료 뒤 payment-result(success)가 늦게 오면<br/>주문이 EXPIRED/FAILED일 때 payment-cancel 발행 (compensateLatePaymentSuccess)
 
     R->>R: DB orders: status=PENDING AND createdAt < now-5분 (Redis 상태 유실 대비)
     R->>SC: PaymentQueryClient.checkPaymentStatus
@@ -127,17 +131,29 @@ sequenceDiagram
 - `pgClientCb`는 `ignoreExceptions: PgAmbiguousResponseException` — 실패율 집계·fallback 대상에서 제외
 - PG 연동은 실제 PG 미연동 상태의 **가정 구현**(MockPgClient, 인메모리 거래 저장소)
 
+### 결제 금액 흐름 (serverA → serverC)
+
+| 단계 | 위치 | 동작 |
+|------|------|------|
+| 가격 | serverA `Goods.price` | 원 단위 `long`/`BIGINT`. 상품 생성 시 1원 이상 필수(`@Min(1)`) |
+| 금액 계산·스냅샷 | serverA `OrderCommandService.processNewOrder` (주문 저장 단계) | DB 가격 × 수량 → `Order.unitPrice/totalAmount/currency(KRW)`. 클라이언트는 금액을 보내지 않음. 구매 접수 경로(Redis만)는 변경 없음 |
+| 0원 차단 | 같은 위치 | 가격 0원·상품 없음 → `payment-request` 없이 `handleSagaFailure("INVALID_PRICE")` |
+| 전달 | `payment-request` (`PaymentRequestMessage`) | 기존 필드 + `unitPrice`/`totalAmount`/`currency` (필드 추가만 — JSON 하위 호환) |
+| 저장 | serverC `payments.amount/currency` | `claimOrder`가 함께 INSERT. 옛 메시지는 NULL |
+| 승인 금액 검증 | serverC `PaymentService` | `PgTransactionResult.approvedAmount ≠ totalAmount` → 즉시 망취소 + FAILED + `payment-result(false, "금액 불일치")` |
+| 옛 메시지 | serverC `PaymentService` | 금액 없으면 검증 생략 + `business_payment_legacy_without_amount_total` (확장-축소 1단계, 권장 배포 순서 serverC → serverA) |
+
 ---
 
 ## 주요 엔티티
 
 | 모듈 | 엔티티 | 핵심 필드 | 비고 |
 |------|--------|-----------|------|
-| serverA | `Order` | orderId(UK), userId, goodsId, quantity, status(ENUM), paymentMethod, shippingAddress, createdAt | status: PENDING/PAID/FAILED/EXPIRED. `idx_orders_status_created`로 PENDING 재대사 조회 |
-| serverA | `Goods` | id, name, stock | 재고 원본(DB) |
+| serverA | `Order` | orderId(UK), userId, goodsId, quantity, unitPrice, totalAmount, currency, status(ENUM), paymentMethod, shippingAddress, createdAt | status: PENDING/PAID/FAILED/EXPIRED. `idx_orders_status_created`로 PENDING 재대사 조회 |
+| serverA | `Goods` | id, name, price, stock | 재고 원본(DB). price는 원 단위(KRW) |
 | serverA | `DeadLetter` | orderId, goodsId, quantity, reason | DLT 실패 메시지 저장 |
 | serverA | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
-| serverC | `Payment` | orderId(UK), userId, goodsId, quantity, status, paymentMethod | Saga 완료 후 결제 확정 기록 (테이블: payments) |
+| serverC | `Payment` | orderId(UK), userId, goodsId, quantity, amount, currency, status, paymentMethod | Saga 완료 후 결제 확정 기록 (테이블: payments) |
 | serverC | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
 | user-service | `User` | id(UUID), email(UK), password(BCrypt), name, role, createdAt | ROLE_USER / ROLE_ADMIN |
 | user-service | `PaymentMethod` | id, userId(FK), type, cardNumber, isDefault | 사용자별 결제수단. `isDefault` 단일 보장은 `resetDefaultPaymentMethod` 벌크 쿼리로 처리 |
@@ -170,11 +186,12 @@ sequenceDiagram
 | 메서드 | URL | 설명 | 인증 |
 |--------|-----|------|------|
 | POST | /api/v1/promotions/purchase | 구매 요청 접수 (202 즉시 반환, 비동기 처리) | 퍼블릭 |
-| POST | /api/v1/goods | 상품 생성 | 퍼블릭 |
-| GET | /api/v1/goods/{goodsId} | 상품 단건 조회 (cs-bot·codebot 내부 호출) | 퍼블릭 (내부망) |
+| POST | /api/v1/goods | 상품 생성 (`price` 필수, 1원 이상) | 퍼블릭 |
+| GET | /api/v1/goods/{goodsId} | 상품 단건 조회 (`price` 포함, 프론트·cs-bot·codebot 호출) | 퍼블릭 (내부망) |
 | GET | /api/v1/admin/dlt | UNRESOLVED DLT 전체 목록 조회 (aiops DltTools 전용) | 퍼블릭 (내부망) |
 | POST | /api/v1/admin/dlt/{dltId}/retry | DLT 메시지 수동·자동 재처리 | 퍼블릭 (내부망) |
 | GET | /api/v1/admin/dlt/orders/{orderId} | 주문별 DLT 단건 조회 (cs-bot 내부 호출) | 퍼블릭 (내부망) |
+| GET | /v3/api-docs | OpenAPI 스펙 (springdoc `webmvc-api`, Swagger UI 없음). `OpenApiContractTest`가 `contracts/server-a-openapi.yaml`과 비교 | 퍼블릭 (Gateway 미라우팅) |
 
 ### serverB (8081)
 | 메서드 | URL | 설명 | 인증 |
@@ -235,7 +252,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 모듈 | 클래스명 | 주기 | 역할 |
 |------|----------|------|------|
-| serverA | `SagaTimeoutScheduler` | fixedDelay=30초 | `saga:state:*` SCAN → 3분 초과 미완료 Saga → serverC 결제조회 후 PAID면 `reconcileToPaid`, 아니면 EXPIRED 처리 |
+| serverA | `SagaTimeoutScheduler` | fixedDelay=30초 | `saga:state:*` SCAN → 3분 초과 미완료 Saga → serverC 결제조회 후 PAID면 `reconcileToPaid`, NOT_PAID면 EXPIRED, UNKNOWN이면 판단 보류(다음 주기 재조회) |
 | serverA | `OrderReconciliationScheduler` | fixedDelay=120초 | DB에서 5분 초과 PENDING 주문 조회(Redis Saga 상태 유실 대비) → 결제조회 결과로 PAID/FAILED 보정, UNKNOWN은 다음 주기 |
 | serverA | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
 | serverC | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
@@ -246,7 +263,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 모듈 | 클래스 | 대상 | Circuit Breaker | 실패 처리 |
 |------|--------|------|-----------------|-----------|
-| serverC | `PgClient` (interface, 구현 `MockPgClient`) | PG사 결제·거래조회·망취소 API | ✅ `pgClientCb` (애매응답 예외는 ignore) | 애매응답 → 거래조회 → 멱등 키 1회 재시도 → 실패 시 FAILED. 망취소 DLT 소진 시 `payment_pg_refund_fatal_total` 증가, 수동 정산 |
+| serverC | `PgClient` (interface, 구현 `MockPgClient`) | PG사 결제·거래조회·망취소 API (승인·조회는 `PgTransactionResult(status, approvedAmount)` 반환) | ✅ `pgClientCb` (애매응답 예외는 ignore) | 애매응답 → 거래조회 → 멱등 키 1회 재시도 → 실패 시 FAILED. 승인 금액 불일치 → 즉시 망취소 + FAILED. 망취소 DLT 소진 시 `payment_pg_refund_fatal_total` 증가, 수동 정산 |
 
 ---
 
@@ -285,7 +302,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 |--------|------|----------|
 | `/` | 주문 ID 입력 → 상태 조회 이동 | - |
 | `/orders/[orderId]` | 주문 상태 조회 | serverB `GET /api/v1/orders/{orderId}/status` |
-| `/purchase`, `/purchase/[goodsId]` | 상품 조회·구매 요청 (첫 mutation 화면) | serverA `GET /api/v1/goods/{goodsId}`, `POST /api/v1/promotions/purchase` |
+| `/purchase`, `/purchase/[goodsId]` | 상품 조회(가격 표시)·구매 요청 (첫 mutation 화면). 예상 결제 금액(단가 × 수량)은 표시용, 요청에 금액 없음 | serverA `GET /api/v1/goods/{goodsId}`, `POST /api/v1/promotions/purchase` |
 
 - 계약: `contracts/openapi.yaml`(serverB), `contracts/server-a-openapi.yaml`(serverA) → `npm run generate:api[:a]`로 타입 생성
 - 테스트: Vitest + RTL(단위), Playwright + axe-core(E2E/접근성), Prism mock(`npm run mock:api`, 4010)

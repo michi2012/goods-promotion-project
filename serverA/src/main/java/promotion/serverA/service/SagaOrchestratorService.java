@@ -125,6 +125,29 @@ public class SagaOrchestratorService {
         log.info("[Saga 보상 완료] {} | 사유: {} | orderId={}", failStatus, reason, orderId);
     }
 
+    // Saga가 이미 끝난(상태 삭제) 뒤에 payment-result(success)가 늦게 도착한 경우의 보상.
+    // 주문이 EXPIRED/FAILED로 확정됐다면 고객 결제만 승인된 채 남아 있으므로 망취소를 보낸다.
+    // (handleSagaFailure는 그 시점 Saga 상태의 결제완료 플래그로만 취소 여부를 정하므로, 이후 도착한 성공은 놓친다)
+    // PAID면 중복 수신이라 무시, PENDING이면 Saga 상태만 유실된 것이므로 DB 재대사(OrderReconciliationScheduler)에 맡긴다.
+    @Transactional
+    public void compensateLatePaymentSuccess(String orderId) {
+        Order order = orderRepository.findByOrderId(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[Saga 늦은 결제] Order 없음, 보상 건너뜀: orderId={}", orderId);
+            return;
+        }
+
+        OrderStatus status = order.getStatus();
+        if (status == OrderStatus.EXPIRED || status == OrderStatus.FAILED) {
+            outboxEventService.save(orderId, PAYMENT_CANCEL_TOPIC, new PaymentCancelMessage(orderId));
+            meterRegistry.counter("saga.late_payment_cancel.total").increment();
+            log.warn("🚨 [Saga 늦은 결제] {} 확정 뒤 결제 성공 도착, 망취소 발행: orderId={}", status, orderId);
+            return;
+        }
+
+        log.info("[Saga 늦은 결제] 보상 불필요 (주문 상태 {}): orderId={}", status, orderId);
+    }
+
     // Redis Saga 상태(SagaStateData)에 의존하지 않고, Order 엔티티에서 직접 데이터를 읽어 보정한다.
     // 타임아웃 직전 결제완료 확인(SagaTimeoutScheduler) 및 DB 기반 재대사(OrderReconciliationScheduler) 양쪽에서 사용.
     @Transactional

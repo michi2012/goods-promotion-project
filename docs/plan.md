@@ -1,58 +1,53 @@
-# 계획서: K8s 환경 DiscoveryClient 서비스 조회 복구 (serverA / cs-bot / aiops)
+# 계획서: serverA 계약 테스트(OpenApiContractTest) 동작시키기
 
-- 작성일: 2026-11-12
-- 관련 이슈/티켓: 없음 (arch-snapshot 최신화 중 발견)
-- 브랜치: `fix/servera-k8s-payment-query`
+- 작성일: 2026-11-13
+- 관련 이슈/티켓: 없음 (결제 금액 기본기 최종 검증 중 발견 — main에서도 항상 실패)
+- 브랜치: `feature/payment-amount` (후속 작업)
 
-## [완료] serverA — PaymentQueryClient의 serverC 조회
+## 목표
+serverA의 계약 drift-check(`OpenApiContractTest`)가 실제로 실행되어, 구현 스펙(`/v3/api-docs`)과 `contracts/server-a-openapi.yaml`의 불일치를 잡도록 한다.
 
-- `serverA/src/main/resources/application-k8s.yml`: SimpleDiscoveryClient에 `serverC` → `http://server-c:8082` 정적 등록
-- `serverA/src/test/java/promotion/serverA/config/K8sDiscoveryConfigTest.java`: 바인딩 검증 테스트 (통과)
+## 성공 기준
+- [ ] serverA가 `/v3/api-docs`를 제공한다 (`springdoc-openapi-starter-webmvc-api:2.8.5`, 사용자 승인 완료)
+- [ ] `OpenApiContractTest` 2건 통과 (`gradlew :serverA:test --tests OpenApiContractTest`)
+- [ ] CI와 같은 환경변수(`SPRING_DATASOURCE_URL=jdbc:h2:mem:...`)로 실행해도 통과 (Testcontainers MySQL로 덮어쓰기 확인)
+- [ ] serverA 전체 테스트 82/82 통과 (`gradlew :serverA:test`)
 
-## [완료] cs-bot / aiops — 동일 방식 적용
+## 비범위 (Out of Scope)
+- CI 워크플로(`.github/workflows/ci-cd.yaml`)의 H2 환경변수 정리
+- `application.yaml`의 `driver-class-name` 변경
+- 운영 프로파일에서 `/v3/api-docs` 비활성화
+- Swagger UI 도입
+- 계약 비교 로직(필드명 집합 비교) 강화
 
-### 목표
-K8s(Eureka 없음)에서 cs-bot `CsBotClient`와 aiops `CodebotClient`가 `DiscoveryClient`로 대상 서비스를 찾을 수 있게 한다.
+## 단계별 작업 계획
 
-### 성공 기준
-- [ ] cs-bot k8s 프로필 로드 시 `serverA`/`serverB`/`serverC`/`user-service`가 각각 `http://server-a:8080`/`http://server-b:8081`/`http://server-c:8082`/`http://user-service:8086`으로 조회된다 (`gradlew :cs-bot:test --tests "*K8sDiscoveryConfigTest"`)
-- [ ] cs-bot k8s 프로필에서 `eureka.client.enabled=false`가 적용된다 (같은 테스트)
-- [ ] aiops k8s 프로필 로드 시 `codebot`이 `http://codebot:8087`로 조회된다 (`gradlew :aiops:test --tests "*K8sDiscoveryConfigTest"`)
-- [ ] Java 프로덕션 코드 변경 없음 (`git diff --stat`)
-
-### 비범위 (Out of Scope)
-- Helm Deployment의 `EUREKA_DEFAULT_ZONE` 환경변수 정리 (K8s에서 미사용 값)
-- `DiscoveryClient` → 고정 URL 방식 전환 등 클라이언트 코드 리팩터링
-- 실제 K8s(kind/EKS) 클러스터에서의 동작 검증 (커밋 전 별도 결정)
-
-### 단계별 작업 계획
-
-#### 단계 1: cs-bot K8s 프로필 신규 + 테스트
-- 변경 파일: `cs-bot/src/main/resources/application-k8s.yml`(신규), `cs-bot/src/test/java/csbot/csbot/config/K8sDiscoveryConfigTest.java`(신규)
-- 변경 내용 요약: Eureka 비활성화 + 4개 서비스 정적 등록. serverA 테스트와 같은 구조(ApplicationContextRunner + YAML 로드)로 4개 서비스 URI와 eureka 비활성 값을 검증.
-- 검증 방법: `.\gradlew.bat :cs-bot:test --tests "csbot.csbot.config.K8sDiscoveryConfigTest"`
-- 롤백 방법: 두 신규 파일 삭제
+### 단계 1: springdoc 의존성 추가 ⚠️ 새 의존성 (승인 완료)
+- 변경 파일: `serverA/build.gradle`
+- 변경 내용 요약: `implementation 'org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.5'` 추가 (serverB와 같은 버전, UI 없는 api 모듈).
+- 검증 방법: `.\gradlew.bat :serverA:compileJava` + 단계 2 테스트에서 `/v3/api-docs` 응답 확인
+- 롤백 방법: `git checkout -- serverA/build.gradle`
 - 예상 소요: 짧음
 
-#### 단계 2: aiops K8s 프로필 수정 + 테스트
-- 변경 파일: `aiops/src/main/resources/application-k8s.yml`, `aiops/src/test/java/aiops/aiops/config/K8sDiscoveryConfigTest.java`(신규)
-- 변경 내용 요약: 기존 Eureka 비활성 설정 아래에 `codebot` 정적 등록 추가. 동일 구조 테스트로 URI 검증.
-- 검증 방법: `.\gradlew.bat :aiops:test --tests "aiops.aiops.config.K8sDiscoveryConfigTest"`
-- 롤백 방법: `git checkout -- aiops/src/main/resources/application-k8s.yml` + 테스트 파일 삭제
+### 단계 2: 계약 테스트를 공용 통합 테스트 베이스에 연결
+- 변경 파일: `serverA/src/test/java/promotion/serverA/contract/OpenApiContractTest.java`
+- 변경 내용 요약: `AbstractSpringBootTest`(Testcontainers MySQL·Redis + EmbeddedKafka + `@DynamicPropertySource`)를 상속. 기존 `@SpringBootTest(webEnvironment = RANDOM_PORT)`와 비교 로직은 유지.
+- 검증 방법: `.\gradlew.bat :serverA:test --tests "promotion.serverA.contract.OpenApiContractTest"`, 이어서 CI 환경변수(H2 URL)를 설정한 채 같은 명령 재실행
+- 롤백 방법: `git checkout --` 해당 파일
 - 예상 소요: 짧음
 
-#### 단계 3: 문서 반영
+### 단계 3: 전체 회귀 + 문서
 - 변경 파일: `docs/arch-snapshot.md`
-- 변경 내용 요약: cs-bot/aiops 경고 문구를 해결 내용으로 교체
-- 검증 방법: 육안 확인
-- 롤백 방법: 해당 문단 되돌리기
-- 예상 소요: 짧음
+- 변경 내용 요약: serverA 전체 테스트 실행. arch-snapshot에 serverA `/v3/api-docs`(springdoc api) 및 계약 테스트 동작 반영.
+- 검증 방법: `.\gradlew.bat :serverA:test` 82/82
+- 롤백 방법: `git checkout --` 해당 파일
+- 예상 소요: 보통
 
-### 리스크 및 대응
-- 리스크: 서비스 ID 키 오타/대소문자 불일치 시 조용히 조회 실패 → 대응: 코드에 쓰인 문자열 그대로 키로 쓰고 테스트에서 동일 문자열로 조회 검증
-- 리스크: cs-bot에 처음 생기는 k8s 프로필 파일이 다른 설정과 충돌 → 대응: Eureka·디스커버리 키만 넣어 기존 `application.yaml` 값은 건드리지 않음
-- 리스크: 로컬 테스트는 DNS 연결까지 검증하지 못함 → 대응: 커밋 메시지에 "EKS 배포 후 검증 필요" 명시 또는 kind 검증 (사용자 결정)
+## 리스크 및 대응
+- 리스크: springdoc 2.8.5와 Boot 3.5.14 호환성 → 대응: serverB가 같은 조합으로 동작 중
+- 리스크: 하위 클래스의 `@SpringBootTest(webEnvironment = RANDOM_PORT)`가 베이스의 `@SpringBootTest`와 다른 컨텍스트를 만들어 테스트 시간이 늘어남 → 대응: 컨텍스트 1개 추가 수준, 허용
+- 리스크: 계약 테스트가 실제로 불일치를 찾아 실패 → 대응: 계약을 고칠지 구현을 고칠지는 사용자 판단 (테스트 주석 원칙), 발견 시 정지 후 보고
 
-### 의존성
-- Helm `promotion-app/values.yaml`의 Service 이름/포트 (`server-a:8080`, `server-b:8081`, `server-c:8082`, `user-service:8086`, `codebot:8087`)
-- spring-cloud-commons `SimpleDiscoveryClient` (이미 클래스패스에 있음, 신규 의존성 없음)
+## 의존성
+- Docker (Testcontainers)
+- 신규 Gradle 의존성: `org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.5` (사용자 승인 2026-11-13)

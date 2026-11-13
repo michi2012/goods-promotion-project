@@ -1,35 +1,34 @@
-# 맥락 노트: K8s 환경 DiscoveryClient 서비스 조회 복구
+# 맥락 노트: serverA 계약 테스트 동작시키기
 
 ## 왜 이 방식을 선택했는가
-K8s에는 discovery-service(Eureka 서버)를 배포하지 않는다(Helm 템플릿 없음, Service DNS로 대체). 그런데 serverA `PaymentQueryClient`, cs-bot `CsBotClient`, aiops `CodebotClient`는 `DiscoveryClient.getInstances()`로 대상 서비스를 찾는다. K8s에서는 인스턴스가 비어 다음처럼 동작한다.
-- serverA: 결제조회가 항상 UNKNOWN → 타임아웃 주문은 결제 성공이어도 EXPIRED, DB 재대사는 영구 보류
-- cs-bot: 주문·결제·상품·프로필 조회 Tool 전부 `IllegalStateException`. 게다가 k8s 프로필 파일이 없어 Eureka 클라이언트가 켜진 채 없는 서버에 등록 재시도
-- aiops: Slack → codebot 라우팅이 항상 "연결할 수 없음"
+`OpenApiContractTest`(#18 추가)는 serverA가 노출하는 `/v3/api-docs`를 계약 원본 `contracts/server-a-openapi.yaml`과 비교하는 drift-check다. 그런데 두 겹으로 항상 실패하고 있었다(main에서도 동일, worktree로 확인).
+1. serverA에 springdoc 의존성이 없어 `/v3/api-docs` 자체가 없다 → 500.
+2. 테스트가 그냥 `@SpringBootTest`라 실제 DB 설정을 그대로 쓴다. 로컬은 `localhost:3306/order`(없음), CI는 `SPRING_DATASOURCE_URL=jdbc:h2:mem`인데 `driver-class-name`이 MySQL로 고정 → 컨텍스트 로드 실패.
 
-Spring Cloud Commons에 기본 포함된 `SimpleDiscoveryClient`에 K8s Service DNS를 정적 등록하면 `CompositeDiscoveryClient`가 이를 반환한다. Java 코드와 의존성 변경 없이 k8s 프로필 yml만으로 해결되고, local(Eureka) 동작은 그대로다. 사용자가 이 방식을 선택했다 (2026-11-12). cs-bot은 Eureka 비활성화도 함께 하기로 했다.
+결정 (2026-11-13):
+- springdoc은 **`webmvc-api` 2.8.5** (사용자 선택). 계약 테스트에 필요한 건 `/v3/api-docs`뿐이고, Swagger UI를 추가로 노출할 이유가 없다. 버전은 같은 Boot 3.5.14에서 동작 중인 serverB와 맞춘다.
+- DB 문제는 **테스트가 기존 `AbstractSpringBootTest`를 상속**하게 해서 푼다. `@DynamicPropertySource`가 환경변수보다 우선하므로 CI의 H2 URL도 Testcontainers MySQL로 덮인다. `ServerAApplicationTests`가 이미 같은 방식으로 통과 중이다.
 
 ## 검토했으나 채택하지 않은 대안
-### 대안 A: 고정 URL 프로퍼티(`external.*.url`)로 전환
-- 무엇: 클라이언트에서 `DiscoveryClient`를 빼고 `@Value` URL 사용 (aiops `serverAAdminClient`가 이 방식)
-- 왜 안 썼나: Java·테스트·docker-compose 환경변수까지 변경 범위가 커짐. 정적 등록으로 같은 효과를 yml 하나로 얻음
+### 대안 A: `webmvc-ui` (serverB와 동일)
+- 왜 안 썼나: Swagger UI 정적 리소스·`/swagger-ui` 노출이 계약 테스트에 불필요. 사용자가 api 모듈 선택.
 
-### 대안 B: spring-cloud-kubernetes discovery 도입
-- 무엇: K8s API로 Service 엔드포인트를 동적 조회
-- 왜 안 썼나: 새 의존성 + ServiceAccount RBAC(endpoints get/list) 추가 필요. Service DNS가 이미 로드밸런싱하므로 이득이 적음
+### 대안 B: `driver-class-name` 제거 + H2 테스트 의존성
+- 왜 안 썼나: 컨텍스트에 Redis·Kafka도 필요하고, Flyway MySQL 마이그레이션(`MODIFY COLUMN`, 다중 `ADD COLUMN`)의 H2 호환을 따로 맞춰야 한다. 기존 Testcontainers 베이스 재사용이 단순.
 
-### 대안 C (cs-bot): 정적 등록만 하고 Eureka 유지
-- 왜 안 썼나: 없는 discovery-service에 등록 재시도 에러 로그가 계속 남음. 다른 모듈 k8s 프로필과도 불일치
+### 대안 C: 계약 테스트 삭제·비활성화
+- 왜 안 썼나: contract-first 구조의 유일한 백엔드 drift-check.
 
 ## 기존 코드베이스 컨벤션
-- k8s 전용 설정: `{module}/src/main/resources/application-k8s.yml` (Helm `SPRING_PROFILES_ACTIVE=k8s`)
-- 서비스 주소: Helm `values.yaml`의 `name`/`port` = K8s Service DNS (gateway `application-k8s.yml`과 동일 주소 사용)
-- 테스트 구조 예시: `serverA/src/test/java/promotion/serverA/config/K8sDiscoveryConfigTest.java` — ApplicationContextRunner + YAML 로드 + `UtilAutoConfiguration`(InetUtils 제공) + `SimpleDiscoveryClientAutoConfiguration`
+- 통합 테스트 베이스: `serverA/src/test/java/promotion/serverA/support/AbstractSpringBootTest.java` (Singleton Container 패턴)
+- 계약 테스트: `serverA/.../contract/OpenApiContractTest.java`, `serverB/.../contract/OpenApiContractTest.java`
+- springdoc 사용 예: `serverB/build.gradle`
 
 ## 관련 파일/위치
-- `serverA/src/main/java/promotion/serverA/client/PaymentQueryClient.java` — serverC 결제조회
-- `cs-bot/src/main/java/csbot/csbot/client/CsBotClient.java` — serverA/B/C, user-service 조회
-- `aiops/src/main/java/aiops/aiops/router/CodebotClient.java` — codebot 조회
-- `helm/promotion-app/values.yaml` — Service 이름/포트 원본
+- `serverA/build.gradle` — 의존성
+- `serverA/src/test/java/promotion/serverA/contract/OpenApiContractTest.java` — 계약 테스트
+- `contracts/server-a-openapi.yaml` — 계약 원본
+- `.github/workflows/ci-cd.yaml` — CI (H2 환경변수, `./gradlew clean test`)
 
 ## 외부 참조
-- Spring Cloud Commons — SimpleDiscoveryClient (`spring.cloud.discovery.client.simple.instances`)
+- springdoc-openapi 2.x (Spring Boot 3)

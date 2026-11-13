@@ -25,6 +25,8 @@ dependencies {
 	implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// /v3/api-docs 제공 — OpenApiContractTest(계약 drift-check)용. Swagger UI 없는 api 모듈, serverB와 같은 버전
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-api:2.8.5'
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
