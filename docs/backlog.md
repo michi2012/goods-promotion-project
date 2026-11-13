@@ -8,8 +8,6 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-010 | `values-local.yaml`(로컬 kind) serverA 데이터소스 DB 이름이 `promotion` — 실제는 `order` | `docs/plan.md` |
-| BL-012 | Helm 각 Deployment의 `EUREKA_DEFAULT_ZONE` 환경변수가 K8s에서 미사용 (+ `values.yaml` `discovery:` 섹션) | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순)
 | ID | 항목 | 분류 | 우선순위 | 출처 |
@@ -48,3 +46,4 @@
 | BL-001 백엔드 E2E(`backend-e2e/`) + UI E2E PAID 확인·사전 점검 + 프론트 CI + PR CI 분리·병렬·Gradle 캐시 | #25 |
 | BL-011 orders 페이지 lint 3건 정리 (BL-001에 포함) | #25 |
 | BL-019 PR CI 필수 체크 대비 result job + `dev` 트리거 정리 + main 브랜치 보호 적용(필수 체크 `backend-ci-result`·`frontend-ci-result`) | #27 |
+| BL-010 `values-local.yaml` serverA DB 이름 `order` + BL-012 Helm 미사용 Eureka 설정 제거(`EUREKA_DEFAULT_ZONE` env 11곳·`eurekaDefaultZone`·`discovery:` 섹션) | #29 |
