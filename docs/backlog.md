@@ -8,8 +8,6 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-001 | **작업 B**: Playwright API E2E(구매 → 결제 금액·PAID, 주문 상태 PAID) + 사전 점검 + 구매 UI E2E PAID 확인 + 프론트 CI(lint·Vitest·build) + 백엔드 CI 미사용 환경변수 정리 + PR CI 분리·병렬·Gradle 캐시 | `docs/plan.md` (`feature/e2e-api-and-ci`) |
-| BL-011 | `frontend/src/app/orders/[orderId]/page.tsx` lint 3건 — 프론트 CI lint 통과를 위해 BL-001에 포함 | `docs/plan.md` (`feature/e2e-api-and-ci`) |
 
 ## 진행 예정 (우선순위순)
 | ID | 항목 | 분류 | 우선순위 | 출처 |
@@ -46,3 +44,5 @@
 | 결제 금액 기본기 + Saga 안전망(UNKNOWN 재시도·늦은 결제 성공 보상) + Debezium DB 이름 + serverA 계약 테스트 | #22 |
 | main CI 정상화 (serverB 계약 테스트 + `DEPLOY_ENABLED`) | #23 |
 | BL-000 작업 규칙 정비 (범용 e2e skill + 단일 백로그 + 개인 환경 규칙 분리) | #24 |
+| BL-001 백엔드 E2E(`backend-e2e/`) + UI E2E PAID 확인·사전 점검 + 프론트 CI + PR CI 분리·병렬·Gradle 캐시 | #25 |
+| BL-011 orders 페이지 lint 3건 정리 (BL-001에 포함) | #25 |
