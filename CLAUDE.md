@@ -97,7 +97,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 남은 작업·로드맵 질문에는 백로그를 기준으로 답한다.
 
 ## 대형 설계 문서 관리 원칙
-`docs/system-design.md`, `docs/arch-snapshot.md` 등 설계/아키텍처 문서가 일정 규모(약 500줄) 이상으로 커지면, 매 작업마다 전체를 읽지 않는다.
+`docs/system-design.md`, `docs/architecture/arch-snapshot.md` 등 설계/아키텍처 문서가 일정 규모(약 500줄) 이상으로 커지면, 매 작업마다 전체를 읽지 않는다.
 - 비대해진 문서는 도메인별로 분할한다 (예: `docs/domains/{도메인}/arch.md`).
 - 분할 전이라도, 작업과 관련된 키워드(도메인명, 기능명)로 필요한 부분만 발췌해서 읽는다.
 

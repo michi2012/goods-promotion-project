@@ -12,9 +12,9 @@ description: Codex MCP를 read-only 샌드박스로 실행해 현재 브랜치 �
 
 다음 두 파일을 읽어 리뷰 컨텍스트로 유지한다.
 
-- `docs/arch-snapshot.md`: 시스템 전체 구조 (Kafka 토픽 맵, 이벤트 흐름, 엔티티, 엔드포인트)
+- `docs/architecture/arch-snapshot.md`: 시스템 전체 구조 (Kafka 토픽 맵, 이벤트 흐름, 엔티티, 엔드포인트)
   - 없으면 "arch-snapshot 없음 — /arch-snapshot 실행을 권장합니다" 출력 후 Step 1 진행
-- `docs/infra-diagram.md`: 인프라 토폴로지 (컨테이너 구성, 포트, 모니터링 스택)
+- `docs/architecture/infra-diagram.md`: 인프라 토폴로지 (컨테이너 구성, 포트, 모니터링 스택)
   - 없으면 조용히 건너뛴다
 - `docs/design-notes.md`: 비자명한 설계 결정 및 불변식 (동시성 제어, 패턴 선택 이유 등)
   - 없으면 건너뛴다.

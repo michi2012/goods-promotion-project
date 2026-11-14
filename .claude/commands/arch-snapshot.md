@@ -1,5 +1,5 @@
 ---
-description: 프로젝트 전체를 스캔해 docs/arch-snapshot.md를 생성한다. codex-review 실행 전 선행 실행 권장.
+description: 프로젝트 전체를 스캔해 docs/architecture/arch-snapshot.md를 생성한다. codex-review 실행 전 선행 실행 권장.
 ---
 
 # /arch-snapshot 명령어
@@ -69,9 +69,9 @@ description: 프로젝트 전체를 스캔해 docs/arch-snapshot.md를 생성한
 
 ---
 
-## Step 2. docs/arch-snapshot.md 생성
+## Step 2. docs/architecture/arch-snapshot.md 생성
 
-스캔 결과를 바탕으로 아래 형식으로 `docs/arch-snapshot.md`를 작성한다.
+스캔 결과를 바탕으로 아래 형식으로 `docs/architecture/arch-snapshot.md`를 작성한다.
 **파일이 이미 존재하면 덮어쓴다.**
 
 ````markdown
@@ -176,7 +176,7 @@ codex-reviewer 참고용. debezium/outbox-connector.json에서 추출.
 생성 완료 후 다음 형식으로 보고한다:
 
 ```
-✅ docs/arch-snapshot.md 생성 완료
+✅ docs/architecture/arch-snapshot.md 생성 완료
 - 모듈: N개
 - Kafka 토픽: N개
 - API 엔드포인트: N개

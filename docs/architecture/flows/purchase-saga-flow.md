@@ -125,4 +125,4 @@ Saga가 끝난(상태 삭제) 뒤 `payment-result(success)`가 오는 경우. �
 
 - `GET /api/v1/orders/{orderId}/status` → `OrderQueryService.getOrderStatus()` — Redis `order:view:{orderId}:status` 조회, 키 없으면 `"NOT_FOUND"` 문자열 반환(예외 아님).
 - `GET /api/v1/goods/{goodsId}/stock` → `OrderQueryService.getStockView()` — Caffeine 캐시(재고 0이면 5초, 판매중이면 500ms TTL, `Expiry` 커스텀 구현) 우선 조회 후 Redis 폴백.
-- 프론트엔드는 이 API를 버튼 클릭 시 1회 호출하는 단순 조회 UI다. README에 서술된 Exponential Backoff 폴링 정책은 실제 프론트엔드 코드에는 없다 — 자세한 내용과 근거는 [`docs/frontend-flow.md`](frontend-flow.md) 참고.
+- 프론트엔드는 이 API를 버튼 클릭 시 1회 호출하는 단순 조회 UI다. README에 서술된 Exponential Backoff 폴링 정책은 실제 프론트엔드 코드에는 없다 — 자세한 내용과 근거는 [`docs/architecture/flows/frontend-flow.md`](frontend-flow.md) 참고.

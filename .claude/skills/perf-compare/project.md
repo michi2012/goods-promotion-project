@@ -24,7 +24,7 @@
 
 ## 이 프로젝트에서 배운 것
 - **구매 API는 202(접수) 후 비동기 Saga로 처리된다.** k6 TPS만 보면 안 된다. 과거 큐 한도 제거 시 응답 5,700 TPS였지만 DB 처리 완료까지 12분이 걸렸다. 재고가 모두 처리 완료되는 시점까지를 함께 잰다 — 과거에는 Grafana Saga 완료 메트릭으로 확인했다(현재 `sre-dashboard`의 "결제 Saga 완료율" 패널, recording rule `saga:payment_error_rate:*`). 완료 시점을 재는 정확한 쿼리는 첫 실측 때 확정해 여기에 적는다.
-- 지금까지의 단계별 개선(60 → 10,300 TPS)은 로컬 docker compose에서 상대 비교로 측정했다. 과정과 수치는 `docs/qa/interview-qa-01-tps.md`.
+- 지금까지의 단계별 개선(60 → 10,300 TPS)은 로컬 docker compose에서 상대 비교로 측정했다.
 
 ## 환경
 | 환경 | 상태 |
