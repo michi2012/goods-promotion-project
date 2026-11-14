@@ -39,7 +39,7 @@
 | BL-004 | 금액 필수화 (확장-축소 마지막 단계): 금액 없는 `payment-request` 거부 | 운영에서 `business_payment_legacy_without_amount_total`이 계속 0 | S | PR #22 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 | `docs/design-notes.md` "E2E 두 층과 도구"의 전환 조건 | M | BL-001 작업 중 논의 |
 | BL-007 | 전체 스택 E2E CI 워크플로 (docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`). 논의된 설계: 트리거는 main 머지 후(경로 필터)·수동·워크플로 파일 변경 PR, 야간 없음 / 필요한 서비스 11개만 기동(grafana 3000 포트 충돌) / 한 job에서 순차 실행 / 표준 러너(PUBLIC, 4 vCPU·16GB) 실측 후 기록 / `bitnami/kafka:latest` pull 실패 가능성. 현업 표준은 스테이징 E2E(BL-018)이며, 이 항목은 스테이징이 없는 동안의 대체재 또는 배포 전 게이트 | ① EKS 재가동 후 BL-018과 함께 역할(대체·배포 전 게이트·통합) 판단, 또는 ② 로컬 E2E 누락으로 main의 서버 간 흐름이 깨진 사례 발생 | M | E2E 회고, 조건부 이동 #38 |
-| BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음. 할 때는 `contracts/openapi.yaml`·`contracts/server-a-openapi.yaml`을 가져와(import) 생성 | 팀원 합류, 또는 수동 API 호출이 반복돼 불편할 때 | S | BL-001 작업 중 논의 |
+| BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음. 할 때는 `contracts/openapi.yaml`·`contracts/server-a-openapi.yaml`을 가져와(import) 생성 | 팀원 합류, 또는 수동 API 호출이 반복돼 불편할 때 | S | BL-001 작업 중 논의, 조건부 이동 #39 |
 | BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준. 지금은 MSW가 커버(API 호출이 모두 Client Component), 구매 폴링(PENDING→PAID)은 Prism(stateless)으로 표현 불가, serverA·B 계약 2개라 Prism 2개 필요 | Server Component에서 데이터를 가져오는 화면을 백엔드보다 먼저 개발할 때 | M | BL-001 작업 중 논의, 조건부 이동 #37 |
 | BL-005 | 중복 망취소(금액 불일치 망취소, 늦은 성공 보상 중복 수신) 시 실제 PG 응답 처리 미검증 (모의 PG는 멱등) | 실제 PG 연동 시 | M | PR #22 |
 
