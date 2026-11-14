@@ -22,7 +22,6 @@
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
 | BL-007 | 전체 스택 E2E CI 워크플로 (main 머지 후 / 야간 / 수동, docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`)를 함께 실행. 러너 메모리·시간 실측 후 결정 | 후속 작업 | 중간 | M | | E2E 회고 |
 | BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음 | 후속 작업 | 낮음 | S | | BL-001 작업 중 논의 |
-| BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준 (지금은 Vitest+MSW 컴포넌트 테스트로 대체) | 후속 작업 | 낮음 | M | | BL-001 작업 중 논의 |
 | BL-025 | 명령 문서의 OS 의존: `/db-migration`·`/coverage`·`/release-notes`가 PowerShell 스크립트로 집계·필터링, `/codex-review`에 "Windows 절대경로" — 팀 운영 시 Mac/Linux에서 동작 안 함. 프로젝트 런타임(Node/Gradle) 또는 OS 중립 지시로 전환 | 기술 부채 | 낮음 | M | | BL-013 작업 중 발견 |
 | BL-026 | 루트 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 — `perf-compare` skill의 스크립트 위치에 맞춤. 참조(`docs/frontend-flow.md`, skill `project.md`) 함께 갱신 | 정리 | 낮음 | S | | perf-compare skill 작업 중 발견 |
 | BL-024 | codebot에 `application-k8s.yml` 없음 → K8s에서도 Eureka 클라이언트가 켜져 없는 서버에 등록 시도(실패 로그). 다른 모듈처럼 `eureka.client.enabled: false` + `K8sDiscoveryConfigTest` 추가 | 기술 부채 | 낮음 | S | | BL-012 작업 중 발견 |
@@ -41,6 +40,7 @@
 |----|------|------|------|------|
 | BL-004 | 금액 필수화 (확장-축소 마지막 단계): 금액 없는 `payment-request` 거부 | 운영에서 `business_payment_legacy_without_amount_total`이 계속 0 | S | PR #22 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 | `docs/design-notes.md` "E2E 두 층과 도구"의 전환 조건 | M | BL-001 작업 중 논의 |
+| BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준. 지금은 MSW가 커버(API 호출이 모두 Client Component), 구매 폴링(PENDING→PAID)은 Prism(stateless)으로 표현 불가, serverA·B 계약 2개라 Prism 2개 필요 | Server Component에서 데이터를 가져오는 화면을 백엔드보다 먼저 개발할 때 | M | BL-001 작업 중 논의, 조건부 이동 #37 |
 | BL-005 | 중복 망취소(금액 불일치 망취소, 늦은 성공 보상 중복 수신) 시 실제 PG 응답 처리 미검증 (모의 PG는 멱등) | 실제 PG 연동 시 | M | PR #22 |
 
 ## 완료
