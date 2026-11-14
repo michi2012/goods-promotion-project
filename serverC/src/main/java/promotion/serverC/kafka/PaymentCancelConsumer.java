@@ -11,13 +11,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.stereotype.Component;
 import promotion.serverC.dto.PaymentCancelMessage;
-import promotion.serverC.repository.PaymentRepository;
-import promotion.serverC.service.PgClient;
+import promotion.serverC.service.PaymentCancelService;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.Map;
 
 @Component
@@ -25,8 +24,7 @@ import java.util.Map;
 @Slf4j
 public class PaymentCancelConsumer {
 
-    private final PgClient pgClient;
-    private final PaymentRepository paymentRepository;
+    private final PaymentCancelService paymentCancelService;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     private final Tracer tracer;
@@ -37,7 +35,7 @@ public class PaymentCancelConsumer {
     @PostConstruct
     void initMetrics() {
         refundFatal = Counter.builder("business_payment_pg_refund_fatal_total")
-                .description("PG사 환불 요청까지 실패한 치명 오류 건수 (재시도 모두 소진)")
+                .description("PG 취소가 Kafka 재시도를 모두 소진해 자동 재시도 대기로 넘어간 건수 (관리자 처리 필요는 business_payment_cancel_retry_exhausted_total)")
                 .register(meterRegistry);
     }
 
@@ -49,8 +47,7 @@ public class PaymentCancelConsumer {
         Span span = buildChildSpan(traceparent, "serverC.payment.cancel");
         try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
             log.info("[PaymentCancel] payment-cancel 수신: orderId={}", msg.orderId());
-            pgClient.cancelPayments(List.of(msg.orderId()));
-            paymentRepository.updateOrderStatus(List.of(msg.orderId()), "CANCELLED");
+            paymentCancelService.cancel(msg.orderId());
         } catch (Exception e) {
             span.error(e);
             throw e;
@@ -76,8 +73,17 @@ public class PaymentCancelConsumer {
         groupId = "${spring.kafka.consumer.group-id}.dlt",
         containerFactory = "dltKafkaListenerContainerFactory"
     )
-    public void handleDlt(String payload) {
+    public void handleDlt(ConsumerRecord<String, String> record) throws Exception {
         refundFatal.increment();
-        log.error("🚨 [DLT] payment-cancel 재시도 모두 소진 — 수동 정산 필요: payload={}", payload);
+        PaymentCancelMessage msg = objectMapper.readValue(record.value(), PaymentCancelMessage.class);
+        String error = headerValue(record, KafkaHeaders.DLT_EXCEPTION_MESSAGE);
+        log.error("🚨 [DLT] payment-cancel Kafka 재시도 소진 → 자동 재시도 대기로 기록: orderId={}, error={}",
+                msg.orderId(), error);
+        paymentCancelService.recordDltArrival(msg.orderId(), error);
+    }
+
+    private String headerValue(ConsumerRecord<?, ?> record, String name) {
+        org.apache.kafka.common.header.Header header = record.headers().lastHeader(name);
+        return header != null ? new String(header.value(), StandardCharsets.UTF_8) : null;
     }
 }

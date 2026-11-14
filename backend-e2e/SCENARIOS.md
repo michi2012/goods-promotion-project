@@ -28,3 +28,15 @@
 - 금액은 클라이언트가 보내지 않는다. 서버가 단가 × 수량으로 계산한 값이 결제 승인 금액과 같아야 한다.
 - 모의 PG는 1% 확률로 결제를 거절하므로(정상 동작) 실패 시 1회 재시도한다. 재시도마다 상품·사용자를 새로 만든다.
 - 각 단계의 응답을 결과 리포트에 첨부한다 (결과 보고 근거).
+
+## 시나리오 2: PG 취소 실패 관리자 API (`payment-cancel-admin.spec.ts`)
+
+| 단계 | 요청 | 기대 결과 |
+|---|---|---|
+| ① 역할 없음 | serverC `GET /api/v1/payments/admin/cancel-failures` (헤더 없음) | **403** |
+| ② 일반 사용자 | 같은 요청, `X-User-Role: ROLE_USER` | **403** |
+| ③ 관리자 목록 | `GET ...?status=EXHAUSTED`, `X-User-Role: ROLE_ADMIN` | 200, 배열 |
+| ④ 없는 주문 재처리 | `POST .../{없는 orderId}/retry`, `X-User-Role: ROLE_ADMIN` | **404** |
+
+- `X-User-Role`은 운영에서 게이트웨이가 JWT로 검증해 넣는다. 여기서는 serverC를 직접 호출해 역할 검사만 확인한다.
+- PG 취소 실패 → 자동 재시도 → 소진 흐름은 실패를 일부러 만들 수단이 없어 serverC 통합 테스트(`PaymentCancelRetryIntegrationTest`)가 담당한다. 사용자 환불 E2E는 BL-029 PR②에서 추가한다.

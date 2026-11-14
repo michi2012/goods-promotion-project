@@ -15,6 +15,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
     }
 
+    @ExceptionHandler(CancelFailureNotFoundException.class)
+    public ResponseEntity<String> handleCancelFailureNotFound(CancelFailureNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+    }
+
+    @ExceptionHandler(InvalidCancelFailureStatusException.class)
+    public ResponseEntity<String> handleInvalidCancelFailureStatus(InvalidCancelFailureStatusException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+    }
+
+    @ExceptionHandler(AdminForbiddenException.class)
+    public ResponseEntity<String> handleAdminForbidden(AdminForbiddenException e) {
+        log.warn("[관리자 API] 권한 없는 호출 거부");
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+    }
+
     // 서버 B가 보상 트랜잭션을 시작할 수 있도록 400 Bad Request를 정확히 반환
     @ExceptionHandler(PgPaymentException.class)
     public ResponseEntity<String> handlePgPaymentError(PgPaymentException e) {

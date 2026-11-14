@@ -67,4 +67,13 @@ public class KafkaTopicConfig {
                            .replicas(1)
                            .build();
     }
+
+    // 5. 서버 C가 발행하는 PG 취소 확정 토픽 (serverC Outbox → serverA 소비)
+    @Bean
+    public NewTopic paymentCancelledTopic() {
+        return TopicBuilder.name("payment-cancelled")
+                           .partitions(3)
+                           .replicas(1)
+                           .build();
+    }
 }
