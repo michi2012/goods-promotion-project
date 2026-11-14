@@ -8,6 +8,7 @@
 |------|------|
 | 새 k6 스크립트 | `perf/k6/{주제}.js` |
 | 결과 기록 | `docs/perf/YYYY-MM-DD-{주제}.md` (+ 같은 폴더에 k6 summary JSON) |
+| 포트폴리오 요약 | `docs/portfolio.md` — 개선 하나당 한 줄 (문제 → 개선 → 수치 → `docs/perf/` 원본 링크) |
 | 기존 시나리오 | `perf/k6/load-test.js`, `perf/k6/load-test2.js` — 선착순 구매 스파이크(1000 VU, shared-iterations). 응답 코드별 커스텀 카운터(202 성공·400 품절·503 큐 제한·기타) |
 
 ## 도구
