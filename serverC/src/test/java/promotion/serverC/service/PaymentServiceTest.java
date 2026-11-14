@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -89,7 +90,7 @@ class PaymentServiceTest {
         verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "PAID");
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, true, null)));
-        verify(pgClient, never()).cancelPayments(anyList());
+        verify(pgClient, never()).cancelPayment(anyString());
     }
 
     @Test
@@ -120,7 +121,7 @@ class PaymentServiceTest {
         paymentService.processPayment(message());
 
         // then
-        verify(pgClient).cancelPayments(List.of(ORDER_ID));
+        verify(pgClient).cancelPayment(ORDER_ID);
         verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "FAILED");
         verify(paymentRepository, never()).updateOrderStatus(List.of(ORDER_ID), "PAID");
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
@@ -140,7 +141,7 @@ class PaymentServiceTest {
         paymentService.processPayment(message());
 
         // then
-        verify(pgClient).cancelPayments(List.of(ORDER_ID));
+        verify(pgClient).cancelPayment(ORDER_ID);
         verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "FAILED");
     }
 
@@ -155,7 +156,7 @@ class PaymentServiceTest {
         paymentService.processPayment(legacyMessage());
 
         // then
-        verify(pgClient, never()).cancelPayments(anyList());
+        verify(pgClient, never()).cancelPayment(anyString());
         verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "PAID");
         assertThat(counter("business_payment_legacy_without_amount_total")).isEqualTo(1.0);
     }
@@ -225,7 +226,7 @@ class PaymentServiceTest {
         paymentService.processPayment(message());
 
         // then
-        verify(pgClient).cancelPayments(List.of(ORDER_ID));
+        verify(pgClient).cancelPayment(ORDER_ID);
         verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "FAILED");
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, false, "금액 불일치")));

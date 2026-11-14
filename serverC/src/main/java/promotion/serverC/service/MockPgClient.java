@@ -12,8 +12,8 @@ import promotion.serverC.dto.PurchaseMessage;
 import promotion.serverC.exception.PgAmbiguousResponseException;
 import promotion.serverC.exception.PgPaymentException;
 
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -27,6 +27,9 @@ public class MockPgClient implements PgClient {
     // 결제 결과는 재고 품절 캐시(Caffeine)처럼 만료시킬 이유가 없어 TTL 없는 맵으로 충분하다.
     // 승인 금액도 함께 기억해, 조회(queryTransaction) 시 실제 PG처럼 승인 금액을 돌려준다.
     private final Map<String, PgTransactionResult> transactionStore = new ConcurrentHashMap<>();
+
+    // 취소한 거래의 멱등 키(orderId). 승인 결과와 같은 이유로 TTL 없이 기억한다.
+    private final Set<String> cancelledOrders = ConcurrentHashMap.newKeySet();
 
     private static final double AMBIGUOUS_RESPONSE_RATE = 0.01;
     private static final double BUSINESS_REJECTION_RATE = 0.01;
@@ -99,12 +102,17 @@ public class MockPgClient implements PgClient {
     }
 
     @Override
-    public void cancelPayments(List<String> orderIds) {
-        if (orderIds.isEmpty()) return;
-        log.warn("🚨 PG사로 결제 강제 취소(망취소)를 요청했습니다. 대상: {}건", orderIds.size());
-        refundRequests.increment(orderIds.size());
+    public PgCancelResult cancelPayment(String orderId) {
+        // 멱등 키(orderId): 이미 취소한 거래는 다시 취소하지 않고 "이미 취소됨"을 돌려준다 (이중 환불 방지).
+        if (!cancelledOrders.add(orderId)) {
+            log.info("[MockPgClient] 이미 취소된 거래: orderId={}", orderId);
+            return PgCancelResult.ALREADY_CANCELLED;
+        }
+        log.warn("🚨 PG사로 결제 취소를 요청했습니다: orderId={}", orderId);
+        refundRequests.increment();
         refundDuration.record(() -> {
             try { Thread.sleep(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         });
+        return PgCancelResult.CANCELLED;
     }
 }

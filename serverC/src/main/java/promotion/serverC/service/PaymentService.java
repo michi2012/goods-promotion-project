@@ -148,7 +148,7 @@ public class PaymentService {
         log.error("🚨 [Payment] 승인 금액 불일치, 망취소: orderId={}, orderAmount={}, approvedAmount={}",
                 msg.orderId(), msg.totalAmount(), result.approvedAmount());
         paymentErrorAmountMismatch.increment();
-        pgClient.cancelPayments(List.of(msg.orderId()));
+        pgClient.cancelPayment(msg.orderId());
         paymentRepository.updateOrderStatus(List.of(msg.orderId()), "FAILED");
         outboxEventService.save(msg.orderId(), RESULT_TOPIC,
                 new PaymentResultMessage(msg.orderId(), false, "금액 불일치"));

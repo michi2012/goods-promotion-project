@@ -47,6 +47,13 @@ public class PaymentRepository {
         jdbcTemplate.update(sql, params.toArray());
     }
 
+    // 현재 상태가 expected일 때만 바꾼다. 바뀐 행 수(0 또는 1)를 돌려준다.
+    public int updateStatusIfCurrent(String orderId, String expected, String next) {
+        return jdbcTemplate.update(
+                "UPDATE payments SET status = ? WHERE order_id = ? AND status = ?",
+                next, orderId, expected);
+    }
+
     public Optional<PaymentResponse> findByOrderId(String orderId) {
         String sql = "SELECT order_id, user_id, goods_id, quantity, amount, currency, payment_method, status, created_at " +
                      "FROM payments WHERE order_id = ?";
