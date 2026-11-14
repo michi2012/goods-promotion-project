@@ -12,6 +12,7 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
+| BL-024 | codebot `application-k8s.yml` 추가 (`eureka.client.enabled: false`). DiscoveryClient를 쓰지 않아 정적 등록·`K8sDiscoveryConfigTest`는 불필요 (serverB·C와 같은 방식) | (설정 1개 — 3종 문서 없음) |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -22,7 +23,6 @@
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
 | BL-025 | 명령 문서의 OS 의존: `/db-migration`·`/coverage`·`/release-notes`가 PowerShell 스크립트로 집계·필터링, `/codex-review`에 "Windows 절대경로" — 팀 운영 시 Mac/Linux에서 동작 안 함. 프로젝트 런타임(Node/Gradle) 또는 OS 중립 지시로 전환 | 기술 부채 | 낮음 | M | | BL-013 작업 중 발견 |
 | BL-026 | 루트 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 — `perf-compare` skill의 스크립트 위치에 맞춤. 참조(`docs/frontend-flow.md`, skill `project.md`) 함께 갱신 | 정리 | 낮음 | S | | perf-compare skill 작업 중 발견 |
-| BL-024 | codebot에 `application-k8s.yml` 없음 → K8s에서도 Eureka 클라이언트가 켜져 없는 서버에 등록 시도(실패 로그). 다른 모듈처럼 `eureka.client.enabled: false` + `K8sDiscoveryConfigTest` 추가 | 기술 부채 | 낮음 | S | | BL-012 작업 중 발견 |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
