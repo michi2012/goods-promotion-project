@@ -12,7 +12,6 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-024 | codebot `application-k8s.yml` 추가 (`eureka.client.enabled: false`). DiscoveryClient를 쓰지 않아 정적 등록·`K8sDiscoveryConfigTest`는 불필요 (serverB·C와 같은 방식) | (설정 1개 — 3종 문서 없음) |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -57,4 +56,5 @@
 | BL-013 `/plan` 명령의 Windows 전용 지시 제거 (빈 파일 사전 생성·백슬래시 경로) | #32 |
 | BL-003 결과 이벤트 유실 시 종료 주문(EXPIRED/FAILED) 재대사 → serverC PAID면 망취소 + serverA 로컬 `fetch-registry: true` + e2e 로컬 기동 주의사항 | #35 |
 | BL-027 CLAUDE.md "재발 방지 기록" 규칙(skill `project.md`/`CLAUDE.local.md`에 즉시 기록) + 자가 점검 4번 항목 | #36 |
+| BL-024 codebot `application-k8s.yml` 추가(`eureka.client.enabled: false`) — DiscoveryClient 미사용이라 정적 등록·테스트 불필요. EKS 배포 후 Eureka 등록 실패 로그 사라짐 확인 필요 | #40 |
 | BL-014 로컬 테스트 데이터 정리 — **불필요로 종료**: 로컬 DB·Redis는 익명 볼륨이라 `docker compose down` 시 초기화, E2E는 자기 데이터를 직접 만들어 영향 없음 | #32 (기록만) |
