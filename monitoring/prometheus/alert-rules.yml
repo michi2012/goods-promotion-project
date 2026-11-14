@@ -21,6 +21,27 @@
           summary: "🔥 [P1] Saga 타임아웃 EXPIRED 발생 ({{ printf \"%.0f\" $value }}건)"
           description: "3분 내 결제 Saga가 완료되지 않아 EXPIRED 처리됨. PG사 지연·Kafka 렉·서버 다운 등 인프라 장애가 원인일 수 있음."
 
+      # 2-1. [P2] 결제조회 UNKNOWN 지속 — serverC 장애로 타임아웃 주문의 결제 상태를 확인하지 못함 (BL-006)
+      - alert: PaymentQueryUnknownPersisting
+        expr: increase(saga_timeout_payment_unknown_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          tier: P2
+        annotations:
+          summary: "⚠️ [P2] 결제조회 UNKNOWN 지속 (최근 5분 {{ printf \"%.0f\" $value }}회)"
+          description: "타임아웃된 Saga의 serverC 결제조회가 5분 넘게 실패 중. 해당 주문은 PENDING·재고가 묶여 있고, Saga 생성 후 30분이 지나면 EXPIRED로 강제 처리됨. serverC 상태를 확인할 것."
+
+      # 2-2. [P1] 결제 상태 미확인 강제 만료 (BL-006)
+      - alert: SagaForceExpiredOnUnknown
+        expr: increase(saga_timeout_payment_unknown_expired_total[5m]) > 0
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] 결제 상태 미확인 주문 강제 EXPIRED ({{ printf \"%.0f\" $value }}건)"
+          description: "serverC 결제조회 불가가 30분을 넘어 주문을 EXPIRED 처리하고 재고를 반납함. serverC에서 실제 승인된 결제는 복구 후 늦은 결과 보상 또는 종료 주문 재대사(주문 생성 후 24시간 이내)가 망취소함. serverC 장애가 24시간을 넘으면 수동 대사·환불 필요."
+
       # 3. [P1] 인스턴스 다운 또는 가용성 붕괴
       - alert: InstanceDownOrAvailabilityDrop
         expr: |

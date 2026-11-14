@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-14
-- **다음 ID: BL-028** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-029** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -19,7 +19,6 @@
 | BL-002 | **결제 로드맵 2단계: Spring Batch 정산** — Job/Step/chunk, 키셋 페이징, 정산일 JobParameters 멱등, 재시작, Skip/Retry, 수수료 정책(시점별 요율)·BigDecimal 반올림·컷오프·원장, 별도 모듈 + K8s CronJob. Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | | 결제 로드맵 (2026-11-12) |
 | BL-008 | **결제 로드맵 3단계**: 대용량 배치 vs 실시간 분리 — 시드 데이터로 OFFSET vs 키셋 실측, 배치 전용 커넥션 풀. 읽기 복제본은 설계·답변 위주 | 로드맵 | 중간 | L | BL-002 | 결제 로드맵 |
 | BL-009 | 정산 2차: 부분 취소, PG 정산 내역 대사 | 로드맵 | 낮음 | L | BL-002 | 결제 로드맵 |
-| BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
@@ -39,6 +38,7 @@
 | BL-007 | 전체 스택 E2E CI 워크플로 (docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`). 논의된 설계: 트리거는 main 머지 후(경로 필터)·수동·워크플로 파일 변경 PR, 야간 없음 / 필요한 서비스 11개만 기동(grafana 3000 포트 충돌) / 한 job에서 순차 실행 / 표준 러너(PUBLIC, 4 vCPU·16GB) 실측 후 기록 / `bitnami/kafka:latest` pull 실패 가능성. 현업 표준은 스테이징 E2E(BL-018)이며, 이 항목은 스테이징이 없는 동안의 대체재 또는 배포 전 게이트 | ① EKS 재가동 후 BL-018과 함께 역할(대체·배포 전 게이트·통합) 판단, 또는 ② 로컬 E2E 누락으로 main의 서버 간 흐름이 깨진 사례 발생 | M | E2E 회고, 조건부 이동 #38 |
 | BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음. 할 때는 `contracts/openapi.yaml`·`contracts/server-a-openapi.yaml`을 가져와(import) 생성 | 팀원 합류, 또는 수동 API 호출이 반복돼 불편할 때 | S | BL-001 작업 중 논의, 조건부 이동 #39 |
 | BL-022 | 프론트만 구현된 상황의 UI E2E — Prism mock 기준. 지금은 MSW가 커버(API 호출이 모두 Client Component), 구매 폴링(PENDING→PAID)은 Prism(stateless)으로 표현 불가, serverA·B 계약 2개라 Prism 2개 필요 | Server Component에서 데이터를 가져오는 화면을 백엔드보다 먼저 개발할 때 | M | BL-001 작업 중 논의, 조건부 이동 #37 |
+| BL-028 | `OrderReconciliationScheduler.reconcilePendingOrders`도 결제조회 UNKNOWN이면 무한 재시도 (Redis Saga 상태 유실 + serverC 장애가 겹친 PENDING 주문은 BL-006 상한이 적용되지 않음) — 같은 상한(`saga.timeout.payment-unknown-max-minutes`)으로 `reconcileToFailed`/EXPIRED 처리 검토 | Redis 상태 유실과 serverC 장애가 동시에 발생한 사례, 또는 `saga.timeout.payment_unknown`과 별개로 오래된 PENDING 주문이 관측될 때 | S | BL-006 작업 중 발견 |
 | BL-005 | 중복 망취소(금액 불일치 망취소, 늦은 성공 보상 중복 수신) 시 실제 PG 응답 처리 미검증 (모의 PG는 멱등) | 실제 PG 연동 시 | M | PR #22 |
 
 ## 완료
@@ -57,4 +57,5 @@
 | BL-027 CLAUDE.md "재발 방지 기록" 규칙(skill `project.md`/`CLAUDE.local.md`에 즉시 기록) + 자가 점검 4번 항목 | #36 |
 | BL-024 codebot `application-k8s.yml` 추가(`eureka.client.enabled: false`) — DiscoveryClient 미사용이라 정적 등록·테스트 불필요. EKS 배포 후 Eureka 등록 실패 로그 사라짐 확인 필요 | #40 |
 | BL-026 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 + 참조 2곳 갱신 | #42 |
+| BL-006 결제조회 UNKNOWN 최대 대기 30분(`saga.timeout.payment-unknown-max-minutes`) 후 EXPIRED·재고 복구 + 알람 2개(P2 UNKNOWN 지속, P1 강제 만료) + e2e Debezium 오프셋 함정 기록 | #43 |
 | BL-014 로컬 테스트 데이터 정리 — **불필요로 종료**: 로컬 DB·Redis는 익명 볼륨이라 `docker compose down` 시 초기화, E2E는 자기 데이터를 직접 만들어 영향 없음 | #32 (기록만) |

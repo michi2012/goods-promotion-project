@@ -1,67 +1,59 @@
-# 계획서: 결과 이벤트 유실 시 종료 주문 재대사 (BL-003)
+# 계획서: 결제조회 UNKNOWN 최대 대기 시간 + 알람 (BL-006)
 
-## [완료] BL-003 (PR #35)
+## [완료] BL-006 (PR #43)
 
 - 작성일: 2026-11-14
-- 관련 이슈/티켓: 백로그 BL-003
+- 관련 이슈/티켓: 백로그 BL-006
 
-## 목표
-주문이 EXPIRED/FAILED로 끝났는데 serverC 결제는 PAID로 남은 경우(늦은 `payment-result` 또는 `payment-cancel`이 CDC에서 유실)를 serverA가 주기적으로 찾아 `payment-cancel`(망취소)을 발행한다.
+### 목표
+serverC 장애로 결제조회가 계속 UNKNOWN이면, Saga 생성 후 30분(설정 가능)이 지난 시점에 주문을 EXPIRED로 끝내 재고를 반납하고, UNKNOWN 지속과 강제 만료를 알람으로 알린다.
 
-## 성공 기준
-- [ ] 생성 후 10분~24시간 지난 EXPIRED/FAILED 주문을 조회하는 리포지토리 메서드가 범위 경계대로 동작 (`OrderRepositoryTest`, Testcontainers)
-- [ ] 스케줄러: serverC 조회 PAID → 망취소 발행 / NOT_PAID·UNKNOWN → 아무것도 안 함 (`OrderReconciliationSchedulerTest`)
-- [ ] 서비스: 주문이 EXPIRED/FAILED일 때만 `payment-cancel` Outbox 저장 + `saga.reconcile_cancel.total` 증가 (`SagaOrchestratorServiceTest`)
-- [ ] 로컬 E2E: 정상 구매(PAID) 후 serverA 주문을 DB에서 EXPIRED로 바꾸면 → 재대사가 망취소 → serverC 결제 CANCELLED (주기·하한을 프로퍼티로 짧게 설정)
-- [ ] `gradlew :serverA:test` 통과
+### 성공 기준
+- [ ] 생성 후 30분 미만 + UNKNOWN → 지금처럼 건너뛰고 `saga.timeout.payment_unknown`만 증가 (단위 테스트)
+- [ ] 생성 후 30분 이상 + UNKNOWN → `handleSagaFailure(orderId, "TIMEOUT")` 호출 + `saga.timeout.payment_unknown_expired`·`saga.expired.total` 증가 (단위 테스트)
+- [ ] 알람 2개(P2 UNKNOWN 지속, P1 강제 만료)가 compose·helm 알람 파일 양쪽에 있고 문법이 맞다 (`promtool check rules`, `helm template`)
+- [ ] 로컬 E2E: serverC 정지 상태에서 구매 → 상한(E2E용 짧은 값) 경과 후 주문 EXPIRED + 재고 복구 → serverC 재기동 후 결제가 CANCELLED로 정리됨
+- [ ] `gradlew :serverA:test` 전체 통과
 
-## 비범위 (Out of Scope)
-- serverC 측 재대사(serverC 스케줄러 + serverA 조회 API) — 검토 후 미채택 (context.md)
-- 중복 망취소 시 실제 PG 응답 처리 (BL-005, 조건부)
-- 24시간을 넘긴 CDC 장애 — 장애 대응 영역
-- 일괄 조회 API(serverC에 여러 orderId 한 번에 조회) — 실패 주문이 소수라 개별 조회로 충분
-- 백엔드 E2E(`backend-e2e/`) 시나리오 추가 — 이상 상태를 만들려면 DB 직접 조작이 필요해 HTTP 기반 E2E 범위 밖. 1회 로컬 검증으로 대체
+### 비범위
+- `OrderReconciliationScheduler.reconcilePendingOrders`의 UNKNOWN 무한 재시도 (Redis 상태 유실 + serverC 장애 동시 발생) → 조건부 백로그로 기록
+- serverC 장애가 24시간을 넘는 경우의 자동 환불 (BL-003 재대사 상한 밖 — P1 알람으로 수동 대응)
+- 알람 라우팅(Alertmanager 수신처) 변경
+- 3분 타임아웃(`TIMEOUT_MS`) 값 변경
 
-## 단계별 작업 계획
+### 단계별 작업 계획
 
-### 단계 1: 리포지토리 조회 메서드
-- 변경 파일: `serverA/.../repository/OrderRepository.java`, `serverA/src/test/.../repository/OrderRepositoryTest.java`(신규)
-- 변경 내용: `findByStatusInAndCreatedAtBetween(List<OrderStatus>, from, to)` 추가 — 기존 인덱스 `(status, created_at)` 활용. 테스트는 기존 `GoodsRepositoryTest`와 같은 Testcontainers 구성, `created_at`은 네이티브 UPDATE로 조정.
-- 검증: `gradlew :serverA:test --tests "*OrderRepositoryTest"` (Docker 필요)
-- 롤백: 두 파일 되돌림
+#### 단계 1: `SagaTimeoutScheduler` 최대 대기 추가 + 단위 테스트
+- 변경 파일: `serverA/src/main/java/promotion/serverA/scheduler/SagaTimeoutScheduler.java`, `serverA/src/test/java/promotion/serverA/scheduler/SagaTimeoutSchedulerTest.java`
+- 변경 내용: `@Value("${saga.timeout.payment-unknown-max-minutes:30}")` 필드 추가. UNKNOWN 분기에서 `now - createdAt >= 상한`이면 `handleSagaFailure(orderId, "TIMEOUT")` + `saga.timeout.payment_unknown_expired`·`saga.expired.total` 증가, 아니면 기존 동작. 테스트: 상한 이상 UNKNOWN → 만료, 상한 미만 UNKNOWN → 기존 테스트 유지(값은 `ReflectionTestUtils`로 주입).
+- 검증: `.\gradlew.bat :serverA:test --tests "promotion.serverA.scheduler.SagaTimeoutSchedulerTest"`
+- 롤백: 두 파일 `git restore`
 - 예상 소요: 짧음
 
-### 단계 2: 서비스 보상 메서드
-- 변경 파일: `serverA/.../service/SagaOrchestratorService.java`, `SagaOrchestratorServiceTest.java`
-- 변경 내용: `compensateLostPaymentResult(orderId)` 추가 — 주문을 다시 읽어 EXPIRED/FAILED면 `payment-cancel` Outbox 저장 + `saga.reconcile_cancel.total` 증가. 기존 `compensateLatePaymentSuccess`와 로직이 비슷하지만 카운터를 구분하려고 별도 메서드로 둔다.
-- 검증: `gradlew :serverA:test --tests "*SagaOrchestratorServiceTest"`
-- 롤백: 두 파일 되돌림
+#### 단계 2: 알람 규칙 2개 추가
+- 변경 파일: `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`
+- 변경 내용: Tier1에 추가.
+  - P2 `PaymentQueryUnknownPersisting`: `increase(saga_timeout_payment_unknown_total[5m]) > 0`, `for: 5m` — serverC 결제조회 불가 지속
+  - P1 `SagaForceExpiredOnUnknown`: `increase(saga_timeout_payment_unknown_expired_total[5m]) > 0` — 결제 상태를 모른 채 만료. serverC 복구 후 24시간 안에 자동 망취소되는지 확인 필요
+- 검증: `docker run --rm --entrypoint promtool -v <monitoring/prometheus>:/r prom/prometheus check rules /r/alert-rules.yml` (helm 파일도 동일), `helm template helm/promotion-monitoring`
+- 롤백: 두 파일 `git restore`
 - 예상 소요: 짧음
 
-### 단계 3: 스케줄러 재대사 메서드
-- 변경 파일: `serverA/.../scheduler/OrderReconciliationScheduler.java`, `OrderReconciliationSchedulerTest.java`
-- 변경 내용: `reconcileTerminatedOrders()` 추가. `@Scheduled(fixedDelayString = "${saga.reconcile.terminated.interval-ms:600000}")`, 하한 `saga.reconcile.terminated.min-age-minutes:10`, 상한 24시간(상수). 조회 결과 PAID → `compensateLostPaymentResult`, NOT_PAID(CANCELLED 포함)·UNKNOWN → 건너뜀.
-- 검증: `gradlew :serverA:test --tests "*OrderReconciliationSchedulerTest"`
-- 롤백: 두 파일 되돌림
+#### 단계 3: 로컬 E2E (사용자 확인 후)
+- 내용: serverA에 `saga.timeout.payment-unknown-max-minutes=4` 주입해 기동 → serverC 정지 → 구매(PENDING) → 3분 후 UNKNOWN 로그·카운터, 4분 후 EXPIRED + 재고 복구 확인 → serverC 재기동 → 쌓인 결제 요청 처리 후 늦은 성공 보상으로 serverC 결제 CANCELLED 확인. 이어서 `gradlew :serverA:test` 전체.
+- 롤백: 주입 설정 제거, 컨테이너 재기동
 - 예상 소요: 보통
 
-### 단계 4: 문서 반영
-- 변경 파일: `docs/purchase-saga-flow.md`(안전망 섹션), `docs/design-notes.md`("결과 이벤트가 영영 오지 않는 경우" 항목 갱신), `docs/arch-snapshot.md`(스케줄러 목록 — 관련 부분만)
-- 검증: 내용 검토
-- 롤백: 문서 되돌림
+#### 단계 4: 문서 갱신
+- 변경 파일: `docs/design-notes.md`(UNKNOWN 제약 "최대 대기·알람은 미구현" → 결정 추가), `docs/purchase-saga-flow.md`·`docs/arch-snapshot.md`(타임아웃 스케줄러 설명에 상한 반영), `docs/backlog.md`
+- 검증: grep으로 "미구현" 문구 제거 확인
+- 롤백: `git restore`
 - 예상 소요: 짧음
 
-### 단계 5: 로컬 E2E 검증
-- 변경 파일: 없음 (임시 compose override는 scratchpad에 둔다)
-- 내용: 전체 스택 기동(serverA에 `interval-ms=30000`, `min-age-minutes=1` 주입) → 정상 구매로 PAID 확인 → serverA DB에서 해당 주문을 `EXPIRED`로 UPDATE → 1~2분 내 serverC 결제 `CANCELLED` 확인 + serverA 로그·메트릭 확인. 이어서 `gradlew :serverA:test` 전체 실행.
-- 롤백: 스택 내림 (로컬 DB는 익명 볼륨이라 초기화)
-- 예상 소요: 보통
+### 리스크 및 대응
+- 상한 도달 시 serverC에서 실제 승인된 결제가 남을 수 있음 → 늦은 성공 보상 + BL-003 재대사(24시간)가 망취소. 24시간 초과 장애는 P1 알람으로 수동 대응
+- 만료 시 재고 반납 후 결제가 승인되면 고객은 "결제 후 취소"를 겪음 → 초과판매보다 안전하므로 수용 (PAID로 되돌리지 않음)
+- `saga.expired.total` 증가로 기존 SagaExpired 알람도 함께 울림 → 의도된 동작 (EXPIRED 처리 사실 자체는 같음)
 
-## 리스크 및 대응
-- CDC가 오래 멈추면 주기마다 `payment-cancel`이 outbox에 쌓여 복구 시 중복 취소 → serverC 취소는 CANCELLED 덮어쓰기라 모의 PG에서 멱등. 실제 PG는 BL-005로 관리.
-- EXPIRED/FAILED 주문 수만큼 serverC 개별 조회 (하루 최대 144회/건) → 실패 주문은 소수라 허용. 커지면 일괄 조회 API 검토.
-- 정상적인 늦은 결과와 동시에 실행될 경우 망취소 2회 → 위와 같은 멱등성에 의존. 하한 10분으로 겹칠 가능성을 낮춤.
-
-## 의존성
-- serverC 결제조회 API (`PaymentQueryClient` 기존 사용)
-- Outbox → Debezium CDC → `payment-cancel` → serverC `PaymentCancelConsumer` (기존)
+### 의존성
+- BL-003 `reconcileTerminatedOrders`, `SagaResultConsumer`의 늦은 성공 보상 (이미 main)

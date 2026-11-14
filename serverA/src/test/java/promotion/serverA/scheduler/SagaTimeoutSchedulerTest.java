@@ -2,6 +2,7 @@ package promotion.serverA.scheduler;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import promotion.serverA.client.PaymentCheckStatus;
 import promotion.serverA.client.PaymentQueryClient;
 import promotion.serverA.service.SagaOrchestratorService;
@@ -47,6 +49,11 @@ class SagaTimeoutSchedulerTest {
 
     @Mock
     private Cursor<String> cursor;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(sagaTimeoutScheduler, "paymentUnknownMaxMinutes", 30L);
+    }
 
     @Test
     @DisplayName("3분이 초과된 Saga는 타임아웃 처리된다")
@@ -125,6 +132,39 @@ class SagaTimeoutSchedulerTest {
         verify(sagaOrchestratorService, never()).reconcileToPaid(anyString());
         verify(sagaStateService, never()).deleteSagaState(anyString());
         verify(meterRegistry, never()).counter("saga.expired.total");
+        verify(meterRegistry, never()).counter("saga.timeout.payment_unknown_expired");
+        verify(sagaExpiredCounter, times(1)).increment();
+    }
+
+    @Test
+    @DisplayName("결제 상태를 모르는 채로 상한(30분)이 지나면 EXPIRED 처리해 재고 묶임을 끝낸다")
+    void checkTimeouts_expires_when_payment_status_unknown_beyond_max_wait() {
+        // given
+        String orderId = "trace-6";
+        String redisKey = "saga:state:" + orderId;
+        long createdAt = System.currentTimeMillis() - (31 * 60 * 1000L); // 31분 전
+
+        given(redisTemplate.scan(any(ScanOptions.class))).willReturn(cursor);
+        given(cursor.hasNext()).willReturn(true, false);
+        given(cursor.next()).willReturn(redisKey);
+
+        given(sagaStateService.isFailed(orderId)).willReturn(false);
+        given(sagaStateService.getCreatedAt(orderId)).willReturn(createdAt);
+        given(paymentQueryClient.checkPaymentStatus(orderId)).willReturn(PaymentCheckStatus.UNKNOWN);
+        Counter unknownCounter = mock(Counter.class);
+        Counter unknownExpiredCounter = mock(Counter.class);
+        given(meterRegistry.counter("saga.timeout.payment_unknown")).willReturn(unknownCounter);
+        given(meterRegistry.counter("saga.timeout.payment_unknown_expired")).willReturn(unknownExpiredCounter);
+        given(meterRegistry.counter("saga.expired.total")).willReturn(sagaExpiredCounter);
+
+        // when
+        sagaTimeoutScheduler.checkTimeouts();
+
+        // then
+        verify(sagaOrchestratorService, times(1)).handleSagaFailure(orderId, "TIMEOUT");
+        verify(sagaOrchestratorService, never()).reconcileToPaid(anyString());
+        verify(unknownCounter, times(1)).increment();
+        verify(unknownExpiredCounter, times(1)).increment();
         verify(sagaExpiredCounter, times(1)).increment();
     }
 
