@@ -1,5 +1,5 @@
 ---
-description: docker-compose.yml과 monitoring/ 폴더를 읽어 전체 인프라 토폴로지 Mermaid 다이어그램을 docs/infra-diagram.md에 생성한다.
+description: docker-compose.yml과 monitoring/ 폴더를 읽어 전체 인프라 토폴로지 Mermaid 다이어그램을 docs/architecture/infra-diagram.md에 생성한다.
 ---
 
 # /infra-diagram 명령어
@@ -23,9 +23,9 @@ description: docker-compose.yml과 monitoring/ 폴더를 읽어 전체 인프라
 - 어떤 서비스로 데이터를 보내는지 (exporters, receivers, remote_write 등)
 - 어떤 서비스에서 데이터를 받는지 (scrape_configs, targets 등)
 
-## Step 2. docs/infra-diagram.md 생성
+## Step 2. docs/architecture/infra-diagram.md 생성
 
-스캔 결과를 바탕으로 `docs/infra-diagram.md`를 작성한다.
+스캔 결과를 바탕으로 `docs/architecture/infra-diagram.md`를 작성한다.
 **파일이 이미 존재하면 덮어쓴다.**
 
 다이어그램 작성 규칙:
@@ -94,7 +94,7 @@ flowchart LR
 ## Step 3. 완료 보고
 
 ```
-✅ docs/infra-diagram.md 생성 완료
+✅ docs/architecture/infra-diagram.md 생성 완료
 - 서비스: N개
 - 읽은 파일: docker-compose.yml, monitoring/...
 ```

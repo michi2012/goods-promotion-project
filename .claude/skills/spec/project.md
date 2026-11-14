@@ -7,7 +7,7 @@
 |------|------|
 | 문서 | `docs/specs/{kebab-case-이름}.md` (양식: `template.md`) |
 | API 계약 | `contracts/openapi.yaml`(serverB), `contracts/server-a-openapi.yaml`(serverA). 프론트는 openapi-typescript로 타입 생성 |
-| 서비스 구성 참고 | `docs/arch-snapshot.md` — 관련 도메인만 발췌해서 읽는다 |
+| 서비스 구성 참고 | `docs/architecture/arch-snapshot.md` — 관련 도메인만 발췌해서 읽는다 |
 
 ## 계약 파일은 구현 PR에서 수정
 serverA·serverB의 `OpenApiContractTest`가 실제 `/v3/api-docs`와 계약 파일을 비교한다. 문서 단계에서 계약 파일을 고치면 구현 전까지 CI가 실패한다. 설계에는 YAML 조각으로 적고, 계약 파일 수정은 구현 PR에서 코드와 함께 한다 (`api` skill 규칙과 같음).

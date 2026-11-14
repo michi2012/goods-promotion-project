@@ -95,7 +95,7 @@ docker compose up -d
 ### Before Kafka — Phase 1 최종 아키텍처
 
 > 큐 기반 비동기 + 서버 간 HTTP 직통 구조. **630 TPS / p95 4.3s / DB 처리 50초**
-> 상세 데이터 플로우는 [docs/arch-v1.md](docs/arch-v1.md) 참고.
+> 상세 데이터 플로우는 [docs/architecture/arch-v1.md](docs/architecture/arch-v1.md) 참고.
 
 ```mermaid
 sequenceDiagram
