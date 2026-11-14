@@ -5,7 +5,8 @@ server:
 eureka:
   client:
     register-with-eureka: true
-    fetch-registry: false
+    # PaymentQueryClient가 DiscoveryClient로 serverC를 찾으므로 로컬(Eureka)에서는 레지스트리를 받아와야 한다.
+    fetch-registry: true
     service-url:
       defaultZone: "${EUREKA_DEFAULT_ZONE:http://localhost:8761/eureka/}"
   tomcat:

@@ -95,6 +95,14 @@ Saga가 끝난(상태 삭제) 뒤 `payment-result(success)`가 오는 경우. �
 2. **EXPIRED/FAILED** → 고객 결제만 승인된 채 남아 있으므로 `payment-cancel` Outbox 저장(망취소) + `saga.late_payment_cancel.total` 증가.
 3. **PAID** → 중복 수신이라 무시. **PENDING** → Saga 상태만 유실된 경우라 DB 재대사(`OrderReconciliationScheduler`)에 맡긴다. 주문 없음 → 경고 로그.
 
+### 4-D. 결과 이벤트 유실 재대사 — `OrderReconciliationScheduler.reconcileTerminatedOrders()`
+4-C는 `payment-result(success)`를 **받아야** 실행된다. 늦은 결과나 `payment-cancel`이 CDC에서 유실되면 주문 EXPIRED/FAILED + serverC PAID로 고정되므로, 이벤트를 기다리지 않고 직접 조회한다.
+1. `@Scheduled(fixedDelayString="${saga.reconcile.terminated.interval-ms:600000}")` — 기본 10분마다 생성 후 `min-age-minutes`(기본 10분)~24시간 지난 EXPIRED/FAILED 주문을 조회(`findByStatusInAndCreatedAtBetween`).
+2. 주문마다 `PaymentQueryClient.checkPaymentStatus()`:
+   - `PAID` → `compensateLostPaymentResult()` — 주문이 EXPIRED/FAILED면 `payment-cancel` Outbox 저장 + `saga.reconcile_cancel.total` 증가 (4-C와 카운터 구분: CDC 이상 신호).
+   - `NOT_PAID`(미결제·CANCELLED) → 아무것도 안 함. 망취소가 끝나면 이 경로로 자연히 대상에서 빠진다.
+   - `UNKNOWN` → 다음 주기 재조회.
+
 ## 5. 타임아웃 처리 — `SagaTimeoutScheduler`
 
 - `@Scheduled(fixedDelay=30_000)` — 30초마다 `saga:state:*` 패턴을 `SCAN`(count=100)으로 순회.
