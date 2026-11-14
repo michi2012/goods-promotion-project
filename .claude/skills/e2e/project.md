@@ -24,6 +24,11 @@
 - Debezium 커넥터 2개(`promotion-outbox-connector`, `payment-outbox-connector`)와 각 태스크가 RUNNING (Kafka Connect REST 8083)
 - 타임아웃 10초, 실패 시 1회 재확인. `E2E_SKIP_PREFLIGHT=1`로 생략 가능
 
+## 로컬 스택 기동 시 주의
+- **이미지는 미리 빌드된 jar를 복사한다** (`Dockerfile`: `COPY build/libs/*SNAPSHOT.jar`). 코드를 바꿨으면 `docker compose up --build` 전에 `gradlew :{모듈}:bootJar`를 먼저 실행한다. `gradlew test`는 jar를 만들지 않으므로, 빼먹으면 옛 코드로 E2E가 돈다.
+- 백엔드 서버 기동에 1~2분 걸린다(serverA 약 95초). `compose up` 직후 사전 점검은 실패하므로 serverA 로그 `Started ServerAApplication` 또는 `/actuator/health` UP을 확인한 뒤 실행한다.
+- E2E용 설정값(스케줄러 주기 등)은 저장소 `docker-compose.yml`을 고치지 말고 임시 override 파일(`-f docker-compose.yml -f <override>`)로 주입한다.
+
 ## 실행 시점
 
 | 시점 | 실행 범위 |
