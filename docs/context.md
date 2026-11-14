@@ -1,5 +1,7 @@
 # 맥락 노트: 결과 이벤트 유실 시 종료 주문 재대사 (BL-003)
 
+## [완료] BL-003 (PR #35)
+
 ## 왜 이 방식을 선택했는가
 - 기존 안전망은 "결과가 늦게라도 오면" 처리한다. `SagaTimeoutScheduler`는 EXPIRED 직전에 serverC를 한 번만 조회하고, `OrderReconciliationScheduler`는 PENDING만 보며, 늦은 결제 성공 보상(PR #22)은 `payment-result`를 받아야 실행된다.
 - 공백: 타임아웃 조회 시점엔 NOT_PAID → EXPIRED → 이후 serverC가 승인 → `payment-result` CDC 유실. 주문 EXPIRED / 결제 PAID로 고정된다. `payment-cancel` 유실도 같은 증상.

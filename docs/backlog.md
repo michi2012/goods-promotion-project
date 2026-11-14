@@ -12,7 +12,6 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-003 | Saga 결과 이벤트가 영영 오지 않는 경우(CDC 유실) serverC PAID인데 주문 EXPIRED/FAILED로 남음 → serverA가 종료 주문 재대사 후 망취소 | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -57,4 +56,5 @@
 | BL-019 PR CI 필수 체크 대비 result job + `dev` 트리거 정리 + main 브랜치 보호 적용(필수 체크 `backend-ci-result`·`frontend-ci-result`) | #27 |
 | BL-010 `values-local.yaml` serverA DB 이름 `order` + BL-012 Helm 미사용 Eureka 설정 제거(`EUREKA_DEFAULT_ZONE` env 11곳·`eurekaDefaultZone`·`discovery:` 섹션) | #29 |
 | BL-013 `/plan` 명령의 Windows 전용 지시 제거 (빈 파일 사전 생성·백슬래시 경로) | #32 |
+| BL-003 결과 이벤트 유실 시 종료 주문(EXPIRED/FAILED) 재대사 → serverC PAID면 망취소 + serverA 로컬 `fetch-registry: true` + e2e 로컬 기동 주의사항 | #35 |
 | BL-014 로컬 테스트 데이터 정리 — **불필요로 종료**: 로컬 DB·Redis는 익명 볼륨이라 `docker compose down` 시 초기화, E2E는 자기 데이터를 직접 만들어 영향 없음 | #32 (기록만) |

@@ -2,7 +2,7 @@
 
 - 마지막 업데이트: 2026-11-14
 
-## [진행 중] BL-003
+## [완료] BL-003 (PR #35)
 
 ### 진행 상황
 - [x] 단계 1: `OrderRepository.findByStatusInAndCreatedAtBetween` + `OrderRepositoryTest`
