@@ -23,7 +23,7 @@ React 19 + TypeScript + Vite SPA. 화면은 `OrderStatusPage` 단 하나. orval�
 
 > serverB GET .../status 폴링 · 초기 대기 2s · Exponential Backoff + Jitter: 2→4→8→16→32s(최대 6회) · NOT_FOUND/PENDING → 처리 중 유지 · PAID → 성공 종료 / FAILED·EXPIRED → 실패 종료 · 60s 내 미확정 시 폴링 중단
 
-그러나 **`frontend/src/pages/OrderStatusPage.tsx`에는 이 로직이 전혀 없다.** `useGetOrderStatus`에 `refetchInterval`, 재시도 간격, 타임아웃, 상태별 분기 등 어떤 형태의 폴링 코드도 존재하지 않으며, 버튼 클릭 1회당 요청 1회만 발생하는 단순 조회 UI다. `load-test.js`/`load-test2.js`(k6 부하테스트 스크립트)에서도 해당 백오프 로직을 찾지 못했다.
+그러나 **`frontend/src/pages/OrderStatusPage.tsx`에는 이 로직이 전혀 없다.** `useGetOrderStatus`에 `refetchInterval`, 재시도 간격, 타임아웃, 상태별 분기 등 어떤 형태의 폴링 코드도 존재하지 않으며, 버튼 클릭 1회당 요청 1회만 발생하는 단순 조회 UI다. `perf/k6/load-test.js`/`load-test2.js`(k6 부하테스트 스크립트)에서도 해당 백오프 로직을 찾지 못했다.
 
 이 문서는 실제 코드(정적 조회 UI)를 있는 그대로 기술한다. README의 폴링 정책 서술은 설계 의도이거나 과거 구현/향후 계획일 수 있으나, 현재 프론트엔드 코드베이스에는 반영되어 있지 않다는 점을 기록해둔다. (이번 작업 범위는 문서화이므로 README 수정이나 프론트엔드 구현 추가는 하지 않았다.)
 
