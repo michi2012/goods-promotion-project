@@ -20,7 +20,6 @@
 | BL-008 | **결제 로드맵 3단계**: 대용량 배치 vs 실시간 분리 — 시드 데이터로 OFFSET vs 키셋 실측, 배치 전용 커넥션 풀. 읽기 복제본은 설계·답변 위주 | 로드맵 | 중간 | L | BL-002 | 결제 로드맵 |
 | BL-009 | 정산 2차: 부분 취소, PG 정산 내역 대사 | 로드맵 | 낮음 | L | BL-002 | 결제 로드맵 |
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
-| BL-026 | 루트 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 — `perf-compare` skill의 스크립트 위치에 맞춤. 참조(`docs/frontend-flow.md`, skill `project.md`) 함께 갱신 | 정리 | 낮음 | S | | perf-compare skill 작업 중 발견 |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
@@ -57,4 +56,5 @@
 | BL-003 결과 이벤트 유실 시 종료 주문(EXPIRED/FAILED) 재대사 → serverC PAID면 망취소 + serverA 로컬 `fetch-registry: true` + e2e 로컬 기동 주의사항 | #35 |
 | BL-027 CLAUDE.md "재발 방지 기록" 규칙(skill `project.md`/`CLAUDE.local.md`에 즉시 기록) + 자가 점검 4번 항목 | #36 |
 | BL-024 codebot `application-k8s.yml` 추가(`eureka.client.enabled: false`) — DiscoveryClient 미사용이라 정적 등록·테스트 불필요. EKS 배포 후 Eureka 등록 실패 로그 사라짐 확인 필요 | #40 |
+| BL-026 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 + 참조 2곳 갱신 | #42 |
 | BL-014 로컬 테스트 데이터 정리 — **불필요로 종료**: 로컬 DB·Redis는 익명 볼륨이라 `docker compose down` 시 초기화, E2E는 자기 데이터를 직접 만들어 영향 없음 | #32 (기록만) |
