@@ -20,7 +20,6 @@
 | BL-008 | **결제 로드맵 3단계**: 대용량 배치 vs 실시간 분리 — 시드 데이터로 OFFSET vs 키셋 실측, 배치 전용 커넥션 풀. 읽기 복제본은 설계·답변 위주 | 로드맵 | 중간 | L | BL-002 | 결제 로드맵 |
 | BL-009 | 정산 2차: 부분 취소, PG 정산 내역 대사 | 로드맵 | 낮음 | L | BL-002 | 결제 로드맵 |
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
-| BL-025 | 명령 문서의 OS 의존: `/db-migration`·`/coverage`·`/release-notes`가 PowerShell 스크립트로 집계·필터링, `/codex-review`에 "Windows 절대경로" — 팀 운영 시 Mac/Linux에서 동작 안 함. 프로젝트 런타임(Node/Gradle) 또는 OS 중립 지시로 전환 | 기술 부채 | 낮음 | M | | BL-013 작업 중 발견 |
 | BL-026 | 루트 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 — `perf-compare` skill의 스크립트 위치에 맞춤. 참조(`docs/frontend-flow.md`, skill `project.md`) 함께 갱신 | 정리 | 낮음 | S | | perf-compare skill 작업 중 발견 |
 | BL-024 | codebot에 `application-k8s.yml` 없음 → K8s에서도 Eureka 클라이언트가 켜져 없는 서버에 등록 시도(실패 로그). 다른 모듈처럼 `eureka.client.enabled: false` + `K8sDiscoveryConfigTest` 추가 | 기술 부채 | 낮음 | S | | BL-012 작업 중 발견 |
 
@@ -37,6 +36,7 @@
 | ID | 항목 | 조건 | 규모 | 출처 |
 |----|------|------|------|------|
 | BL-004 | 금액 필수화 (확장-축소 마지막 단계): 금액 없는 `payment-request` 거부 | 운영에서 `business_payment_legacy_without_amount_total`이 계속 0 | S | PR #22 |
+| BL-025 | `.claude/` 명령·훅의 OS 의존 제거. **훅 우선**: `settings.json`의 안전 훅(`git push --force`·`DROP` 차단)이 `powershell -File ...ps1`이라 Mac/Linux에서는 조용히 실패해 안전장치가 꺼짐. 그 외 `/coverage`·`/release-notes`는 계산 로직이 PowerShell, `/db-migration`·`/codex-review`·`incident`·`pr`은 표기·지시가 Windows 기준. 논의된 방식: 계산이 있는 것(coverage·release-notes·훅)은 Node 스크립트(`.claude/scripts/`, 내장 기능만), git 명령뿐인 것은 OS 중립 지시. `/coverage` 기본 모듈의 `mcp`는 존재하지 않는 모듈 | Windows 외 OS를 쓰는 팀원 합류, 또는 개발 환경 OS 변경 | M | BL-013 작업 중 발견, 2026-11-14 논의 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 | `docs/design-notes.md` "E2E 두 층과 도구"의 전환 조건 | M | BL-001 작업 중 논의 |
 | BL-007 | 전체 스택 E2E CI 워크플로 (docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`). 논의된 설계: 트리거는 main 머지 후(경로 필터)·수동·워크플로 파일 변경 PR, 야간 없음 / 필요한 서비스 11개만 기동(grafana 3000 포트 충돌) / 한 job에서 순차 실행 / 표준 러너(PUBLIC, 4 vCPU·16GB) 실측 후 기록 / `bitnami/kafka:latest` pull 실패 가능성. 현업 표준은 스테이징 E2E(BL-018)이며, 이 항목은 스테이징이 없는 동안의 대체재 또는 배포 전 게이트 | ① EKS 재가동 후 BL-018과 함께 역할(대체·배포 전 게이트·통합) 판단, 또는 ② 로컬 E2E 누락으로 main의 서버 간 흐름이 깨진 사례 발생 | M | E2E 회고, 조건부 이동 #38 |
 | BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음. 할 때는 `contracts/openapi.yaml`·`contracts/server-a-openapi.yaml`을 가져와(import) 생성 | 팀원 합류, 또는 수동 API 호출이 반복돼 불편할 때 | S | BL-001 작업 중 논의, 조건부 이동 #39 |
