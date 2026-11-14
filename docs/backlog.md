@@ -19,7 +19,6 @@
 | BL-002 | **결제 로드맵 2단계: Spring Batch 정산** — Job/Step/chunk, 키셋 페이징, 정산일 JobParameters 멱등, 재시작, Skip/Retry, 수수료 정책(시점별 요율)·BigDecimal 반올림·컷오프·원장, 별도 모듈 + K8s CronJob. Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | | 결제 로드맵 (2026-11-12) |
 | BL-008 | **결제 로드맵 3단계**: 대용량 배치 vs 실시간 분리 — 시드 데이터로 OFFSET vs 키셋 실측, 배치 전용 커넥션 풀. 읽기 복제본은 설계·답변 위주 | 로드맵 | 중간 | L | BL-002 | 결제 로드맵 |
 | BL-009 | 정산 2차: 부분 취소, PG 정산 내역 대사 | 로드맵 | 낮음 | L | BL-002 | 결제 로드맵 |
-| BL-027 | CLAUDE.md "재발 방지 기록" 규칙 추가 — 환경·설정·도구 함정으로 시간을 쓴 경우 원인 발견 즉시 해당 skill `project.md`/`CLAUDE.local.md`에 기록, 자가 점검 항목 추가 | 정리 | 중간 | S | | BL-003 작업 중 논의 |
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
 | BL-007 | 전체 스택 E2E CI 워크플로 (main 머지 후 / 야간 / 수동, docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`)를 함께 실행. 러너 메모리·시간 실측 후 결정 | 후속 작업 | 중간 | M | | E2E 회고 |
 | BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음 | 후속 작업 | 낮음 | S | | BL-001 작업 중 논의 |
@@ -57,4 +56,5 @@
 | BL-010 `values-local.yaml` serverA DB 이름 `order` + BL-012 Helm 미사용 Eureka 설정 제거(`EUREKA_DEFAULT_ZONE` env 11곳·`eurekaDefaultZone`·`discovery:` 섹션) | #29 |
 | BL-013 `/plan` 명령의 Windows 전용 지시 제거 (빈 파일 사전 생성·백슬래시 경로) | #32 |
 | BL-003 결과 이벤트 유실 시 종료 주문(EXPIRED/FAILED) 재대사 → serverC PAID면 망취소 + serverA 로컬 `fetch-registry: true` + e2e 로컬 기동 주의사항 | #35 |
+| BL-027 CLAUDE.md "재발 방지 기록" 규칙(skill `project.md`/`CLAUDE.local.md`에 즉시 기록) + 자가 점검 4번 항목 | #36 |
 | BL-014 로컬 테스트 데이터 정리 — **불필요로 종료**: 로컬 DB·Redis는 익명 볼륨이라 `docker compose down` 시 초기화, E2E는 자기 데이터를 직접 만들어 영향 없음 | #32 (기록만) |
