@@ -223,6 +223,7 @@ serverA·serverC·user-service는 Flyway라 서버 기동 시 마이그레이션
   - 막지 않는 문제 → checklist "발견 사항"에 적고 원래 작업 계속 (커밋 전 백로그로 이전)
   - 분류가 애매하거나 급해 보이는 문제 → 고치기 전에 사용자에게 묻는다. 급한 무관 수정은 main에서 새 브랜치를 따 별도 PR로.
 - PR이 리뷰하기 어려운 크기(변경 파일 약 20개 이상)로 커지면 Claude가 먼저 알리고 PR 분리를 제안한다.
+- 이미 push한 브랜치를 최신 main에 맞출 때는 rebase하지 말고 `git merge main`을 쓴다 — rebase 후에는 강제 push가 필요한데 안전 훅(`.claude/hooks/pre-tool-check.ps1`)이 막는다. main은 squash 머지라 merge 커밋이 남지 않는다.
 
 ## 세션 전환 원칙
 - PR 머지·기능 완료 등 작업 단위가 끝났고 대화가 길어졌으면, 새 세션으로 옮기라고 권한다.
