@@ -1,27 +1,41 @@
-# 맥락 노트: 결제조회 UNKNOWN 최대 대기 시간 + 알람 (BL-006)
+# 맥락 노트: 사용자 환불 + 환불 실패 재처리 (BL-029)
 
-## [완료] BL-006 (PR #43)
+## [진행 중] PR① serverC — PG 취소 멱등화 + 실패 재처리
 
 ### 왜 이 방식을 선택했는가
-- PR #22에서 타임아웃 시 결제조회가 UNKNOWN이면 EXPIRED를 미루도록 했다(승인된 결제가 망취소 없이 남는 것 방지). 상한이 없어서 serverC 장애가 길면 주문 PENDING·재고·유저 구매 마킹이 계속 묶이고, `saga.timeout.payment_unknown` 카운터를 보는 알람도 없었다.
-- 이제는 만료해도 안전망이 있다: 늦은 `payment-result(success)` → `compensateLatePaymentSuccess`, 결과 이벤트 유실 → BL-003 `reconcileTerminatedOrders`(생성 후 10분~24시간 EXPIRED/FAILED를 재조회해 PAID면 망취소).
-- 사용자 결정(2026-11-14): 상한 도달 시 강제 EXPIRED + 알람, 상한 30분.
-- 상한 전 serverC 복구 → 주문은 아직 PENDING이라 기존대로 `reconcileToPaid`(PAID 보정). 상한 후 복구 → 이미 EXPIRED라 망취소(환불). 기준은 "재고가 아직 그 고객 몫으로 잡혀 있느냐" — 만료 시 재고를 반납해 다른 구매자에게 팔렸을 수 있으므로 PAID로 되돌리면 초과판매가 된다.
+- 정책·계약은 `docs/specs/user-refund.md`에서 확정했다 (결정 기록 표 참고). 이 문서에는 구현 단위의 결정만 적는다.
+- **PR 3개 분리**: 변경 파일이 약 45개라 리뷰 기준(약 20개)을 넘는다. serverC를 먼저 내는 이유는 단독으로도 쓸모가 있고(망취소 실패 재처리), 소비자가 없어도 `payment-cancelled` 발행이 무해하기 때문이다.
+- **실패 경로 테스트**: serverC 통합 테스트(Testcontainers + PgClient 대체)로 검증한다. 운영 코드에 테스트 전용 실패 주입 API를 넣지 않는다. 백엔드 E2E는 PR②에서 정상 환불·중복 요청을 다룬다.
+- **PG 실패 시 예외를 다시 던진다**: 기존 Kafka 재시도(3회 지수 백오프) → DLT 흐름을 그대로 쓰고, DLT 핸들러에서 실패 행을 만든다. 컨슈머 안에서 직접 실패 행을 만들면 일시 장애도 바로 행이 된다.
+- **새 테이블은 JPA 엔티티**: 상태 전이가 있어 도메인 메서드로 표현한다. 기존 `PaymentRepository`(JdbcTemplate)는 건드리지 않고 필요한 조건부 UPDATE만 추가한다.
 
 ### 검토했으나 채택하지 않은 대안
-#### 알람만 추가, PENDING 유지
-- 왜 안 썼나: 재고 묶임이 그대로라 BL-006의 절반만 해결.
-#### 만료된 주문을 serverC 복구 후 PAID로 되돌리기
-- 왜 안 썼나: 반납된 재고가 이미 팔렸을 수 있어 초과판매. `updateStatusIfPending`도 PENDING일 때만 바꾼다.
+#### 실패 주입 API (local 프로필 전용)
+- 무엇: serverC에 "취소 실패 켜기/끄기" 내부 API를 두고 E2E에서 실패 경로까지 검증
+- 왜 안 썼나: 테스트 전용 코드가 운영 코드에 들어간다. 실패 경로는 통합 테스트로 충분하다고 사용자와 합의
+
+#### ShedLock으로 스케줄러 중복 실행 방지
+- 무엇: 분산 락 라이브러리
+- 왜 안 썼나: 새 의존성. 행 단위 조건부 UPDATE 선점 + PG 멱등으로 충분 (명세 "새 기술: 없음")
+
+#### payments.status에 CANCEL_FAILED 추가
+- 왜 안 썼나: serverA 결제조회(`PaymentQueryClient`)·재대사가 PAID 여부로 판단한다. 상태를 늘리면 그쪽 해석이 바뀐다. 실패는 별도 테이블에만 둔다 (명세)
 
 ### 기존 코드베이스 컨벤션
-- 설정 주입: `@Value("${...:기본값}")` 필드 (`OrderReconciliationScheduler.terminatedMinAgeMinutes`)
-- 메트릭: `meterRegistry.counter("saga.xxx").increment()` → Prometheus `saga_xxx_total`
-- 테스트: Mockito `@InjectMocks` (`SagaTimeoutSchedulerTest`), `@Value` 필드는 `ReflectionTestUtils.setField`
-- 알람: compose(`monitoring/prometheus/alert-rules.yml`)와 helm(`helm/promotion-monitoring/files/alert-rules.yml`) 두 벌. helm 쪽이 규칙이 더 많아 내용이 다르므로 파일 복사가 아니라 각각 추가
+- 패키지: `promotion.serverC.{controller,dto,entity,exception,kafka,outbox,repository,service,config}`. 스케줄러 패키지는 serverA처럼 `scheduler/`를 새로 만든다
+- Outbox 저장: `OutboxEventService.save(aggregateId, topic, payload)` — 호출자 트랜잭션 안
+- 메트릭: `@PostConstruct`에서 `Counter.builder("business_payment_...")` (`PaymentCancelConsumer` 참고)
+- 예외 처리: `exception/GlobalExceptionHandler.java`
+- 테스트: 리포지토리는 `@JdbcTest` + Testcontainers MySQL (`repository/PaymentRepositoryTest.java`), 서비스는 Mockito (`service/PaymentServiceTest.java`), 컨트롤러는 `@WebMvcTest` (`controller/PaymentControllerTest.java`)
 
 ### 관련 파일/위치
-- `serverA/.../scheduler/SagaTimeoutScheduler.java` — 3분 타임아웃 + 결제조회 분기
-- `serverA/.../service/SagaOrchestratorService.java` — `handleSagaFailure`(EXPIRED + 재고 복구), `compensateLostPaymentResult`
-- `serverA/.../scheduler/OrderReconciliationScheduler.java` — PENDING 재대사, 종료 주문 재대사
-- `docs/design-notes.md` — "EXPIRED 전에 serverC 결제를 조회..." 결정과 제약
+- `serverC/.../kafka/PaymentCancelConsumer.java` — payment-cancel 소비, DLT 핸들러
+- `serverC/.../service/PgClient.java`, `MockPgClient.java` — PG 취소
+- `serverC/.../service/PaymentService.java` — 금액 불일치 즉시 망취소 (호출부만 변경)
+- `serverC/.../repository/PaymentRepository.java` — payments 상태 변경
+- `serverC/.../config/KafkaConsumerConfig.java` — 재시도 3회·DLT 설정 (변경 없음)
+- `debezium/payment-outbox-connector.json` — topic 컬럼 라우팅 (변경 없음)
+- `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml` — P0 `PaymentFatalError`
+
+### 외부 참조
+- 명세: `docs/specs/user-refund.md`

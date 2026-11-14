@@ -1,59 +1,89 @@
-# 계획서: 결제조회 UNKNOWN 최대 대기 시간 + 알람 (BL-006)
-
-## [완료] BL-006 (PR #43)
+# 계획서: 사용자 환불 + 환불 실패 재처리 (BL-029)
 
 - 작성일: 2026-11-14
-- 관련 이슈/티켓: 백로그 BL-006
+- 관련 이슈/티켓: BL-029 / 명세 `docs/specs/user-refund.md` (요구사항·설계 확인 ☑)
+
+BL-029는 PR 3개로 나눈다. 각 PR은 착수할 때 이 문서에 섹션을 추가한다.
+1. **PR① serverC** — 멱등 취소, `payment-cancelled` 발행, 실패 기록·자동 재시도·관리자 API, 알람 ← 이 섹션
+2. PR② serverA + 게이트웨이 + serverB 계약 — 환불 API, `paid_at`, 환불 완료 처리·재고 복구
+3. PR③ cs-bot + FAQ + 프론트
+
+### BL-029 마지막 PR에서 할 일
+- 아키텍처 문서 갱신: `docs/architecture/arch-snapshot.md`(토픽 맵·고객 환불 흐름·주요 엔티티·스케줄러, 140·302행의 `refund_fatal` "수동 정산" 설명), `docs/architecture/flows/purchase-saga-flow.md` 122행, `docs/design-notes.md` 179행 — `refund_fatal`은 "자동 재시도 진입", 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`
+
+## [진행 중] PR① serverC — PG 취소 멱등화 + 실패 재처리
 
 ### 목표
-serverC 장애로 결제조회가 계속 UNKNOWN이면, Saga 생성 후 30분(설정 가능)이 지난 시점에 주문을 EXPIRED로 끝내 재고를 반납하고, UNKNOWN 지속과 강제 만료를 알람으로 알린다.
+serverC의 PG 취소를 orderId 단위 멱등으로 바꾸고, 취소 성공 시 `payment-cancelled`를 발행한다. 취소가 실패하면 기록 → 자동 재시도 → 소진 시 알람 → 관리자 재처리까지 되게 한다. 이번 PR에서는 Saga 망취소 실패에 적용되고, PR②의 사용자 환불이 같은 경로를 쓴다.
 
 ### 성공 기준
-- [ ] 생성 후 30분 미만 + UNKNOWN → 지금처럼 건너뛰고 `saga.timeout.payment_unknown`만 증가 (단위 테스트)
-- [ ] 생성 후 30분 이상 + UNKNOWN → `handleSagaFailure(orderId, "TIMEOUT")` 호출 + `saga.timeout.payment_unknown_expired`·`saga.expired.total` 증가 (단위 테스트)
-- [ ] 알람 2개(P2 UNKNOWN 지속, P1 강제 만료)가 compose·helm 알람 파일 양쪽에 있고 문법이 맞다 (`promtool check rules`, `helm template`)
-- [ ] 로컬 E2E: serverC 정지 상태에서 구매 → 상한(E2E용 짧은 값) 경과 후 주문 EXPIRED + 재고 복구 → serverC 재기동 후 결제가 CANCELLED로 정리됨
-- [ ] `gradlew :serverA:test` 전체 통과
+- [ ] PAID 결제에 `payment-cancel`이 오면 PG 취소 1회 → `payments.status=CANCELLED` + `payment-cancelled` Outbox 저장이 같은 트랜잭션에서 일어난다. 이미 CANCELLED면 PG 호출 없이 `payment-cancelled`만 다시 저장한다 (단위·통합 테스트)
+- [ ] PG에서 이미 취소된 거래를 다시 취소하면 성공으로 처리된다 (MockPgClient·서비스 단위 테스트, S-12)
+- [ ] DLT 도착 → `payment_cancel_failures` RETRYING → 재시도 실패 6회 → EXHAUSTED + `business_payment_cancel_retry_exhausted_total` 증가, 성공 시 RESOLVED (Testcontainers 통합 테스트, PgClient를 실패하도록 대체)
+- [ ] 관리자 API: ROLE_ADMIN이 아니면 403, 목록 조회·재처리 동작, 기록 없으면 404 (`@WebMvcTest`)
+- [ ] `gradlew :serverC:test` 전체 통과 + 백엔드 E2E 회귀(구매 흐름) 통과 + 관리자 API 수동 호출 확인
 
 ### 비범위
-- `OrderReconciliationScheduler.reconcilePendingOrders`의 UNKNOWN 무한 재시도 (Redis 상태 유실 + serverC 장애 동시 발생) → 조건부 백로그로 기록
-- serverC 장애가 24시간을 넘는 경우의 자동 환불 (BL-003 재대사 상한 밖 — P1 알람으로 수동 대응)
-- 알람 라우팅(Alertmanager 수신처) 변경
-- 3분 타임아웃(`TIMEOUT_MS`) 값 변경
+- serverA·게이트웨이·serverB·cs-bot·프론트 변경 (PR②·③)
+- 금액 불일치 즉시 망취소(`PaymentService.failWithAmountMismatch`)의 실패 재처리: 새 취소 API로 호출만 바꾸고 동작은 그대로 둔다
+- serverA admin API 역할 검사 (BL-030)
+- arch-snapshot 갱신은 BL-029 마지막 PR에서 한 번에 한다
 
 ### 단계별 작업 계획
 
-#### 단계 1: `SagaTimeoutScheduler` 최대 대기 추가 + 단위 테스트
-- 변경 파일: `serverA/src/main/java/promotion/serverA/scheduler/SagaTimeoutScheduler.java`, `serverA/src/test/java/promotion/serverA/scheduler/SagaTimeoutSchedulerTest.java`
-- 변경 내용: `@Value("${saga.timeout.payment-unknown-max-minutes:30}")` 필드 추가. UNKNOWN 분기에서 `now - createdAt >= 상한`이면 `handleSagaFailure(orderId, "TIMEOUT")` + `saga.timeout.payment_unknown_expired`·`saga.expired.total` 증가, 아니면 기존 동작. 테스트: 상한 이상 UNKNOWN → 만료, 상한 미만 UNKNOWN → 기존 테스트 유지(값은 `ReflectionTestUtils`로 주입).
-- 검증: `.\gradlew.bat :serverA:test --tests "promotion.serverA.scheduler.SagaTimeoutSchedulerTest"`
-- 롤백: 두 파일 `git restore`
-- 예상 소요: 짧음
-
-#### 단계 2: 알람 규칙 2개 추가
-- 변경 파일: `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`
-- 변경 내용: Tier1에 추가.
-  - P2 `PaymentQueryUnknownPersisting`: `increase(saga_timeout_payment_unknown_total[5m]) > 0`, `for: 5m` — serverC 결제조회 불가 지속
-  - P1 `SagaForceExpiredOnUnknown`: `increase(saga_timeout_payment_unknown_expired_total[5m]) > 0` — 결제 상태를 모른 채 만료. serverC 복구 후 24시간 안에 자동 망취소되는지 확인 필요
-- 검증: `docker run --rm --entrypoint promtool -v <monitoring/prometheus>:/r prom/prometheus check rules /r/alert-rules.yml` (helm 파일도 동일), `helm template helm/promotion-monitoring`
-- 롤백: 두 파일 `git restore`
-- 예상 소요: 짧음
-
-#### 단계 3: 로컬 E2E (사용자 확인 후)
-- 내용: serverA에 `saga.timeout.payment-unknown-max-minutes=4` 주입해 기동 → serverC 정지 → 구매(PENDING) → 3분 후 UNKNOWN 로그·카운터, 4분 후 EXPIRED + 재고 복구 확인 → serverC 재기동 → 쌓인 결제 요청 처리 후 늦은 성공 보상으로 serverC 결제 CANCELLED 확인. 이어서 `gradlew :serverA:test` 전체.
-- 롤백: 주입 설정 제거, 컨테이너 재기동
+#### 단계 1: 실패 기록 테이블 + 엔티티
+- 변경 파일: `serverC/src/main/resources/db/migration/V3__payment_cancel_failures.sql`, `entity/PaymentCancelFailure.java`(+상태 enum), `repository/PaymentCancelFailureRepository.java`, 테스트 `repository/PaymentCancelFailureRepositoryTest.java`
+- 변경 내용: 명세의 `payment_cancel_failures` 테이블(order_id UK, status, attempts, next_retry_at, last_error, 시각)과 `(status, next_retry_at)` 인덱스. 엔티티는 상태 전이를 도메인 메서드로 가진다 (`recordFailure`, `markResolved`, `markExhausted` 등). 재시도 대상 조회와 선점용 조건부 UPDATE 쿼리.
+- 검증: `gradlew :serverC:test --tests "*PaymentCancelFailure*"` (Testcontainers MySQL로 Flyway 적용 포함)
+- 롤백: 새 파일 삭제
 - 예상 소요: 보통
 
-#### 단계 4: 문서 갱신
-- 변경 파일: `docs/design-notes.md`(UNKNOWN 제약 "최대 대기·알람은 미구현" → 결정 추가), `docs/purchase-saga-flow.md`·`docs/arch-snapshot.md`(타임아웃 스케줄러 설명에 상한 반영), `docs/backlog.md`
-- 검증: grep으로 "미구현" 문구 제거 확인
-- 롤백: `git restore`
+#### 단계 2: PG 취소 멱등화
+- 변경 파일: `service/PgClient.java`, `service/MockPgClient.java`, 새 `service/PgCancelResult.java`, `service/PaymentService.java`(호출부만), 테스트 `MockPgClientTest`(신규)·`PaymentServiceTest`(호출부 검증 수정)
+- 변경 내용: `cancelPayments(List)` → `cancelPayment(orderId)`가 CANCELLED / ALREADY_CANCELLED를 돌려주고 실패는 예외로 던진다. MockPgClient는 취소한 orderId를 기억한다.
+- 검증: `gradlew :serverC:test --tests "*MockPgClientTest" --tests "*PaymentServiceTest"`
+- 롤백: `git checkout` 해당 파일
 - 예상 소요: 짧음
 
+#### 단계 3: 취소 처리 서비스 + 컨슈머 + `payment-cancelled` 발행
+- 변경 파일: 새 `service/PaymentCancelService.java`, 새 `dto/PaymentCancelledMessage.java`, `kafka/PaymentCancelConsumer.java`, `repository/PaymentRepository.java`(조건부 상태 변경), `config/KafkaTopicConfig.java`(`payment-cancelled` 토픽), 테스트 `PaymentCancelServiceTest`(신규)·`PaymentCancelConsumerTest`(신규)
+- 변경 내용: 결제 상태별 분기 — PAID면 PG 취소 후 같은 트랜잭션에서 CANCELLED + Outbox `payment-cancelled` + 실패 행이 있으면 RESOLVED / CANCELLED면 Outbox만 다시 저장 / 그 외(없음·PROCESSING·FAILED)면 PG 호출 없이 EXHAUSTED 기록 + 메트릭. PG 실패는 예외를 그대로 던져 기존 Kafka 재시도에 맡긴다. 컨슈머는 서비스에 위임만 한다.
+- 검증: `gradlew :serverC:test --tests "*PaymentCancelServiceTest" --tests "*PaymentCancelConsumerTest"`
+- 롤백: `git checkout` + 새 파일 삭제
+- 예상 소요: 보통
+
+#### 단계 4: DLT 기록 + 자동 재시도 스케줄러
+- 변경 파일: `kafka/PaymentCancelConsumer.java`(DLT 핸들러), 새 `scheduler/PaymentCancelRetryScheduler.java`, `PaymentCancelService.java`(실패 기록·재시도 메서드), 설정(`application*.yml` — 간격 10분·최대 6회·스케줄 주기 1분), 테스트 `PaymentCancelRetrySchedulerTest`(단위) + `PaymentCancelRetryIntegrationTest`(Testcontainers, PgClient 대체)
+- 변경 내용: DLT → RETRYING 기록(이미 있으면 갱신, attempts 유지). 스케줄러는 대상 조회 → 조건부 UPDATE로 선점 → 재시도. 실패 시 attempts+1, 6회면 EXHAUSTED + `business_payment_cancel_retry_exhausted_total`. 기존 `refund_fatal` 카운터는 DLT 진입 시 그대로 증가시킨다.
+- 검증: `gradlew :serverC:test --tests "*PaymentCancelRetry*"`
+- 롤백: `git checkout` + 새 파일 삭제
+- 예상 소요: 김
+
+#### 단계 5: 관리자 API
+- 변경 파일: 새 `controller/PaymentAdminController.java`, 새 DTO(`dto/CancelFailureResponse.java`), 예외(`exception/AdminForbiddenException.java`, `CancelFailureNotFoundException.java`) + `GlobalExceptionHandler.java`, 테스트 `PaymentAdminControllerTest`(`@WebMvcTest`)
+- 변경 내용: `GET /api/v1/payments/admin/cancel-failures?status=`, `POST /api/v1/payments/admin/cancel-failures/{orderId}/retry`. `X-User-Role != ROLE_ADMIN`이면 403. 재처리는 서비스의 동기 1회 재시도를 호출한다.
+- 검증: `gradlew :serverC:test --tests "*PaymentAdminControllerTest"`
+- 롤백: 새 파일 삭제 + `git checkout` 핸들러
+- 예상 소요: 보통
+
+#### 단계 6: 알람 규칙
+- 변경 파일: `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`
+- 변경 내용: P0 `PaymentFatalError`의 expr을 `business_payment_cancel_retry_exhausted_total`로 바꾸고 설명 문구를 맞춘다.
+- 검증: `helm template` (promotion-monitoring 차트) 통과 + YAML 확인
+- 롤백: `git checkout`
+- 예상 소요: 짧음
+
+#### 단계 7: 전체 검증
+- `gradlew :serverC:test` (백그라운드)
+- 로컬 환경 기동 (serverC V3 마이그레이션 자동 적용 — **기동 전 사용자 확인**) → `backend-e2e` `npm test` 회귀 → 관리자 API 수동 호출 (403·200 빈 목록)
+- 롤백: 해당 없음
+
 ### 리스크 및 대응
-- 상한 도달 시 serverC에서 실제 승인된 결제가 남을 수 있음 → 늦은 성공 보상 + BL-003 재대사(24시간)가 망취소. 24시간 초과 장애는 P1 알람으로 수동 대응
-- 만료 시 재고 반납 후 결제가 승인되면 고객은 "결제 후 취소"를 겪음 → 초과판매보다 안전하므로 수용 (PAID로 되돌리지 않음)
-- `saga.expired.total` 증가로 기존 SagaExpired 알람도 함께 울림 → 의도된 동작 (EXPIRED 처리 사실 자체는 같음)
+- 망취소 실패 행이 재대사 스케줄러(serverA)의 재발행과 겹침 → PG 멱등 + DLT 시 기존 행 갱신(attempts 유지)으로 처리 (명세 장애 시 동작)
+- PR①만 배포된 동안 `payment-cancelled`를 소비하는 쪽이 없음 → REFUND_REQUESTED 주문이 아직 없어 무해 (명세)
+- `PgClient` 시그니처 변경이 테스트 여러 곳에 영향 → 단계 2에서 호출부를 한 번에 정리
+- 스케줄러가 여러 인스턴스에서 같은 행 실행 → 조건부 UPDATE 선점, 통합 테스트로 확인
 
 ### 의존성
-- BL-003 `reconcileTerminatedOrders`, `SagaResultConsumer`의 늦은 성공 보상 (이미 main)
+- 새 Gradle 의존성 없음
+- Debezium `payment-outbox-connector`는 `topic` 컬럼으로 라우팅 — 설정 변경 없음
