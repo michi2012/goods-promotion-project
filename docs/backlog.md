@@ -22,7 +22,6 @@
 | BL-006 | 결제조회 UNKNOWN이 길어질 때(serverC 장애) 주문 PENDING·재고 묶임 → 최대 대기 시간·알람 (`saga.timeout.payment_unknown` 기반) | 버그·정합성 | 중간 | M | | PR #22 |
 | BL-025 | 명령 문서의 OS 의존: `/db-migration`·`/coverage`·`/release-notes`가 PowerShell 스크립트로 집계·필터링, `/codex-review`에 "Windows 절대경로" — 팀 운영 시 Mac/Linux에서 동작 안 함. 프로젝트 런타임(Node/Gradle) 또는 OS 중립 지시로 전환 | 기술 부채 | 낮음 | M | | BL-013 작업 중 발견 |
 | BL-026 | 루트 k6 스크립트(`load-test.js`·`load-test2.js`)를 `perf/k6/`로 이동 — `perf-compare` skill의 스크립트 위치에 맞춤. 참조(`docs/frontend-flow.md`, skill `project.md`) 함께 갱신 | 정리 | 낮음 | S | | perf-compare skill 작업 중 발견 |
-| BL-024 | codebot에 `application-k8s.yml` 없음 → K8s에서도 Eureka 클라이언트가 켜져 없는 서버에 등록 시도(실패 로그). 다른 모듈처럼 `eureka.client.enabled: false` + `K8sDiscoveryConfigTest` 추가 | 기술 부채 | 낮음 | S | | BL-012 작업 중 발견 |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
@@ -57,4 +56,5 @@
 | BL-013 `/plan` 명령의 Windows 전용 지시 제거 (빈 파일 사전 생성·백슬래시 경로) | #32 |
 | BL-003 결과 이벤트 유실 시 종료 주문(EXPIRED/FAILED) 재대사 → serverC PAID면 망취소 + serverA 로컬 `fetch-registry: true` + e2e 로컬 기동 주의사항 | #35 |
 | BL-027 CLAUDE.md "재발 방지 기록" 규칙(skill `project.md`/`CLAUDE.local.md`에 즉시 기록) + 자가 점검 4번 항목 | #36 |
+| BL-024 codebot `application-k8s.yml` 추가(`eureka.client.enabled: false`) — DiscoveryClient 미사용이라 정적 등록·테스트 불필요. EKS 배포 후 Eureka 등록 실패 로그 사라짐 확인 필요 | #40 |
 | BL-014 로컬 테스트 데이터 정리 — **불필요로 종료**: 로컬 DB·Redis는 익명 볼륨이라 `docker compose down` 시 초기화, E2E는 자기 데이터를 직접 만들어 영향 없음 | #32 (기록만) |
