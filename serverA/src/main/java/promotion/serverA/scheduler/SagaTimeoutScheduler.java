@@ -3,6 +3,7 @@ package promotion.serverA.scheduler;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,6 +27,10 @@ public class SagaTimeoutScheduler {
 
     private static final long TIMEOUT_MS = 3 * 60 * 1000L;
     private static final String STATE_PATTERN = "saga:state:*";
+
+    // 결제조회 UNKNOWN(serverC 장애)일 때 Saga 생성 시점부터 기다리는 상한. E2E에서 짧게 주입한다.
+    @Value("${saga.timeout.payment-unknown-max-minutes:30}")
+    private long paymentUnknownMaxMinutes;
 
     @Scheduled(fixedDelay = 30_000)
     public void checkTimeouts() {
@@ -57,11 +62,20 @@ public class SagaTimeoutScheduler {
                             meterRegistry.counter("saga.expired.total").increment();
                             expiredCount++;
                         }
-                        // 결제 상태를 모르면 판단하지 않는다. EXPIRED로 처리하면 serverC에서 실제로 승인된 결제가
-                        // 망취소 없이 남을 수 있다(Saga 상태에 결제완료 플래그가 없으므로). Saga 상태를 그대로 두고 다음 주기에 재조회한다.
+                        // 결제 상태를 모르면 상한 전까지는 판단하지 않고 다음 주기에 재조회한다.
+                        // 상한이 지나면 재고 묶임을 끝내기 위해 EXPIRED 처리한다. serverC에서 실제로 승인된 결제는
+                        // 늦은 결제 성공 보상 또는 종료 주문 재대사(reconcileTerminatedOrders, 24시간)가 망취소한다.
                         case UNKNOWN -> {
-                            log.warn("[SagaTimeout] 결제 상태 확인 불가, 다음 주기 재시도: orderId={}", orderId);
                             meterRegistry.counter("saga.timeout.payment_unknown").increment();
+                            if ((now - createdAt) >= paymentUnknownMaxMinutes * 60_000L) {
+                                log.error("🚨 [SagaTimeout] 결제 상태 확인 불가 {}분 초과, EXPIRED 처리: orderId={}", paymentUnknownMaxMinutes, orderId);
+                                sagaOrchestratorService.handleSagaFailure(orderId, "TIMEOUT");
+                                meterRegistry.counter("saga.timeout.payment_unknown_expired").increment();
+                                meterRegistry.counter("saga.expired.total").increment();
+                                expiredCount++;
+                            } else {
+                                log.warn("[SagaTimeout] 결제 상태 확인 불가, 다음 주기 재시도: orderId={}", orderId);
+                            }
                         }
                     }
                 }
