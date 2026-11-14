@@ -4,14 +4,14 @@
 - 관련 이슈/티켓: BL-029 / 명세 `docs/specs/user-refund.md` (요구사항·설계 확인 ☑)
 
 BL-029는 PR 3개로 나눈다. 각 PR은 착수할 때 이 문서에 섹션을 추가한다.
-1. **PR① serverC** — 멱등 취소, `payment-cancelled` 발행, 실패 기록·자동 재시도·관리자 API, 알람 ← 이 섹션
+1. **PR① serverC** — 멱등 취소, `payment-cancelled` 발행, 실패 기록·자동 재시도·관리자 API, 알람 ← PR #48
 2. PR② serverA + 게이트웨이 + serverB 계약 — 환불 API, `paid_at`, 환불 완료 처리·재고 복구
 3. PR③ cs-bot + FAQ + 프론트
 
 ### BL-029 마지막 PR에서 할 일
 - 아키텍처 문서 갱신: `docs/architecture/arch-snapshot.md`(토픽 맵·고객 환불 흐름·주요 엔티티·스케줄러, 140·302행의 `refund_fatal` "수동 정산" 설명), `docs/architecture/flows/purchase-saga-flow.md` 122행, `docs/design-notes.md` 179행 — `refund_fatal`은 "자동 재시도 진입", 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`
 
-## [진행 중] PR① serverC — PG 취소 멱등화 + 실패 재처리
+## [완료] PR① serverC — PG 취소 멱등화 + 실패 재처리 (PR #48)
 
 ### 목표
 serverC의 PG 취소를 orderId 단위 멱등으로 바꾸고, 취소 성공 시 `payment-cancelled`를 발행한다. 취소가 실패하면 기록 → 자동 재시도 → 소진 시 알람 → 관리자 재처리까지 되게 한다. 이번 PR에서는 Saga 망취소 실패에 적용되고, PR②의 사용자 환불이 같은 경로를 쓴다.
