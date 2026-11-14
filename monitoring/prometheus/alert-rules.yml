@@ -3,13 +3,13 @@
     rules:
       # 1. [P0] 데이터 정합성 파손 (즉각 알람)
       - alert: PaymentFatalError
-        expr: increase(business_payment_pg_refund_fatal_total[1m]) > 0
+        expr: increase(business_payment_cancel_retry_exhausted_total[1m]) > 0
         labels:
           severity: critical
           tier: P0
         annotations:
-          summary: "🚨 [P0] 치명적 수기정산 발생 (에러 발생: {{ printf \"%.0f\" $value }}건)"
-          description: "PG사 결제는 성공했으나 환불 보상 트랜잭션까지 연달아 실패하여 수기 정산이 필요한 상태."
+          summary: "🚨 [P0] PG 취소 관리자 처리 필요 ({{ printf \"%.0f\" $value }}건)"
+          description: "PG 취소(환불·망취소)가 자동 재시도까지 모두 실패했거나 취소할 수 없는 결제 상태라 수기 처리가 필요한 상태. serverC GET /api/v1/payments/admin/cancel-failures 로 확인 후 재처리."
 
       # 2. [P1] Saga EXPIRED — 인프라 타임아웃으로 인한 구매 실패
       - alert: SagaExpired
