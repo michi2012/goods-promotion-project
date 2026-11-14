@@ -112,6 +112,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Kafka 컨슈머/프로듀서/토픽/DLT/Debezium 작업 시 `.claude/skills/kafka` 매뉴얼을 활용할 것.
 - Kubernetes/Helm/kubectl/HPA/RBAC/values.yaml/Deployment 작업 시 `.claude/skills/k8s` 매뉴얼을 활용할 것.
 - E2E·전체 흐름 검증·사전 점검·스모크 테스트 작업 시 `.claude/skills/e2e` 매뉴얼을 활용할 것.
+- 성능 측정·부하 테스트(k6)·개선 전후 비교 작업 시 `.claude/skills/perf-compare` 매뉴얼을 활용할 것.
 - 프론트엔드 화면/컴포넌트 작업 시 `.claude/skills/frontend`, 프론트 테스트 작성 시 `.claude/skills/frontend-testing`, 렌더링 결과를 보며 디자인을 다듬을 때 `.claude/skills/frontend-design-feedback` 매뉴얼을 활용할 것.
 
 ## 디버깅 루프 탈출 조건

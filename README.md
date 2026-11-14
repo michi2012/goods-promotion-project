@@ -397,7 +397,7 @@ CLAUDE.md 4원칙(`Think Before Coding` · `Simplicity First` · `Surgical Chang
 | `/plan` | 다파일 작업 착수 전 가정 표면화 → plan/context/checklist 3종 문서 생성 → 승인 게이트 |
 | `/pr` | 변경 이력 분석 → PR 제목/본문 초안 작성 → Linear 이슈 연결(`Closes`) |
 | `/project-status` | Linear Milestone별 진행률·막힌 이슈·다음 우선순위 후보 보고 → `/plan`으로 반복 |
-| `/k6-test` | 대상 엔드포인트 k6 스크립트 작성 + 로컬 스모크 실행 |
+| `perf-compare` (skill) | 성능 개선 전후 비교 — 가설 → 기준선 → 변경 → 재측정 → 기록, k6 + 기술별 보조 지표 |
 | `/incident` | 장애 사실 수집 → 관련 커밋 조회 → RCA 문서 생성 → 재발 방지 항목 Linear 서브태스크화 |
 | `/release-notes` | git log 기반 Conventional Commits 분류 → 버전별 릴리즈 노트 자동 생성 |
 | `arch-snapshot` / `infra-diagram` / `codex-review` / `db-migration` / `coverage` | 코드베이스 스냅샷·인프라 토폴로지 자동 생성, 멀티 에이전트 교차 검증, DDL 위험도 분석, 커버리지 등급 자동 분류 |
