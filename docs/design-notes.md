@@ -102,8 +102,23 @@ SagaOrchestratorService.handleSagaFailure()
 - 실패 확정 뒤 결제 성공이 늦게 오면 기존 코드는 삭제된 키에 HSET해 `createdAt` 없는 **좀비 키**를 만들고(타임아웃 스캐너가 영원히 스킵) 망취소도 하지 않았다. 늦은 성공은 UNKNOWN 이후·처리 중 타임아웃·DB 재대사 실패 등 여러 경로에서 생기므로 결과 수신 지점 한 곳에서 막는다.
 
 **제약/불변식:**
-- serverC 장애가 길면 주문이 PENDING으로 남고 재고가 묶인다(`saga.timeout.payment_unknown`으로 관측). 최대 대기·알람은 미구현.
+- serverC 장애가 길면 주문이 PENDING으로 남고 재고가 묶인다(`saga.timeout.payment_unknown`으로 관측) → BL-006에서 최대 대기 30분 + 알람 추가 (아래 결정).
 - 결과 이벤트가 **영영 오지 않는** 경우(CDC 유실)는 이벤트 기반으로는 막지 못한다 → BL-003에서 `OrderReconciliationScheduler.reconcileTerminatedOrders`(종료 주문을 serverC에 재조회해 PAID면 망취소)로 보완.
+
+**결정 (BL-006): 결제조회 UNKNOWN은 Saga 생성 후 30분까지만 기다리고, 그 뒤에는 EXPIRED로 끝내 재고를 반납한다.**
+
+- `SagaTimeoutScheduler`의 UNKNOWN 분기: 생성 후 `saga.timeout.payment-unknown-max-minutes`(기본 30) 이상이면 `handleSagaFailure(orderId, "TIMEOUT")` + `saga.timeout.payment_unknown_expired`. 알람 P2 `PaymentQueryUnknownPersisting`(UNKNOWN 5분 지속), P1 `SagaForceExpiredOnUnknown`(강제 만료).
+
+**이유:**
+- 무한 대기는 serverC 장애 동안 재고·유저 구매 마킹을 묶어 다른 구매자가 사지 못한다.
+- 만료 뒤 serverC에서 승인된 결제는 기존 안전망이 환불한다: 늦은 `payment-result(success)` → `compensateLatePaymentSuccess`, 결과 유실 → `reconcileTerminatedOrders`(24시간). 로컬 E2E로 확인(serverC 정지 → 강제 EXPIRED·재고 복구 → 재기동 후 PAID → CANCELLED).
+
+**제약/불변식:**
+- 상한 전 복구 → 주문이 PENDING이라 PAID 보정(`reconcileToPaid`), 상한 후 복구 → 이미 EXPIRED라 망취소. **만료된 주문을 PAID로 되돌리지 않는다** — 반납된 재고가 이미 팔렸을 수 있어 초과판매가 된다 (`updateStatusIfPending`도 PENDING일 때만 바꾼다).
+- 상한은 `TIMEOUT_MS`(3분)보다 커야 의미가 있고, 재대사 상한(24시간)보다 충분히 작아야 승인된 결제가 자동 환불된다. serverC 장애가 24시간을 넘으면 P1 알람으로 수동 대사.
+
+**채택하지 않은 대안:**
+- 알람만 추가하고 PENDING 유지 → 재고 묶임이 그대로 남는다.
 
 **결정 (BL-003): 결과 유실 재대사는 serverA가 종료 주문(EXPIRED/FAILED)을 생성 후 10분~24시간 동안 주기적으로 serverC에 재조회한다.**
 - 하한 10분: 정상적인 늦은 결과(`compensateLatePaymentSuccess`)가 먼저 처리되게 해 중복 망취소를 줄인다. 상한 24시간: 그 이상의 CDC 장애는 장애 대응 영역.

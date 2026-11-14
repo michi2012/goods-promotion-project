@@ -109,7 +109,8 @@ Saga가 끝난(상태 삭제) 뒤 `payment-result(success)`가 오는 경우. �
 - 이미 `failed`인 항목, `createdAt`이 없는 항목은 스킵. `createdAt` 대비 경과시간이 `TIMEOUT_MS=3*60*1000`(**3분**)을 넘으면 EXPIRED 처리 전에 `PaymentQueryClient.checkPaymentStatus()`로 serverC 실제 결제 상태를 조회한다.
   - `PAID` → `reconcileToPaid()` (EXPIRED 대신 PAID 보정).
   - `NOT_PAID` → `handleSagaFailure(orderId, "TIMEOUT")` + `saga.expired.total` 증가.
-  - `UNKNOWN`(serverC 인스턴스 미발견·조회 실패) → **판단하지 않고 건너뛴다.** Saga 상태를 그대로 두고 다음 30초 주기에 재조회 + `saga.timeout.payment_unknown` 증가. EXPIRED로 처리하면 Saga 플래그에 결제완료가 없어 실제 승인된 결제가 망취소 없이 남을 수 있기 때문이다. serverC가 오래 내려가 있으면 주문은 PENDING으로 남고, 복구되면 밀린 결제가 처리되어 정상 경로로 확정된다.
+  - `UNKNOWN`(serverC 인스턴스 미발견·조회 실패) → **판단하지 않고 건너뛴다.** Saga 상태를 그대로 두고 다음 30초 주기에 재조회 + `saga.timeout.payment_unknown` 증가. EXPIRED로 처리하면 Saga 플래그에 결제완료가 없어 실제 승인된 결제가 망취소 없이 남을 수 있기 때문이다. 상한 전에 serverC가 복구되면 밀린 결제가 처리되어 정상 경로로 확정된다.
+  - 단, Saga 생성 후 **30분**(`saga.timeout.payment-unknown-max-minutes`)이 지나도 UNKNOWN이면 재고 묶임을 끝내기 위해 `handleSagaFailure(orderId, "TIMEOUT")` → **EXPIRED** + 재고 복구, `saga.timeout.payment_unknown_expired`·`saga.expired.total` 증가. serverC에서 실제 승인된 결제는 복구 후 늦은 결제 성공 보상 또는 종료 주문 재대사(24시간)가 망취소한다. 알람: P2 `PaymentQueryUnknownPersisting`(UNKNOWN 5분 지속), P1 `SagaForceExpiredOnUnknown`(강제 만료 발생).
 
 ## 6. DLT (Dead Letter) 처리
 
