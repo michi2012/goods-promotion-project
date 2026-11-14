@@ -148,6 +148,28 @@ public class SagaOrchestratorService {
         log.info("[Saga 늦은 결제] 보상 불필요 (주문 상태 {}): orderId={}", status, orderId);
     }
 
+    // 늦은 payment-result(success) 또는 payment-cancel이 CDC에서 유실돼, 종료 주문과 serverC PAID 결제가 어긋난 채 남은 경우의 보상.
+    // OrderReconciliationScheduler가 serverC 조회로 PAID를 확인한 뒤 호출한다.
+    // compensateLatePaymentSuccess와 동작은 같지만, 유실 감지는 CDC 이상 신호라 카운터를 구분한다.
+    @Transactional
+    public void compensateLostPaymentResult(String orderId) {
+        Order order = orderRepository.findByOrderId(orderId).orElse(null);
+        if (order == null) {
+            log.warn("[Saga 결과 유실] Order 없음, 보상 건너뜀: orderId={}", orderId);
+            return;
+        }
+
+        OrderStatus status = order.getStatus();
+        if (status == OrderStatus.EXPIRED || status == OrderStatus.FAILED) {
+            outboxEventService.save(orderId, PAYMENT_CANCEL_TOPIC, new PaymentCancelMessage(orderId));
+            meterRegistry.counter("saga.reconcile_cancel.total").increment();
+            log.warn("🚨 [Saga 결과 유실] {} 주문인데 결제 PAID, 망취소 발행: orderId={}", status, orderId);
+            return;
+        }
+
+        log.info("[Saga 결과 유실] 보상 불필요 (주문 상태 {}): orderId={}", status, orderId);
+    }
+
     // Redis Saga 상태(SagaStateData)에 의존하지 않고, Order 엔티티에서 직접 데이터를 읽어 보정한다.
     // 타임아웃 직전 결제완료 확인(SagaTimeoutScheduler) 및 DB 기반 재대사(OrderReconciliationScheduler) 양쪽에서 사용.
     @Transactional

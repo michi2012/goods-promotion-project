@@ -300,4 +300,58 @@ class SagaOrchestratorServiceTest {
         // then
         verify(outboxEventService, never()).save(any(), any(), any());
     }
+
+    @Test
+    @DisplayName("결과 유실 재대사: EXPIRED 주문이면 망취소를 발행하고 재대사 카운터만 올린다")
+    void compensateLostPaymentResult_expired_publishes_cancel() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.EXPIRED)));
+
+        // when
+        sagaOrchestratorService.compensateLostPaymentResult(orderId);
+
+        // then
+        verify(outboxEventService).save(eq(orderId), eq("payment-cancel"), any(PaymentCancelMessage.class));
+        assertThat(meterRegistry.get("saga.reconcile_cancel.total").counter().count()).isEqualTo(1.0);
+        assertThat(meterRegistry.find("saga.late_payment_cancel.total").counter()).isNull();
+    }
+
+    @Test
+    @DisplayName("결과 유실 재대사: FAILED 주문이면 망취소를 발행한다")
+    void compensateLostPaymentResult_failed_publishes_cancel() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.FAILED)));
+
+        // when
+        sagaOrchestratorService.compensateLostPaymentResult(orderId);
+
+        // then
+        verify(outboxEventService).save(eq(orderId), eq("payment-cancel"), any(PaymentCancelMessage.class));
+    }
+
+    @Test
+    @DisplayName("결과 유실 재대사: 종료 상태가 아닌 주문(PAID)이면 망취소하지 않는다")
+    void compensateLostPaymentResult_paid_ignored() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(orderWithStatus(OrderStatus.PAID)));
+
+        // when
+        sagaOrchestratorService.compensateLostPaymentResult(orderId);
+
+        // then
+        verify(outboxEventService, never()).save(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("결과 유실 재대사: 주문이 없으면 보상 없이 넘어간다")
+    void compensateLostPaymentResult_order_not_found() {
+        // given
+        given(orderRepository.findByOrderId(orderId)).willReturn(Optional.empty());
+
+        // when
+        sagaOrchestratorService.compensateLostPaymentResult(orderId);
+
+        // then
+        verify(outboxEventService, never()).save(any(), any(), any());
+    }
 }

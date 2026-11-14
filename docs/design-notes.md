@@ -103,7 +103,13 @@ SagaOrchestratorService.handleSagaFailure()
 
 **제약/불변식:**
 - serverC 장애가 길면 주문이 PENDING으로 남고 재고가 묶인다(`saga.timeout.payment_unknown`으로 관측). 최대 대기·알람은 미구현.
-- 결과 이벤트가 **영영 오지 않는** 경우(CDC 유실)는 막지 못한다 — serverC 측 재대사 등 별도 장치 필요.
+- 결과 이벤트가 **영영 오지 않는** 경우(CDC 유실)는 이벤트 기반으로는 막지 못한다 → BL-003에서 `OrderReconciliationScheduler.reconcileTerminatedOrders`(종료 주문을 serverC에 재조회해 PAID면 망취소)로 보완.
+
+**결정 (BL-003): 결과 유실 재대사는 serverA가 종료 주문(EXPIRED/FAILED)을 생성 후 10분~24시간 동안 주기적으로 serverC에 재조회한다.**
+- 하한 10분: 정상적인 늦은 결과(`compensateLatePaymentSuccess`)가 먼저 처리되게 해 중복 망취소를 줄인다. 상한 24시간: 그 이상의 CDC 장애는 장애 대응 영역.
+- 망취소도 Outbox→CDC를 거친다. CDC가 멈춰 있으면 주기마다 `payment-cancel`이 쌓였다가 복구 시 중복 발행된다 — serverC CANCELLED 덮어쓰기(모의 PG 멱등)에 의존, 실제 PG는 BL-005.
+- 재대사 망취소는 `saga.reconcile_cancel.total`로 별도 집계 — 0이 아니면 CDC 유실이 있었다는 신호.
+- 채택하지 않은 대안: serverC 측 재대사(serverC가 PAID 결제를 스캔해 serverA에 주문 상태 조회 후 직접 망취소) — CDC를 우회하지만 serverA 조회 API·serverC 클라이언트가 새로 필요하고, PAID 결제는 대다수라 스캔 대상이 많다. serverA 방식도 serverC가 CANCELLED가 될 때까지 다음 주기에 다시 발행하므로 결국 복구된다.
 - 늦은 성공이 중복 수신되면 `payment-cancel`이 두 번 나갈 수 있다. serverC 취소는 상태 무관 CANCELLED 덮어쓰기라 모의 PG에서는 멱등이지만, 실제 PG의 중복 취소 응답 처리는 미검증.
 
 **채택하지 않은 대안:**
