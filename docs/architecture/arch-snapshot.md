@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영)_
+_생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영) / 재스캔: 2026-11-14 (payment-result Outbox 발행, cs-bot payment-cancel 직접 발행, Debezium 감시 DB `order`, 누락 엔드포인트·예외 핸들러 보완)_
 
 ---
 
@@ -27,11 +27,11 @@ _생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·con
 | `purchase_events` | serverA/PromotionService | 직접(동기 3s) | serverA/PurchaseKafkaConsumer | 3 | ✅ |
 | `purchase_events.DLT` | Kafka 자동 | - | serverA/PurchaseDltConsumer | 1 | - |
 | `payment-request` | serverA/OrderCommandService (`PaymentRequestMessage`, 금액 포함) | Outbox+CDC | serverC/PaymentKafkaConsumer | 3 | ✅ |
-| `payment-result` | serverC/PaymentService | 직접 | serverA/SagaResultConsumer | 3 | ✅ |
+| `payment-result` | serverC/PaymentService | Outbox+CDC | serverA/SagaResultConsumer | 3 | ✅ |
 | `order-status-update` | serverA/OrderCommandService, SagaOrchestratorService | Outbox+CDC | serverB/OrderStatusKafkaConsumer | 3 | ✅ |
 | `status-update-result` | serverB/OrderStatusEventHandler | 직접 | serverA/SagaResultConsumer | 3 | ✅ |
 | `order-completed` | serverA/SagaOrchestratorService | Outbox+CDC | serverC/OrderCompletedConsumer | 3 | ✅ |
-| `payment-cancel` | serverA/SagaOrchestratorService | Outbox+CDC | serverC/PaymentCancelConsumer | 3 | ✅ |
+| `payment-cancel` | serverA/SagaOrchestratorService (망취소·보상) / cs-bot/CsBotTools.requestRefund (고객 환불 요청) | Outbox+CDC / 직접 | serverC/PaymentCancelConsumer | 3 | ✅ |
 | `payment-cancel.DLT` | Kafka 자동 | - | serverC/PaymentCancelConsumer.handleDlt | 1 | - |
 | `stock-snapshot` | serverA/PromotionService, SagaOrchestratorService | 직접(fire-and-forget) / Outbox+CDC | serverB/StockSnapshotConsumer | 3 | ✅ |
 
@@ -65,7 +65,7 @@ sequenceDiagram
         K->>SC: PaymentKafkaConsumer 소비
         SC->>PG: 결제 요청(Circuit Breaker: pgClientCb)
         PG-->>SC: 결제 결과
-        SC->>K: payment-result 직접 발행
+        SC->>K: Outbox→CDC→ payment-result
     and
         K->>B: OrderStatusKafkaConsumer 소비
         B->>B: Redis 주문상태 갱신(order:view:{orderId}:status)
@@ -131,6 +131,13 @@ sequenceDiagram
         R->>R: 건너뜀 (UNKNOWN은 다음 주기 재조회)
     end
 ```
+
+### 고객 환불 요청 (cs-bot → serverC)
+
+cs-bot `requestRefund`는 serverC 결제 상태가 PAID인 본인 주문이면 `payment-cancel`을 **직접 발행**한다(Saga 망취소와 같은 토픽). serverC `PaymentCancelConsumer`가 PG 취소 후 `payments.status=CANCELLED`로 바꾼다.
+- serverA는 이 취소를 알지 못한다 — 주문은 PAID 유지, 재고 복구 없음.
+- 환불 기한 등 정책 검사 없음 (FAQ `cs-bot/src/main/resources/faq/refund-policy.yaml`의 정책은 안내용).
+- PG 취소 재시도 소진 시 `payment-cancel.DLT` → `business_payment_pg_refund_fatal_total` 증가 + 로그만 (수동 정산).
 
 ### PG 애매한 응답 처리 (serverC)
 
@@ -202,6 +209,7 @@ sequenceDiagram
 | POST | /api/v1/admin/dlt/{dltId}/retry | DLT 메시지 수동·자동 재처리 | 퍼블릭 (내부망) |
 | GET | /api/v1/admin/dlt/orders/{orderId} | 주문별 DLT 단건 조회 (cs-bot 내부 호출) | 퍼블릭 (내부망) |
 | GET | /v3/api-docs | OpenAPI 스펙 (springdoc `webmvc-api`, Swagger UI 없음). `OpenApiContractTest`가 `contracts/server-a-openapi.yaml`과 비교 | 퍼블릭 (Gateway 미라우팅) |
+| GET | /api/v1/test/error/promotion | 강제 500 발생 (`ErrorTestController`, 에러 알람 검증용) | 퍼블릭 (Gateway 미라우팅) |
 
 ### serverB (8081)
 | 메서드 | URL | 설명 | 인증 |
@@ -220,13 +228,27 @@ sequenceDiagram
 |--------|-----|------|------|
 | POST | /api/v1/cs-chat/messages | CS 채팅 메시지 전송 (JWT 필요, gateway에서 X-User-Id 주입) | JWT 필요 |
 
+### aiops (8085)
+| 메서드 | URL | 설명 | 인증 |
+|--------|-----|------|------|
+| POST | /webhook/prometheus | Alertmanager 웹훅 수신 → 장애 분석 | 퍼블릭 (Gateway `/webhook/**`) |
+| POST | /action/approve/{id} | 조치 제안 승인 | 퍼블릭 (Gateway `/action/**`) |
+| POST | /slack/events | Slack 이벤트 수신 → codebot 라우팅 | 퍼블릭 (Gateway 미라우팅) |
+| POST | /slack/interactive | Slack 버튼(승인/거절) 상호작용 (form-urlencoded) | 퍼블릭 (Gateway 미라우팅) |
+
 ### codebot (8087)
 Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slack 이벤트를 내부 HTTP로 전달.
+
+| 메서드 | URL | 설명 | 인증 |
+|--------|-----|------|------|
+| POST | /internal/investigations | aiops `CodebotClient`의 조사 요청 | 내부 전용 |
 
 ### user-service (8086)
 | 메서드 | URL | 설명                                                    | 인증 |
 |--------|-----|-------------------------------------------------------|------|
 | POST | /api/users | 회원가입                                                  | 퍼블릭 (Gateway 화이트리스트) |
+| POST | /api/users/admin-register | 관리자 계정 생성 (`X-Role: ROLE_ADMIN` 아니면 거부)            | JWT 필요 |
+| DELETE | /api/users/{id} | 회원 탈퇴                                                 | JWT 필요 |
 | POST | /login | 로그인 → `Authorization: Bearer <access>` + `refresh` 쿠키 | 퍼블릭 (Gateway 화이트리스트) |
 | POST | /reissue | Access 토큰 재발급 (refresh 쿠키 검증)                         | 퍼블릭 (Gateway 화이트리스트) |
 | GET | /api/users/{id} | 프로필 조회                                                | JWT 필요 |
@@ -236,6 +258,9 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 | GET | /api/users/{userId}/payment-methods | 결제수단 목록 조회                                            | JWT 필요 |
 | PUT | /api/users/{userId}/payment-methods/{methodId}/default | 기본 결제수단 설정                                            | JWT 필요 |
 | DELETE | /api/users/{userId}/payment-methods/{methodId} | 결제수단 삭제                                               | JWT 필요 |
+| GET | /internal/api/users/{userId} | 사용자 정보 조회 (`InternalUserController`)                  | 내부 전용 (Gateway 미라우팅) |
+| GET | /internal/api/users/{userId}/payment-methods/default | 결제용 사용자·기본 결제수단 조회                                | 내부 전용 (Gateway 미라우팅) |
+| POST | /internal/api/users | 내부 사용자 생성 (`ROLE_DRIVER`)                              | 내부 전용 (Gateway 미라우팅) |
 
 ---
 
@@ -285,6 +310,8 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 | serverA | ✅ | `PromotionException`(상태코드 직접 지정), `BusinessException`(400), `MethodArgumentNotValidException`(400), `Exception`(500) |
 | serverB | ✅ | `Exception`(500) 단일 처리 |
 | serverC | ✅ | `PaymentNotFoundException`(404), `PgPaymentException`(400, 보상 트랜잭션 트리거용), `Exception`(500). `PgAmbiguousResponseException`은 핸들러 대상 아님(PaymentService 내부에서 처리) |
+| user-service | ✅ | `DuplicateEmailException`, `DuplicatePhoneNumberException`, `UserNotFoundException`, `PaymentMethodNotFoundException`, `InvalidPasswordException`, `AccessDeniedException`, `MethodArgumentNotValidException`, `Exception` |
+| cs-bot·aiops·codebot·gateway | ❌ | 공통 핸들러 없음 (cs-bot 도구는 예외를 안내 문자열로 변환) |
 
 **serverA 커스텀 예외 목록:**
 `SoldOutException`, `DuplicateOrderException`, `GoodsNotFoundException`, `QueueFullException`, `AlreadyResolvedDltException`, `DltNotFoundException`, `PromotionException`, `BusinessException`
@@ -324,7 +351,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 커넥터명 | 감시 DB/테이블 | 사용 모듈 |
 |---------|--------------|---------|
-| `promotion-outbox-connector` | `promotion.outbox_event` (MySQL 3307) | serverA |
+| `promotion-outbox-connector` | `order.outbox_event` (MySQL 3307) | serverA |
 | `payment-outbox-connector` | `payment.outbox_event` (MySQL 3308) | serverC |
 
 - **라우팅**: `outbox_event.topic` 컬럼 값 → Kafka 토픽명으로 동적 라우팅 (`${routedByValue}`)
@@ -406,4 +433,4 @@ AIOps는 K8s RBAC(ServiceAccount)를 통해 `promotion` 네임스페이스의 HP
 
 ---
 
-> **codex-reviewer 주의**: `payment-request`, `order-status-update`, `order-completed`, `payment-cancel`, `stock-snapshot`(saga 결과)은 `kafkaTemplate.send()` 직접 호출이 없고 Outbox INSERT → Debezium CDC → Kafka 순서로 발행된다. `purchase_events`와 `stock-snapshot`(구매 접수 시점)만 직접 발행이다.
+> **codex-reviewer 주의**: `payment-request`, `payment-result`, `order-status-update`, `order-completed`, `payment-cancel`(serverA), `stock-snapshot`(saga 결과)은 `kafkaTemplate.send()` 직접 호출이 없고 Outbox INSERT → Debezium CDC → Kafka 순서로 발행된다. 직접 발행은 `purchase_events`·`stock-snapshot`(구매 접수 시점, serverA), `status-update-result`(serverB), `payment-cancel`(cs-bot 고객 환불 요청)뿐이다.
