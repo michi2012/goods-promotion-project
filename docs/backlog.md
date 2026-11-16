@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-16
-- **다음 ID: BL-038** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-041** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -12,7 +12,7 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 4개로 분할 — PR① serverC #48 머지 → (선행 BL-034 #51 머지) → PR②-a serverB 계약·게이트웨이 #52 → PR②-b serverA·E2E → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
+| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 4개로 분할 — PR① serverC #48 머지 → (선행 BL-034 #51 머지) → PR②-a serverB 계약·게이트웨이 #52 → PR②-b serverA·E2E(진행 중) → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -20,7 +20,10 @@
 | BL-002 | **PG 거래 내역 대사 배치**: 최소 구현 + 시드 데이터로 기준선 측정(perf-compare). 성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | BL-029 | 결제 로드맵 (2026-11-12), 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
+| BL-038 | **환불 완료 처리 실패 알람 없음**: serverA `payment-cancelled` 처리가 Kafka 재시도를 소진하면 `business_refund_complete_failed_total`만 오르고 알람 규칙이 없다. 주문이 REFUND_REQUESTED("환불 처리 중")에 남은 채 아무도 모름 — `monitoring/`·`helm/` 알람 규칙 2벌에 추가 (PR #51 교훈: `or`로 묶지 말고 별도 규칙) | 후속 작업 | 중간 | S | | BL-029 PR②-b 작업 중 발견 (2026-11-16) |
+| BL-039 | **backend-e2e 테스트 타임아웃이 폴링 대기보다 짧음**: `playwright.config.ts`에 `timeout`이 없어 기본 30초인데 시나리오 폴링은 `E2E_FLOW_TIMEOUT_MS` 60초 — 결과가 늦게 와도 폴링이 끝나기 전에 테스트가 끊김 (구매·환불 흐름 공통) | 기술 부채 | 중간 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
+| BL-040 | **user-service `open-in-view` 기본값(켜짐)**: 기동 로그 `spring.jpa.open-in-view is enabled by default` — CLAUDE.md "open-in-view: false 필수" 위반. `application.yml`에 `spring.jpa.open-in-view: false` 후 컨트롤러 계층 지연 로딩 사용처 확인 | 기술 부채 | 낮음 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
