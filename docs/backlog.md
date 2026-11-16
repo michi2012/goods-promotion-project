@@ -13,7 +13,6 @@
 | ID | 항목 | 문서 |
 |----|------|------|
 | BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 3개로 분할 — PR① serverC #48 머지 → (선행 BL-034) → PR② serverA·게이트웨이·serverB 계약 → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
-| BL-034 | **serverC payment-cancel DLT 기록 실패 대비** (PR #48 리뷰 C1 [필수] + C2·C4) | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -49,6 +48,7 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-034 serverC payment-cancel DLT 기록 실패 대비 — DLT 핸들러 백오프 5회 + 기록 실패 메트릭 P0 OR(C1), 이미 EXHAUSTED면 P0 재발화 없음(C2), RESOLVED 재도착 시 attempts=0(C4) | #51 |
 | BL-032 codex 리뷰 도구 제거 + PR 리뷰 skill(`/pr-review`) 신설 — 리뷰어가 게시용 JSON 직접 작성, 반영 시 GitHub 코멘트 읽기 | #49 |
 | K8s DiscoveryClient 서비스 조회 복구 (serverA·cs-bot·aiops) + arch-snapshot 최신화 | #21 |
 | 결제 금액 기본기 + Saga 안전망(UNKNOWN 재시도·늦은 결제 성공 보상) + Debezium DB 이름 + serverA 계약 테스트 | #22 |

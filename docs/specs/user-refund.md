@@ -279,7 +279,7 @@ components:
 | PR | 범위 | 상태 |
 |----|------|------|
 | ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 머지 |
-| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | 진행 중 |
+| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | #51 |
 | ② serverA + 게이트웨이 + serverB 계약 | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 게이트웨이 라우트(local·k8s), serverB 상태 enum, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구·중복 요청 시 PG 1회) | 진행 예정 |
 | ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | 진행 예정 |
 
