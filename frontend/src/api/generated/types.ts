@@ -31,7 +31,7 @@ export interface components {
              * @description Redis에 상태가 없으면 NOT_FOUND
              * @enum {string}
              */
-            status: "PENDING" | "PAID" | "FAILED" | "EXPIRED" | "NOT_FOUND";
+            status: "PENDING" | "PAID" | "FAILED" | "EXPIRED" | "REFUND_REQUESTED" | "REFUNDED" | "NOT_FOUND";
         };
     };
     responses: never;

@@ -12,7 +12,7 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 3개로 분할 — PR① serverC #48 머지 → (선행 BL-034) → PR② serverA·게이트웨이·serverB 계약 → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
+| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 4개로 분할 — PR① serverC #48 머지 → (선행 BL-034 #51 머지) → PR②-a serverB 계약·게이트웨이 #52 → PR②-b serverA·E2E → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |

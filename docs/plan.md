@@ -1,66 +1,55 @@
-# 계획서: serverC payment-cancel DLT 기록 실패 대비 (BL-034)
+# 계획서: 사용자 환불 PR②-a — serverB 상태 enum + 게이트웨이 환불 라우트 (BL-029)
 
 - 작성일: 2026-11-16
-- 관련 이슈/티켓: BL-034 (`docs/backlog.md`), PR #48 리뷰 C1 [필수]·C2·C4. 정책 원본: `docs/specs/user-refund.md`
+- 관련 이슈/티켓: BL-029 (`docs/backlog.md`), 명세 `docs/specs/user-refund.md` (설계 확인 ☑)
 
-## [완료] BL-034 (PR #51)
+## [완료] BL-029 PR②-a (PR #52)
 
 ### 목표
-PG 취소가 Kafka 재시도를 다 쓰고 DLT에 왔을 때, 실패 기록(`payment_cancel_failures`)을 DB에 쓰지 못해도 그 건이 알람 없이 사라지지 않게 한다. 함께 P0 알람이 이미 아는 건 때문에 다시 울리는 문제(C2)와, 다시 열린 실패 건의 재시도 횟수(C4)를 바로잡는다.
+환불로 생기는 주문 상태(`REFUND_REQUESTED`·`REFUNDED`)를 serverB 계약에 추가하고, 게이트웨이가 `POST /api/v1/orders/*/refund`를 serverA로 보내도록 라우트를 추가한다. 명세의 배포 순서(serverB → serverA → … → 게이트웨이)상 소비자 쪽을 먼저 내보내는 PR이다.
 
 ### 성공 기준
-- [ ] DLT 핸들러가 계속 실패하면 정해진 횟수만큼 재시도한 뒤 `business_payment_cancel_dlt_record_failed_total`이 1 오르고, JSON 파싱 오류는 재시도 없이 바로 오른다 (`KafkaConsumerConfigTest`)
-- [ ] `business_payment_pg_refund_fatal_total`은 DLT 기록이 성공했을 때만 오른다 (`PaymentCancelConsumerTest`)
-- [ ] 이미 EXHAUSTED인 행을 다시 EXHAUSTED로 기록하면 `business_payment_cancel_retry_exhausted_total`이 오르지 않는다 (`PaymentCancelServiceTest`)
-- [ ] RESOLVED 행이 DLT에 다시 도착하면 attempts=0인 RETRYING이 된다 (`PaymentCancelFailureTest`)
-- [ ] P0 `PaymentFatalError`가 두 메트릭 중 하나라도 늘면 울린다 (알람 규칙 2개 파일 동일, YAML 파싱 + `helm template` 통과)
+- [ ] serverB `GET /api/v1/orders/{orderId}/status` 응답 스키마의 status enum에 `REFUND_REQUESTED`·`REFUNDED`가 있고 계약(`contracts/openapi.yaml`)과 같다 (`serverB OpenApiContractTest`)
+- [ ] 게이트웨이 `application.yml`·`application-k8s.yml` 모두 `serverA-refund`(Path=`/api/v1/orders/*/refund`, Method=POST → serverA, Rate limit 초당 20·버스트 50)가 `serverB-orders`보다 앞에 있다 (`GatewayRouteOrderTest` 신규)
+- [ ] 기존 serverB·게이트웨이 테스트 통과 (`:serverB:test`, `:gateway-service:test`)
+- [ ] 로컬 백엔드 E2E 회귀 통과 (`backend-e2e/ npm test` — 구매 흐름이 serverB 상태 조회까지 확인)
 
 ### 비범위 (Out of Scope)
-- serverA·serverB DLT 팩토리의 같은 `FixedBackOff(0,0)` 패턴 → 발견 사항으로 백로그 이전
-- Grafana 패널 정리 (BL-031)
-- 최종 실패 건의 자동 복구 (사람이 로그·DLT 토픽 원본으로 처리)
-- BL-029 PR② 이후 범위 전부
+- serverA 환불 API·`payment-cancelled` 컨슈머·`orders.paid_at`(V4)·user-service 조회·환불 E2E → **PR②-b** (②-a 머지 후 별도 `/plan`)
+- serverB 로직 변경 (명세: 상태 문자열을 그대로 저장·응답, 회신은 PENDING일 때만)
+- cs-bot·FAQ·프론트 → PR③
 
 ### 단계별 작업 계획
 
-#### 단계 1: C2·C4 — 엔티티·서비스
-- 변경 파일: `serverC/.../entity/PaymentCancelFailure.java`, `serverC/.../service/PaymentCancelService.java`, 테스트 `PaymentCancelFailureTest.java`, `PaymentCancelServiceTest.java`
-- 변경 내용: `recordDltArrival`이 RESOLVED → RETRYING일 때 attempts를 0으로 초기화. `recordNeedsAdmin`은 행이 없거나 EXHAUSTED가 아니던 경우에만 `needsAdmin`을 올린다(이미 EXHAUSTED면 사유만 갱신).
-- 검증: `.\gradlew.bat :serverC:test --tests "*PaymentCancelFailureTest" --tests "*PaymentCancelServiceTest"`
+#### 단계 1: serverB 상태 enum + 계약
+- 변경 파일: `serverB/src/main/java/promotion/serverB/dto/OrderStatusResponse.java`, `contracts/openapi.yaml`
+- 변경 내용: `@Schema(allowableValues)`와 계약 status enum에 `REFUND_REQUESTED`, `REFUNDED`를 추가한다. 코드 로직 변경 없음.
+- 검증: `.\gradlew.bat :serverB:test --tests "*OpenApiContractTest"`
 - 롤백: `git checkout -- <위 파일>`
 - 예상 소요: 짧음
 
-#### 단계 2: C1 — DLT 핸들러 재시도 + 최종 실패 메트릭
-- 변경 파일: `serverC/.../config/KafkaConsumerConfig.java`, `serverC/.../kafka/PaymentCancelConsumer.java`, 테스트 `KafkaConsumerConfigTest.java`(신규), `PaymentCancelConsumerTest.java`
-- 변경 내용: DLT 팩토리 백오프를 지수 5회(1→2→4→8→16초, 약 31초)로 바꾸고, `JsonProcessingException`은 재시도하지 않는다. 최종 실패 시 `business_payment_cancel_dlt_record_failed_total`(빈 생성 시 등록)을 올리고 원본 payload를 에러 로그로 남긴다. `handleDlt`의 `refundFatal.increment()`는 `recordDltArrival` 성공 뒤로 옮긴다(재시도 시 중복 집계 방지).
-- 검증: `.\gradlew.bat :serverC:test --tests "*KafkaConsumerConfigTest" --tests "*PaymentCancelConsumerTest"`
+#### 단계 2: 게이트웨이 환불 라우트
+- 변경 파일: `gateway-service/src/main/resources/application.yml`, `application-k8s.yml`, 테스트 `gateway-service/src/test/java/com/example/gateway_service/GatewayRouteOrderTest.java`(신규)
+- 변경 내용: `serverA-refund` 라우트를 `serverB-orders` 바로 앞에 추가 (local `lb://serverA`, k8s는 기존 serverA 라우트와 같은 주소). 테스트는 두 YAML을 읽어 라우트 순서·predicate·uri를 확인한다 (프로필별 컨텍스트를 띄우지 않고 파일 자체를 검증 — k8s 설정도 함께 확인하기 위해).
+- 검증: `.\gradlew.bat :gateway-service:test` (기존 `contextLoads`·`JwtAuthFilterTest` 포함)
 - 롤백: `git checkout -- <위 파일>`, 신규 테스트 삭제
-- 예상 소요: 보통
-
-#### 단계 3: P0 알람 규칙
-- 변경 파일: `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`
-- 변경 내용: `PaymentFatalError` expr에 `or increase(business_payment_cancel_dlt_record_failed_total[1m]) > 0` 추가, description에 "DLT 기록 실패 시 serverC 로그의 payload로 확인" 추가.
-- 검증: 두 파일 YAML 파싱(Node) + `helm template helm/promotion-monitoring` 통과, 두 파일 해당 블록 동일 확인 (`promtool`이 있으면 `promtool check rules`)
-- 롤백: `git checkout -- <위 파일>`
 - 예상 소요: 짧음
 
-#### 단계 4: 명세 갱신
-- 변경 파일: `docs/specs/user-refund.md`
-- 변경 내용: 상태 전이 표의 RESOLVED → RETRYING을 "attempts=0"으로, "장애 시 동작"에 "DLT 기록 실패 → 5회 재시도 → 메트릭 + P0" 행 추가, C2 동작(이미 EXHAUSTED면 알람 없음) 반영, 변경 이력 행 추가.
-- 검증: 육안 (코드 동작과 표 일치)
-- 롤백: `git checkout -- docs/specs/user-refund.md`
+#### 단계 3: 명세·백로그 갱신
+- 변경 파일: `docs/specs/user-refund.md`("구현 단계" 표에서 ②를 ②-a·②-b로 나눔), `docs/backlog.md`(BL-029 행)
+- 검증: 육안
 - 예상 소요: 짧음
 
-#### 단계 5: 전체 빌드 + 로컬 E2E 회귀
-- 검증: `.\gradlew.bat :serverC:build` (백그라운드). 로컬 스택이 떠 있으면 `backend-e2e/`의 serverC 관리자 API 시나리오 포함 회귀 실행, 없으면 기동 여부를 사용자에게 확인 (새 마이그레이션 없음)
+#### 단계 4: 빌드 + 로컬 E2E 회귀
+- 검증: `:serverB:build`, `:gateway-service:build` (백그라운드) → `:serverB:bootJar` 후 server-b 이미지만 재빌드(`up -d --build --no-deps server-b`) → `backend-e2e/ npm test`
 - 롤백: 해당 없음
 - 예상 소요: 보통
 
 ### 리스크 및 대응
-- 리스크: 테스트에서 실제 백오프(약 31초)를 기다리게 됨 → 대응: mock 컨테이너(`isRunning()=false`)로 대기를 건너뛰는 방식을 먼저 시도, 안 되면 팩토리 생성 로직에서 백오프를 인자로 받는 package-private 메서드로 분리
-- 리스크: 백오프 동안 DLT 컨슈머 스레드가 막힘 → 대응: 최대 31초로 `max.poll.interval.ms`(기본 5분)보다 훨씬 짧고, DLT 팩토리를 쓰는 리스너는 `payment-cancel.DLT` 하나뿐
-- 리스크: 새 메트릭을 처음 증가할 때 등록하면 Prometheus `increase()`가 첫 증가를 놓침 → 대응: 빈 생성 시 0으로 등록
+- 리스크: `Path=/api/v1/orders/*/refund`가 serverB 조회 경로를 가로챔 → 대응: `Method=POST` 조건 + 테스트로 순서·조건 고정. serverB 조회는 모두 GET
+- 리스크: ②-a만 배포된 동안 환불 라우트가 serverA 미구현 경로로 감 → 대응: 화면·cs-bot이 아직 호출하지 않아 무해 (PR③에서 호출 시작)
+- 리스크: 게이트웨이 실제 트래픽 경로는 E2E로 검증하지 않음 (백엔드 E2E는 서버를 직접 호출) → 대응: 라우트 테스트로 설정을 고정. 게이트웨이 경유 확인은 PR②-b 이후 환불 API가 생기면 함께 판단
 
 ### 의존성
-- 새 의존성 없음 (`spring-kafka-test`·Micrometer 기존)
-- BL-029 PR②가 이 경로에 의존 — 이 작업 머지 후 착수
+- 새 의존성 없음. DB 마이그레이션 없음
+- PR②-b가 이 PR 머지 후 착수

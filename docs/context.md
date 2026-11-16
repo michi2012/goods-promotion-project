@@ -1,34 +1,36 @@
-# 맥락 노트: serverC payment-cancel DLT 기록 실패 대비 (BL-034)
+# 맥락 노트: 사용자 환불 PR②-a — serverB 상태 enum + 게이트웨이 환불 라우트 (BL-029)
 
-## [완료] BL-034 (PR #51)
+## [완료] BL-029 PR②-a (PR #52)
 
 ### 왜 이 방식을 선택했는가
-- PR #48(BL-029 PR①) 리뷰 C1 [필수]: DLT 팩토리가 `FixedBackOff(0,0)` + 로그만 남기는 복구 함수라, `recordDltArrival` DB 쓰기가 한 번 실패하면 그 취소 건이 자동 재시도에서도, 알람에서도 사라진다. 사용자 환불(BL-029 PR②)이 이 경로를 쓰므로 그 전에 막는다.
-- 사용자 결정 (2026-11-16):
-  - C1: 횟수 제한 백오프(지수 5회, 약 31초) + 최종 실패 메트릭을 P0에 OR (A안)
-  - C2: 새로 EXHAUSTED가 될 때만 P0 메트릭 증가
-  - C4: RESOLVED → RETRYING 시 attempts=0 (새 장애로 보고 자동 재시도 6회를 다시 준다). 명세 표(`user-refund.md` "attempts 유지")를 함께 바꾼다
-- `refundFatal`("자동 재시도 진입" 건수)을 기록 성공 뒤로 옮기는 이유: DLT 핸들러가 재시도되면 앞에서 올린 카운터가 재시도 횟수만큼 중복된다.
+- 명세(`docs/specs/user-refund.md`, 설계 확인 ☑)의 PR②는 serverA·게이트웨이·serverB 계약·E2E를 한 PR로 잡았지만, 예상 변경 파일이 약 30개라 둘로 나눴다 (사용자 결정 2026-11-16).
+  - ②-a: serverB enum + `contracts/openapi.yaml` + 게이트웨이 라우트 (명세 배포 순서상 serverB가 먼저)
+  - ②-b: serverA 환불 API·컨슈머·V4·user-service 조회 + 환불 E2E
+- 환불 E2E의 "중복 요청에도 PG 취소 1회"는 재고가 정확히 한 번 복구됐는지로 확인한다 (사용자 결정). PG 멱등 자체는 serverC 단위 테스트(PR①). → ②-b에서 적용
+
+### PR②-b로 넘기는 확인 사실 (Step 1 조사)
+- PAID 전이는 `Order.markAsPaid()`가 아니라 `OrderRepository.updateStatusIfPending(orderId, PAID)`(JPQL 벌크) — 호출부 `SagaOrchestratorService.tryCompleteSaga`·`reconcileToPaid`. `paid_at`은 이 UPDATE에서 함께 기록해야 한다 (명세의 "markAsPaid에서 기록"은 구현 위치만 다름)
+- serverA 예외: `BusinessException`은 항상 400, `PromotionException`은 에러 코드가 HTTP 상태명 → 명세의 404 `ORDER_NOT_FOUND`·409 `REFUND_*`·503 `USER_LOOKUP_UNAVAILABLE`용 예외·핸들러가 필요
+- `payment-cancelled` 토픽은 serverC `KafkaTopicConfig`에 있음. Debezium은 `topic` 필드로 라우팅(`debezium/*.json`)이라 설정 변경 없음
+- user-service `GET /internal/api/users/{loginId}` — 없으면 404(`UserNotFoundException`). cs-bot `CsBotClient.resolveNumericUserId`가 같은 호출
+- Saga 보상 재고 복구 패턴: `SagaOrchestratorService.handleSagaFailure` (환불은 `releaseUserPurchase` 제외 — P-12)
+- E2E에는 `user-service`·`mysql-user` 기동 필요 (현재 로컬 스택에서 꺼져 있음). 사용자 생성은 `POST /internal/api/users`(8086)
 
 ### 검토했으나 채택하지 않은 대안
-#### 무한 재시도 (DB 복구까지 대기)
-- 왜 안 썼나: 해결되지 않는 메시지 하나가 DLT 처리 전체를 막고, 막힌 동안 알람이 없다.
-#### 일반 이름 + topic 태그 카운터 (`kafka_dlt_handler_failed_total{topic}`) — Step 1 가정에서 변경
-- 왜 안 썼나: 태그 시리즈는 첫 실패 때 생겨서 Prometheus `increase()`가 첫 증가를 놓친다. 미리 등록하려면 토픽을 하드코딩해야 해 일반화 이점이 없다. 이 팩토리를 쓰는 리스너는 하나뿐이라 기존 `business_payment_*` 이름 규칙의 전용 카운터를 빈 생성 시 등록한다.
+#### PR② 하나로 유지
+- 왜 안 썼나: 리뷰 범위가 넓다(약 30개). 배포 순서상 serverB·게이트웨이는 독립적으로 먼저 나갈 수 있다.
+#### 게이트웨이 라우트 검증을 프로필별 `@SpringBootTest`로
+- 왜 안 썼나: k8s 프로필은 클러스터 주소·환경변수를 전제로 해 로컬 컨텍스트 기동이 어렵다. 두 YAML 파일을 직접 읽어 순서·조건을 확인하는 편이 단순하고 두 설정을 모두 덮는다.
 
 ### 기존 코드베이스 컨벤션
-- 메트릭: `business_*_total`, `@PostConstruct`에서 `Counter.builder(...).register(meterRegistry)` (`PaymentCancelService.java`, `PaymentCancelConsumer.java`)
-- 트랜잭션: 서비스에서 `TransactionTemplate`으로 짧게 묶음, PG 호출은 트랜잭션 밖
-- 테스트: Mockito 단위 + `SimpleMeterRegistry` (`PaymentCancelServiceTest.java`), 엔티티 순수 단위 (`PaymentCancelFailureTest.java`), Testcontainers 통합 (`PaymentCancelRetryIntegrationTest.java`)
-- 알람 규칙은 `monitoring/`(로컬)과 `helm/promotion-monitoring/files/`(k8s) 두 벌을 같이 수정
+- 게이트웨이 라우트: `application.yml`(local, `lb://`)·`application-k8s.yml`(서비스 DNS) 두 벌, 라우트마다 `RequestRateLimiter` + `ipKeyResolver`
+- 계약: `contracts/openapi.yaml`(serverB)이 원본, `OpenApiContractTest`가 `/v3/api-docs`와 enum까지 비교 (`serverB/src/test/java/promotion/serverB/contract/OpenApiContractTest.java`)
 
 ### 관련 파일/위치
-- `serverC/src/main/java/promotion/serverC/config/KafkaConsumerConfig.java` — 메인·DLT 리스너 팩토리
-- `serverC/src/main/java/promotion/serverC/kafka/PaymentCancelConsumer.java` — `payment-cancel`·`payment-cancel.DLT` 리스너
-- `serverC/src/main/java/promotion/serverC/service/PaymentCancelService.java` — 취소·DLT 기록·자동/관리자 재시도
-- `serverC/src/main/java/promotion/serverC/entity/PaymentCancelFailure.java` — 실패 행 상태 전이
-- `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml` — P0 `PaymentFatalError`
-- `docs/specs/user-refund.md` — 상태 전이 표(146-161행), 장애 시 동작(251-260행), 변경 이력
+- `serverB/src/main/java/promotion/serverB/dto/OrderStatusResponse.java` — status `allowableValues`
+- `contracts/openapi.yaml` — serverB 계약 (45행 근처 status enum)
+- `gateway-service/src/main/resources/application.yml`(55행 `serverB-orders`), `application-k8s.yml`(20행)
+- `gateway-service/src/main/java/com/example/gateway_service/filter/JwtAuthFilter.java` — 화이트리스트 밖은 JWT 필수 + `X-User-Id`·`X-User-Role` 주입 (환불 라우트도 자동 적용)
 
 ### 외부 참조
-- `.claude/skills/kafka` (DLT 설계), Spring Kafka `DefaultErrorHandler`·`ExponentialBackOffWithMaxRetries`
+- 명세 `docs/specs/user-refund.md` "API"(게이트웨이·serverB), "이벤트"(배포 순서), "구현 단계"
