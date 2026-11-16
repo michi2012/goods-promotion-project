@@ -18,6 +18,7 @@ import promotion.serverA.outbox.OutboxEventService;
 import promotion.serverA.repository.GoodsRepository;
 import promotion.serverA.repository.OrderRepository;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,14 +70,14 @@ class SagaOrchestratorServiceTest {
         // given
         given(sagaStateService.getSagaState(orderId)).willReturn(stateData);
         given(sagaStateService.isFailed(orderId)).willReturn(false);
-        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(1);
+        given(orderRepository.markPaidIfPending(eq(orderId), any(LocalDateTime.class))).willReturn(1);
         given(sagaStateService.getCreatedAt(orderId)).willReturn(System.currentTimeMillis() - 500L);
 
         // when
         sagaOrchestratorService.tryCompleteSaga(orderId);
 
         // then
-        verify(orderRepository).updateStatusIfPending(orderId, OrderStatus.PAID);
+        verify(orderRepository).markPaidIfPending(eq(orderId), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(orderId), eq("order-status-update"), any());
         verify(outboxEventService).save(eq(orderId), eq("order-completed"), any());
         verify(sagaStateService).deleteSagaState(orderId);
@@ -89,7 +90,7 @@ class SagaOrchestratorServiceTest {
         // given
         given(sagaStateService.getSagaState(orderId)).willReturn(stateData);
         given(sagaStateService.isFailed(orderId)).willReturn(false);
-        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(1);
+        given(orderRepository.markPaidIfPending(eq(orderId), any(LocalDateTime.class))).willReturn(1);
         given(sagaStateService.getCreatedAt(orderId)).willReturn(0L);
 
         // when
@@ -111,7 +112,7 @@ class SagaOrchestratorServiceTest {
         sagaOrchestratorService.tryCompleteSaga(orderId);
 
         // then
-        verify(orderRepository, never()).updateStatusIfPending(anyString(), any());
+        verify(orderRepository, never()).markPaidIfPending(anyString(), any());
         verify(outboxEventService, never()).save(anyString(), anyString(), any());
     }
 
@@ -166,13 +167,13 @@ class SagaOrchestratorServiceTest {
     void reconcileToPaid_success() {
         // given
         given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(order()));
-        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(1);
+        given(orderRepository.markPaidIfPending(eq(orderId), any(LocalDateTime.class))).willReturn(1);
 
         // when
         sagaOrchestratorService.reconcileToPaid(orderId);
 
         // then
-        verify(orderRepository).updateStatusIfPending(orderId, OrderStatus.PAID);
+        verify(orderRepository).markPaidIfPending(eq(orderId), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(orderId), eq("order-status-update"), any());
         verify(redisStockService, never()).releaseStock(anyLong(), anyInt());
         verify(sagaStateService).deleteSagaState(orderId);
@@ -183,7 +184,7 @@ class SagaOrchestratorServiceTest {
     void reconcileToPaid_alreadyProcessed_skips() {
         // given
         given(orderRepository.findByOrderId(orderId)).willReturn(Optional.of(order()));
-        given(orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID)).willReturn(0);
+        given(orderRepository.markPaidIfPending(eq(orderId), any(LocalDateTime.class))).willReturn(0);
 
         // when
         sagaOrchestratorService.reconcileToPaid(orderId);

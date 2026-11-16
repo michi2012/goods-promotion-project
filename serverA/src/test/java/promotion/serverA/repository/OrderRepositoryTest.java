@@ -77,4 +77,37 @@ class OrderRepositoryTest {
         assertThat(result).extracting(Order::getOrderId)
                 .containsExactlyInAnyOrder("expired-in-range", "failed-in-range");
     }
+
+    @Test
+    @DisplayName("PAID 전이: PENDING 주문만 PAID로 바꾸고 결제 완료 시각을 기록한다 (V4 paid_at 컬럼)")
+    void markPaidIfPending() {
+        LocalDateTime now = LocalDateTime.now();
+        saveOrder("pending", OrderStatus.PENDING, now);
+        saveOrder("failed", OrderStatus.FAILED, now);
+        LocalDateTime paidAt = LocalDateTime.of(2026, 11, 16, 12, 0);
+
+        int pendingUpdated = orderRepository.markPaidIfPending("pending", paidAt);
+        int failedUpdated = orderRepository.markPaidIfPending("failed", paidAt);
+
+        assertThat(pendingUpdated).isEqualTo(1);
+        assertThat(failedUpdated).isZero();
+        Order paid = orderRepository.findByOrderId("pending").orElseThrow();
+        assertThat(paid.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(paid.getPaidAt()).isEqualTo(paidAt);
+        assertThat(orderRepository.findByOrderId("failed").orElseThrow().getPaidAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("조건부 상태 전이: 현재 상태가 from일 때만 바꾸고, 두 번째 호출은 0을 돌려준다")
+    void updateStatusIfCurrent() {
+        saveOrder("paid", OrderStatus.PAID, LocalDateTime.now());
+
+        int first = orderRepository.updateStatusIfCurrent("paid", OrderStatus.PAID, OrderStatus.REFUND_REQUESTED);
+        int second = orderRepository.updateStatusIfCurrent("paid", OrderStatus.PAID, OrderStatus.REFUND_REQUESTED);
+
+        assertThat(first).isEqualTo(1);
+        assertThat(second).isZero();
+        assertThat(orderRepository.findByOrderId("paid").orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.REFUND_REQUESTED);
+    }
 }

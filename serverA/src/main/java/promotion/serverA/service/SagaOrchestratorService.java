@@ -18,6 +18,7 @@ import promotion.serverA.outbox.OutboxEventService;
 import promotion.serverA.repository.GoodsRepository;
 import promotion.serverA.repository.OrderRepository;
 
+import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -58,8 +59,8 @@ public class SagaOrchestratorService {
             return;
         }
 
-        // 조건부 업데이트: PENDING 상태일 때만 PAID로 변경 (멱등성)
-        int updated = orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID);
+        // 조건부 업데이트: PENDING 상태일 때만 PAID로 변경 + 결제 완료 시각 기록 (멱등성)
+        int updated = orderRepository.markPaidIfPending(orderId, LocalDateTime.now());
         if (updated == 0) {
             log.warn("[Saga] Order 상태 변경 실패 (이미 처리됨): orderId={}", orderId);
             sagaStateService.deleteSagaState(orderId);
@@ -180,7 +181,7 @@ public class SagaOrchestratorService {
             return;
         }
 
-        int updated = orderRepository.updateStatusIfPending(orderId, OrderStatus.PAID);
+        int updated = orderRepository.markPaidIfPending(orderId, LocalDateTime.now());
         if (updated == 0) {
             log.warn("[Saga 복구] Order 상태 변경 실패(이미 처리됨): orderId={}", orderId);
             sagaStateService.deleteSagaState(orderId);
