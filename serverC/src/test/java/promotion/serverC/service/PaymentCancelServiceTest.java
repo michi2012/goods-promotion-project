@@ -338,6 +338,22 @@ class PaymentCancelServiceTest {
         verify(failureRepository, never()).save(any());
         assertThat(failure.getStatus()).isEqualTo(CancelFailureStatus.EXHAUSTED);
         assertThat(failure.getLastError()).contains("FAILED");
+        assertThat(meterRegistry.counter("business_payment_cancel_retry_exhausted_total").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("이미 EXHAUSTED인 건을 관리자가 재처리해도 결제가 취소할 수 없는 상태면 사유만 갱신하고 관리자 처리 메트릭은 다시 올리지 않는다")
+    void retryManuallyAlreadyExhaustedDoesNotRealert() {
+        givenPaymentStatus("FAILED");
+        PaymentCancelFailure failure = PaymentCancelFailure.exhausted(ORDER_ID, "old");
+        when(failureRepository.findByOrderId(ORDER_ID)).thenReturn(Optional.of(failure));
+
+        CancelFailureResponse result = service.retryManually(ORDER_ID);
+
+        verify(pgClient, never()).cancelPayment(anyString());
+        assertThat(result.status()).isEqualTo(CancelFailureStatus.EXHAUSTED);
+        assertThat(failure.getLastError()).contains("FAILED");
+        assertThat(meterRegistry.counter("business_payment_cancel_retry_exhausted_total").count()).isZero();
     }
 
     private void givenPaymentStatus(String status) {

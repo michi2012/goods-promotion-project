@@ -74,12 +74,13 @@ public class PaymentCancelConsumer {
         containerFactory = "dltKafkaListenerContainerFactory"
     )
     public void handleDlt(ConsumerRecord<String, String> record) throws Exception {
-        refundFatal.increment();
         PaymentCancelMessage msg = objectMapper.readValue(record.value(), PaymentCancelMessage.class);
         String error = headerValue(record, KafkaHeaders.DLT_EXCEPTION_MESSAGE);
         log.error("🚨 [DLT] payment-cancel Kafka 재시도 소진 → 자동 재시도 대기로 기록: orderId={}, error={}",
                 msg.orderId(), error);
         paymentCancelService.recordDltArrival(msg.orderId(), error);
+        // 기록 실패 시 DLT 에러 핸들러가 재시도하므로, 성공한 뒤에만 센다 (중복 집계 방지)
+        refundFatal.increment();
     }
 
     private String headerValue(ConsumerRecord<?, ?> record, String name) {

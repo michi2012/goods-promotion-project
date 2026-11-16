@@ -72,10 +72,11 @@ public class PaymentCancelFailure extends BaseTimeEntity {
         return failure;
     }
 
-    // 같은 주문의 취소가 다시 DLT에 도착. RESOLVED였다면 다시 재시도 대기로, 나머지는 사유만 갱신한다 (attempts 유지).
+    // 같은 주문의 취소가 다시 DLT에 도착. RESOLVED였다면 새 장애로 보고 재시도 대기로(attempts 초기화), 나머지는 사유만 갱신한다.
     public void recordDltArrival(String error, LocalDateTime nextRetryAt) {
         if (status == CancelFailureStatus.RESOLVED) {
             status = CancelFailureStatus.RETRYING;
+            attempts = 0;
             this.nextRetryAt = nextRetryAt;
         }
         lastError = truncate(error);

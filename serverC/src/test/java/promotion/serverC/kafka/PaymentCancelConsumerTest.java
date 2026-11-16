@@ -15,12 +15,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.kafka.support.KafkaHeaders;
 import promotion.serverC.exception.PgPaymentException;
 import promotion.serverC.service.PaymentCancelService;
 
 import java.nio.charset.StandardCharsets;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -79,6 +81,20 @@ class PaymentCancelConsumerTest {
         consumer.handleDlt(dlt);
 
         verify(paymentCancelService).recordDltArrival("order-1", "PG 장애");
+        assertThat(meterRegistry.counter("business_payment_pg_refund_fatal_total").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("DLT 기록이 실패하면 예외를 던져 DLT 에러 핸들러에 맡기고 자동 재시도 진입 메트릭은 올리지 않는다")
+    void handleDltRecordFailureRethrows() {
+        ConsumerRecord<String, String> dlt =
+                new ConsumerRecord<>("payment-cancel.DLT", 0, 0L, "order-1", "{\"orderId\":\"order-1\"}");
+        consumer.initMetrics();
+        doThrow(new DataAccessResourceFailureException("DB 장애"))
+                .when(paymentCancelService).recordDltArrival("order-1", null);
+
+        assertThatThrownBy(() -> consumer.handleDlt(dlt)).isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(meterRegistry.counter("business_payment_pg_refund_fatal_total").count()).isZero();
     }
 
     @Test

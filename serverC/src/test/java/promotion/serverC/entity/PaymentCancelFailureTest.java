@@ -42,16 +42,18 @@ class PaymentCancelFailureTest {
     }
 
     @Test
-    @DisplayName("RESOLVED 행에 DLT가 다시 오면 attempts를 유지한 채 RETRYING으로 돌아간다")
+    @DisplayName("RESOLVED 행에 DLT가 다시 오면 새 장애로 보고 attempts=0인 RETRYING으로 돌아간다")
     void dltArrivalOnResolved() {
         PaymentCancelFailure failure = PaymentCancelFailure.retrying("o", "e0", NEXT);
-        failure.recordAutoRetryFailure("e1", 6, NEXT);
+        for (int i = 0; i < 6; i++) {
+            failure.recordAutoRetryFailure("e", 6, NEXT);
+        }
         failure.markResolved();
 
         failure.recordDltArrival("again", NEXT);
 
         assertThat(failure.getStatus()).isEqualTo(CancelFailureStatus.RETRYING);
-        assertThat(failure.getAttempts()).isEqualTo(1);
+        assertThat(failure.getAttempts()).isZero();
         assertThat(failure.getNextRetryAt()).isEqualTo(NEXT);
     }
 
