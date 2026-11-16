@@ -79,11 +79,28 @@ class RedisStockServiceTest extends AbstractSpringBootTest {
     }
 
     @Test
-    @DisplayName("환불 재고 복구 방어 키는 주문당 처음 한 번만 true (재시도는 false), 만료 시간이 있다")
-    void tryMarkRefundRestored_onlyFirstCallWins() {
-        assertThat(redisStockService.tryMarkRefundRestored("order-1")).isTrue();
-        assertThat(redisStockService.tryMarkRefundRestored("order-1")).isFalse();
-        assertThat(redisStockService.tryMarkRefundRestored("order-2")).isTrue();
-        assertThat(redisTemplate.getExpire("refund:restored:order-1")).isPositive();
+    @DisplayName("환불 재고 복구는 주문당 한 번만 재고를 올린다 — 재시도·재처리는 false, 방어 키는 만료 없음 (PR #56 리뷰 C2)")
+    void restoreStockOnceForRefund_onlyFirstCallRestores() {
+        redisStockService.initStock(1L, 3);
+
+        assertThat(redisStockService.restoreStockOnceForRefund("order-1", 1L, 2)).isTrue();
+        assertThat(redisStockService.restoreStockOnceForRefund("order-1", 1L, 2)).as("재시도").isFalse();
+
+        assertThat(redisTemplate.opsForValue().get("goods:stock:1")).as("한 번만 +2").isEqualTo("5");
+        assertThat(redisTemplate.getExpire("refund:restored:order-1")).as("TTL -1 = 만료 없음").isEqualTo(-1L);
+    }
+
+    @Test
+    @DisplayName("방어 키와 재고 증가는 한 번에 일어난다 — 방어 키가 이미 있으면 재고는 그대로 (PR #56 리뷰 C1: 사이에서 실패해 덜 복구되는 일 없음)")
+    void restoreStockOnceForRefund_isAtomicWithGuard() {
+        redisStockService.initStock(1L, 3);
+        redisTemplate.opsForValue().set("refund:restored:order-1", "1");
+
+        assertThat(redisStockService.restoreStockOnceForRefund("order-1", 1L, 2)).isFalse();
+        assertThat(redisTemplate.opsForValue().get("goods:stock:1")).isEqualTo("3");
+
+        assertThat(redisStockService.restoreStockOnceForRefund("order-2", 1L, 2)).isTrue();
+        assertThat(redisTemplate.opsForValue().get("goods:stock:1")).isEqualTo("5");
+        assertThat(redisTemplate.hasKey("refund:restored:order-2")).isTrue();
     }
 }

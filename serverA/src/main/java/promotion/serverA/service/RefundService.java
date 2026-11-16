@@ -112,10 +112,8 @@ public class RefundService {
             goodsRepository.increaseStockAtomically(order.getGoodsId(), order.getQuantity());
             // 재고를 돌려놓기 전에 구매 기회를 영구히 막는다 — 순서가 반대면 그 사이 재구매할 틈이 생긴다 (P-12)
             redisStockService.markUserPurchasedPermanently(order.getUserId(), order.getGoodsId());
-            // Redis는 롤백되지 않는다: 이후 단계가 실패해 Kafka가 재시도해도 Redis 재고는 주문당 한 번만 올린다
-            if (redisStockService.tryMarkRefundRestored(orderId)) {
-                redisStockService.releaseStock(order.getGoodsId(), order.getQuantity());
-            } else {
+            // Redis는 롤백되지 않는다: 이후 단계가 실패해 재시도·재처리돼도 Redis 재고는 주문당 한 번만 올린다
+            if (!redisStockService.restoreStockOnceForRefund(orderId, order.getGoodsId(), order.getQuantity())) {
                 log.warn("[Refund] Redis 재고는 이미 복구됨 (재시도) — DB만 다시 반영: orderId={}", orderId);
             }
             Long remaining = redisStockService.getCurrentStock(order.getGoodsId());

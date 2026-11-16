@@ -34,9 +34,18 @@ public class RedisStockService {
             end
             """, Long.class);
 
+    // 환불 재고 복구 1회 보장: 방어 키를 처음 잡았을 때만 재고를 올린다 (SETNX와 INCRBY를 한 번에 — 사이에서 실패해 덜 복구되는 일이 없다)
+    // 방어 키는 만료 없음 — DLT 이후 사람이 다시 처리하는 경우까지 이중 복구를 막는다. 키 수 = 환불 건수
+    private static final DefaultRedisScript<Long> RESTORE_ONCE_SCRIPT = new DefaultRedisScript<>("""
+            if redis.call('SET', KEYS[1], '1', 'NX') then
+                redis.call('INCRBY', KEYS[2], ARGV[1])
+                return 1
+            end
+            return 0
+            """, Long.class);
+
     private static final String STOCK_KEY_PREFIX = "goods:stock:";
     private static final String USER_PURCHASE_KEY_PREFIX = "user:purchase:";
-    // TTL 1일 — Kafka 재시도 구간(수 초~수십 초)보다 충분히 길다
     private static final String REFUND_RESTORED_KEY_PREFIX = "refund:restored:";
 
     public void initStock(Long goodsId, int stock) {
@@ -90,12 +99,16 @@ public class RedisStockService {
         redisTemplate.opsForValue().set(userPurchaseKey(userId, goodsId), "1");
     }
 
-    // 환불 완료의 Redis 재고 복구를 주문당 한 번으로 제한한다 (Kafka 재시도 시 이중 복구 방지 — Saga markFailedAndCheck와 같은 역할).
-    // @return true: 이번 호출이 처음 — 재고를 복구한다 / false: 이미 복구했다 (재시도)
-    public boolean tryMarkRefundRestored(String orderId) {
-        Boolean set = redisTemplate.opsForValue()
-                .setIfAbsent(REFUND_RESTORED_KEY_PREFIX + orderId, "1", Duration.ofDays(1));
-        return Boolean.TRUE.equals(set);
+    // 환불 완료의 Redis 재고 복구를 주문당 한 번으로 제한한다 (Kafka 재시도·DLT 재처리 시 이중 복구 방지 — Saga markFailedAndCheck와 같은 역할).
+    // @return true: 이번 호출이 처음 — 재고를 올렸다 / false: 이미 올렸다 (재시도)
+    public boolean restoreStockOnceForRefund(String orderId, Long goodsId, int quantity) {
+        Long restored = redisTemplate.execute(RESTORE_ONCE_SCRIPT,
+                List.of(REFUND_RESTORED_KEY_PREFIX + orderId, stockKey(goodsId)), String.valueOf(quantity));
+        if (Long.valueOf(1L).equals(restored)) {
+            soldOutCache.invalidate(goodsId);
+            return true;
+        }
+        return false;
     }
 
     private String stockKey(Long goodsId) {

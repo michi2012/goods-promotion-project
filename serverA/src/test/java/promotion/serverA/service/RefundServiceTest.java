@@ -232,13 +232,13 @@ class RefundServiceTest {
                 .willReturn(1);
         given(orderRepository.findByOrderId(ORDER_ID))
                 .willReturn(Optional.of(order(USER_ID, OrderStatus.REFUNDED, LocalDateTime.now().minusDays(1))));
-        given(redisStockService.tryMarkRefundRestored(ORDER_ID)).willReturn(true);
+        given(redisStockService.restoreStockOnceForRefund(ORDER_ID, 100L, 2)).willReturn(true);
         given(redisStockService.getCurrentStock(100L)).willReturn(5L);
 
         refundService.completeRefund(ORDER_ID);
 
         verify(goodsRepository).increaseStockAtomically(100L, 2);
-        verify(redisStockService).releaseStock(100L, 2);
+        verify(redisStockService).restoreStockOnceForRefund(ORDER_ID, 100L, 2);
         verify(redisStockService, never()).releaseUserPurchase(any(), any());
         verify(outboxEventService).save("100", "stock-snapshot", new StockSnapshotMessage(100L, 5L));
         verify(outboxEventService).save(ORDER_ID, "order-status-update",
@@ -252,13 +252,13 @@ class RefundServiceTest {
                 .willReturn(1);
         given(orderRepository.findByOrderId(ORDER_ID))
                 .willReturn(Optional.of(order(USER_ID, OrderStatus.REFUNDED, LocalDateTime.now().minusDays(3))));
-        given(redisStockService.tryMarkRefundRestored(ORDER_ID)).willReturn(true);
+        given(redisStockService.restoreStockOnceForRefund(ORDER_ID, 100L, 2)).willReturn(true);
 
         refundService.completeRefund(ORDER_ID);
 
         InOrder inOrder = inOrder(redisStockService);
         inOrder.verify(redisStockService).markUserPurchasedPermanently(USER_ID, 100L);
-        inOrder.verify(redisStockService).releaseStock(100L, 2);
+        inOrder.verify(redisStockService).restoreStockOnceForRefund(ORDER_ID, 100L, 2);
     }
 
     @Test
@@ -268,13 +268,13 @@ class RefundServiceTest {
                 .willReturn(1);
         given(orderRepository.findByOrderId(ORDER_ID))
                 .willReturn(Optional.of(order(USER_ID, OrderStatus.REFUNDED, LocalDateTime.now().minusDays(1))));
-        given(redisStockService.tryMarkRefundRestored(ORDER_ID)).willReturn(false);
+        given(redisStockService.restoreStockOnceForRefund(ORDER_ID, 100L, 2)).willReturn(false);
         given(redisStockService.getCurrentStock(100L)).willReturn(5L);
 
         refundService.completeRefund(ORDER_ID);
 
         verify(goodsRepository).increaseStockAtomically(100L, 2);
-        verify(redisStockService, never()).releaseStock(any(), anyInt());
+        verify(redisStockService, never()).releaseStock(any(), anyInt()); // 재고 증가는 restoreStockOnceForRefund 안에서만 (재시도면 false)
         verify(redisStockService).markUserPurchasedPermanently(USER_ID, 100L);
         verify(outboxEventService).save("100", "stock-snapshot", new StockSnapshotMessage(100L, 5L));
         verify(outboxEventService).save(ORDER_ID, "order-status-update",
@@ -314,7 +314,7 @@ class RefundServiceTest {
         refundService.completeRefund(ORDER_ID);
 
         verify(goodsRepository, never()).increaseStockAtomically(any(), org.mockito.ArgumentMatchers.anyInt());
-        verify(redisStockService, never()).releaseStock(any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(redisStockService, never()).restoreStockOnceForRefund(anyString(), any(), anyInt());
         verify(outboxEventService, never()).save(anyString(), anyString(), any());
     }
 
