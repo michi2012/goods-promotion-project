@@ -17,7 +17,7 @@
 - [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (DLT 토픽·DLT 리스너 팩토리 미변경)
 - [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (설정 3·테스트 3·문서 4)
 - [x] 발견 사항을 백로그로 이전 (발견 사항 없음)
-- [ ] (위험 변경 — 이벤트) PR 생성 후 `/pr-review` 1회 — [필수] 반영·재리뷰 (`.claude/skills/pr-review`)
+- [x] (위험 변경 — 이벤트) PR 생성 후 `/pr-review` 1회 — 판정 머지 가능, [필수]·[제안]·[질문] 0, [사소] 1(import 순서, 미반영). review: https://github.com/michi2012/goods-promotion-project/pull/54#pullrequestreview-5915587945 (BL-036 이후 첫 리뷰 — 리뷰 파일만 diff 11.9KB, 리뷰어 약 3.9만 토큰·도구 7회·37초)
 
 ### 발견 사항 (작업 중 별도 처리 필요한 것)
 - (없음)
