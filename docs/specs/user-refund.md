@@ -281,7 +281,7 @@ components:
 | ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 머지 |
 | (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | #51 머지 |
 | ②-a serverB 계약 + 게이트웨이 | serverB 상태 enum(`REFUND_REQUESTED`·`REFUNDED`, `contracts/openapi.yaml`), 게이트웨이 `serverA-refund` 라우트(local·k8s, `serverB-orders` 앞) | #52 |
-| ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | 진행 중 |
+| ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | #55 |
 | ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | 진행 예정 |
 
 마지막 PR에서 할 일: arch-snapshot·`flows/purchase-saga-flow.md`·design-notes의 `refund_fatal` 설명 갱신(자동 재시도 진입 / 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`), `docs/portfolio.md` 문제 해결 기록(PG 취소 멱등화·실패 재처리, P0 알람 오탐 제거)

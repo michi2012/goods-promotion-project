@@ -3,7 +3,7 @@
 - 작성일: 2026-11-16
 - 관련 이슈/티켓: BL-029 (`docs/backlog.md`), 명세 `docs/specs/user-refund.md` (설계 확인 ☑)
 
-## [진행 중] BL-029 PR②-b
+## [완료] BL-029 PR②-b (PR #55)
 
 ### 목표
 사용자가 serverA `POST /api/v1/orders/{orderId}/refund`로 본인의 PAID 주문(결제 후 7일 이내)을 환불 요청하면 `payment-cancel`이 발행되고, serverC의 `payment-cancelled`를 받아 주문이 REFUNDED가 되며 재고(DB·Redis)가 주문 수량만큼 복구된다. 명세 S-1·S-3~S-6·P-12를 serverA에서 구현하고 백엔드 E2E로 확인한다.
