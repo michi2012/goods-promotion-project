@@ -274,8 +274,19 @@ components:
 ### 새 기술
 없음. 새 Gradle 의존성 없음 (스케줄러 선점은 조건부 UPDATE, user-service 호출은 기존 RestClient).
 
+### 구현 단계 (PR 분할)
+| PR | 범위 | 상태 |
+|----|------|------|
+| ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 머지 |
+| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | 진행 예정 |
+| ② serverA + 게이트웨이 + serverB 계약 | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 게이트웨이 라우트(local·k8s), serverB 상태 enum, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구·중복 요청 시 PG 1회) | 진행 예정 |
+| ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | 진행 예정 |
+
+마지막 PR에서 할 일: arch-snapshot·`flows/purchase-saga-flow.md`·design-notes의 `refund_fatal` 설명 갱신(자동 재시도 진입 / 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`), `docs/portfolio.md` 문제 해결 기록(PG 취소 멱등화·실패 재처리, P0 알람 오탐 제거)
+
 ## 4. 변경 이력 (확인 이후)
 | 날짜 | 변경 | 이유 |
 |------|------|------|
 | 2026-11-14 | 화면: 기간이 지난 주문에 "버튼 대신 안내 문구" → "버튼은 보이고 누르면 거절 문구". PAID 화면에 로그인 ID 입력칸 추가 | 설계 중 발견: 화면 데이터(serverB)에 결제 완료 시각이 없고, 프론트에 로그인이 없다 |
+| 2026-11-16 | "구현 단계(PR 분할)" 섹션 추가 (요구사항·설계 변경 없음) | 3종 문서가 PR 머지 후 새로 쓰여 분할 계획이 사라지는 문제 — spec 규칙 11 |
 | 2026-11-14 | P-12 추가: 환불 후 재구매 불가 | 설계 중 발견: Saga 보상은 1인 1회 구매 표시도 푸는데, 환불에서의 처리가 정해져 있지 않았다 |
