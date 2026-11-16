@@ -23,7 +23,7 @@
 - [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (코드 2·테스트 2·skill 1·문서 5)
 - [x] E2E 결과 보고: 리포트 URL + 데이터 전후 요약 (e2e project.md "결과 보고")
 - [x] 발견 사항을 백로그로 이전 (없음 — 리포트 서버 프로세스 잔존은 환경 함정이라 CLAUDE.local.md에 기록)
-- [ ] (위험 변경 — 결제·동시성) PR 생성 후 `/pr-review` 1회
+- [x] (위험 변경 — 결제·동시성) PR 생성 후 `/pr-review` 1회 — 판정 머지 가능, [필수] 0·[제안] 2(C1 방어 키·재고 증가 원자화(Lua), C2 방어 키 TTL 제거) 모두 반영, [사소] 1(주석 위치 — C2 반영으로 정리). review: https://github.com/michi2012/goods-promotion-project/pull/56#pullrequestreview-5917909337 (리뷰어 약 5.1만 토큰·도구 10회·1분 28초). 반영 후 검증: Redis 7·Refund 18 → `:serverA:build` 129개 → E2E 3 passed, 방어 키 TTL -1. Redis 재고 동작 변경이라 `--since` 재리뷰 대상
 
 ### 기록
 - PR #55(BL-029 PR②-b)는 `/pr-review` 없이 머지(사용자 결정) → 머지 후 리뷰에서 [필수] 1·[제안] 2 → 이 PR로 반영
