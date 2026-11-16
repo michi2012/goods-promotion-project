@@ -20,7 +20,6 @@
 | BL-002 | **PG 거래 내역 대사 배치**: 최소 구현 + 시드 데이터로 기준선 측정(perf-compare). 성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | BL-029 | 결제 로드맵 (2026-11-12), 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
-| BL-036 | **`/pr-review` skill 다듬기 (PR #51 첫 실사용 회고)**: ① 1단계 diff 저장을 리뷰 대상 파일로 좁히기(`git diff main...{head} -- <파일>` — 지금은 제외한 `*.md`도 diff에 남아 토큰 낭비) ② 6단계에 "동작을 바꾼 [제안] 반영도 재리뷰 대상" 기준 추가 ③ 5단계에 "반영 요청에 답글 게시 승인이 포함되는지" 명시. `.claude/skills/pr-review/SKILL.md`만 변경 | 정리 | 중간 | S | | PR #51 /pr-review 회고 (2026-11-16) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
 
 ## EKS 재가동 후
@@ -48,6 +47,7 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-036 `/pr-review` 다듬기 — 리뷰 파일만 diff 저장(PR #52 기준 31.8KB→6.2KB), 재리뷰 대상(런타임 동작을 바꾼 [제안] 반영 포함)·답글 승인 범위 명시 + 포트폴리오는 기능 단위로 기록 | #53 |
 | BL-033 `/pr-review` 게시 경로 첫 실사용 — 리뷰어 JSON을 그대로 `gh api` review 게시(422 없음), 반영 시 GitHub 코멘트 읽기·커밋 해시 답글 확인. 비용 약 7만 토큰/59KB diff. 개선점은 BL-036 | #51 |
 | BL-034 serverC payment-cancel DLT 기록 실패 대비 — DLT 핸들러 백오프 5회 + 기록 실패 메트릭 P0 OR(C1), 이미 EXHAUSTED면 P0 재발화 없음(C2), RESOLVED 재도착 시 attempts=0(C4) | #51 |
 | BL-032 codex 리뷰 도구 제거 + PR 리뷰 skill(`/pr-review`) 신설 — 리뷰어가 게시용 JSON 직접 작성, 반영 시 GitHub 코멘트 읽기 | #49 |
