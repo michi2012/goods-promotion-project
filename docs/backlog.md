@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-16
-- **다음 ID: BL-043** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-045** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -12,7 +12,8 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 4개로 분할 — PR① serverC #48 머지 → (선행 BL-034 #51 머지) → PR②-a serverB 계약·게이트웨이 #52 → PR②-b serverA·E2E #55 → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
+| BL-029 | **사용자 환불 + 환불 실패 재처리** (기능 묶음 — PR별 진행은 하위 항목. 완료된 PR: ① serverC #48, 선행 BL-034 #51, ②-a #52, ②-b #55, 리뷰 반영 BL-041 #56. 범위는 명세 "구현 단계") | `docs/specs/user-refund.md` |
+| BL-043 | **BL-029 PR③ cs-bot·FAQ·프론트** (cs-bot 환불을 serverA API로·상태는 serverB·Kafka 제거, FAQ 정책 맞춤, 주문 상세 환불 버튼·상태 문구, 마지막 PR 할 일 — `refund_fatal` 문서·포트폴리오 문구) | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -24,6 +25,7 @@
 | BL-039 | **backend-e2e 테스트 타임아웃이 폴링 대기보다 짧음**: `playwright.config.ts`에 `timeout`이 없어 기본 30초인데 시나리오 폴링은 `E2E_FLOW_TIMEOUT_MS` 60초 — 결과가 늦게 와도 폴링이 끝나기 전에 테스트가 끊김 (구매·환불 흐름 공통) | 기술 부채 | 중간 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
 | BL-042 | **1인 1회 구매 표시가 1시간만 유효**: `user:purchase:{userId}:{goodsId}` TTL 1시간이라 환불하지 않은 사용자도 1시간 뒤 같은 상품을 다시 살 수 있다. 1인 1회의 유효 기간(프로모션 기간·영구)을 정책으로 정하고, 영구라면 DB 기반 확인 여부(선착순 성능과의 트레이드오프)를 검토. 환불 사용자는 BL-041에서 영구 차단 | 정책·버그 | 중간 | S | | PR #55 리뷰 C1 (2026-11-16) |
+| BL-044 | **cs-bot Kafka 흔적·기동 테스트 정리**: BL-043에서 cs-bot의 Kafka 사용·`spring-kafka`를 제거했지만 `docker-compose.yml`(cs-bot `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `depends_on: kafka`)·`helm/promotion-app/templates/cs-bot/deployment.yaml`(`csBot.kafka.bootstrapServers`)에 설정이 남음(무해). 함께 cs-bot에 `@SpringBootTest` 컨텍스트 로드 테스트가 없어 의존성 변경 후 기동을 테스트로 확인할 수 없음 — LLM·Elasticsearch 없이 뜨는 슬라이스/모킹 방식 검토 | 정리 | 낮음 | S | | BL-043 작업 중 발견 (2026-11-16) |
 | BL-040 | **user-service `open-in-view` 기본값(켜짐)**: 기동 로그 `spring.jpa.open-in-view is enabled by default` — CLAUDE.md "open-in-view: false 필수" 위반. `application.yml`에 `spring.jpa.open-in-view: false` 후 컨트롤러 계층 지연 로딩 사용처 확인 | 기술 부채 | 낮음 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
 
 ## EKS 재가동 후

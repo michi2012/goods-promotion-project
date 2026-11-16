@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영) / 재스캔: 2026-11-14 (payment-result Outbox 발행, cs-bot payment-cancel 직접 발행, Debezium 감시 DB `order`, 누락 엔드포인트·예외 핸들러 보완)_
+_생성일: 2026-05-28 / 업데이트: 2026-11-16 (사용자 환불 BL-029 — 환불 API·payment-cancelled·PG 취소 실패 재처리·cs-bot 직접 발행 제거, 프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영) / 재스캔: 2026-11-14 (payment-result Outbox 발행, cs-bot payment-cancel 직접 발행, Debezium 감시 DB `order`, 누락 엔드포인트·예외 핸들러 보완)_
 
 ---
 
@@ -31,8 +31,10 @@ _생성일: 2026-05-28 / 업데이트: 2026-11-12 (프론트 Next.js 전환·con
 | `order-status-update` | serverA/OrderCommandService, SagaOrchestratorService | Outbox+CDC | serverB/OrderStatusKafkaConsumer | 3 | ✅ |
 | `status-update-result` | serverB/OrderStatusEventHandler | 직접 | serverA/SagaResultConsumer | 3 | ✅ |
 | `order-completed` | serverA/SagaOrchestratorService | Outbox+CDC | serverC/OrderCompletedConsumer | 3 | ✅ |
-| `payment-cancel` | serverA/SagaOrchestratorService (망취소·보상) / cs-bot/CsBotTools.requestRefund (고객 환불 요청) | Outbox+CDC / 직접 | serverC/PaymentCancelConsumer | 3 | ✅ |
-| `payment-cancel.DLT` | Kafka 자동 | - | serverC/PaymentCancelConsumer.handleDlt | 1 | - |
+| `payment-cancel` | serverA/SagaOrchestratorService (망취소·보상·재대사) / serverA/RefundService (사용자 환불) | Outbox+CDC | serverC/PaymentCancelConsumer | 3 | ✅ |
+| `payment-cancel.DLT` | Kafka 자동 | - | serverC/PaymentCancelConsumer.handleDlt → `payment_cancel_failures` 기록 | 1 | - |
+| `payment-cancelled` | serverC/PaymentCancelService (PG 취소 확정 — 환불·망취소 모두) | Outbox+CDC | serverA/PaymentCancelledConsumer (REFUND_REQUESTED 주문만 REFUNDED + 재고 복구) | 3 | ✅ |
+| `payment-cancelled.DLT` | Kafka 자동 | - | serverA/PaymentCancelledConsumer.handleDlt (로그 + `business_refund_complete_failed_total`) | 1 | - |
 | `stock-snapshot` | serverA/PromotionService, SagaOrchestratorService | 직접(fire-and-forget) / Outbox+CDC | serverB/StockSnapshotConsumer | 3 | ✅ |
 
 ---
@@ -132,12 +134,14 @@ sequenceDiagram
     end
 ```
 
-### 고객 환불 요청 (cs-bot → serverC)
+### 사용자 환불 (BL-029 — 명세 `docs/specs/user-refund.md`)
 
-cs-bot `requestRefund`는 serverC 결제 상태가 PAID인 본인 주문이면 `payment-cancel`을 **직접 발행**한다(Saga 망취소와 같은 토픽). serverC `PaymentCancelConsumer`가 PG 취소 후 `payments.status=CANCELLED`로 바꾼다.
-- serverA는 이 취소를 알지 못한다 — 주문은 PAID 유지, 재고 복구 없음.
-- 환불 기한 등 정책 검사 없음 (FAQ `cs-bot/src/main/resources/faq/refund-policy.yaml`의 정책은 안내용).
-- PG 취소 재시도 소진 시 `payment-cancel.DLT` → `business_payment_pg_refund_fatal_total` 증가 + 로그만 (수동 정산).
+환불 요청은 serverA `POST /api/v1/orders/{orderId}/refund`(`X-User-Id`=로그인 ID) **한 곳**으로 모인다. 주문 상세 화면(`RefundForm`)과 cs-bot(`CsBotClient.requestRefund`)이 모두 이 API를 쓴다 (cs-bot의 `payment-cancel` 직접 발행·Kafka 의존성은 제거됨).
+- serverA `RefundService`: user-service로 로그인 ID → 숫자 ID(트랜잭션 밖) → 본인·PAID·결제 후 7일(`paid_at`) 검사 → `PAID→REFUND_REQUESTED` 조건부 UPDATE + Outbox(`payment-cancel`, `order-status-update`). 이미 접수·완료면 200 현재 상태(멱등), 동시 요청에서 진 쪽은 새 트랜잭션에서 재조회.
+- serverC: PG 취소(orderId 멱등) → `payments.status=CANCELLED` + Outbox `payment-cancelled`. 이미 CANCELLED면 PG 호출 없이 `payment-cancelled`만 재발행.
+- serverA `PaymentCancelledConsumer` → `RefundService.completeRefund`: `REFUND_REQUESTED→REFUNDED` 조건부 전이 1행일 때만 DB 재고 + 구매 표시 영구화(재구매 불가, P-12) + Redis 재고(Lua로 방어 키와 함께 주문당 1회) + Outbox(`stock-snapshot`, `order-status-update`). 망취소·중복은 0행이라 무시.
+- PG 취소 실패: Kafka 재시도 → `payment-cancel.DLT` → `payment_cancel_failures`(RETRYING) → 스케줄러 자동 재시도(10분 간격 6회) → 소진 시 EXHAUSTED + `business_payment_cancel_retry_exhausted_total`(P0 `PaymentFatalError`) → 관리자 API(`/api/v1/payments/admin/cancel-failures`) 재처리. 사용자에게는 계속 "환불 처리 중".
+- `business_payment_pg_refund_fatal_total`은 "Kafka 재시도를 다 쓰고 자동 재시도 대기로 넘어간 건수"다 (관리자 처리 필요가 아님). DLT 실패 기록 자체가 실패하면 `business_payment_cancel_dlt_record_failed_total`(P0 `PaymentCancelDltRecordFailed`).
 
 ### PG 애매한 응답 처리 (serverC)
 
@@ -299,7 +303,7 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 
 | 모듈 | 클래스 | 대상 | Circuit Breaker | 실패 처리 |
 |------|--------|------|-----------------|-----------|
-| serverC | `PgClient` (interface, 구현 `MockPgClient`) | PG사 결제·거래조회·망취소 API (승인·조회는 `PgTransactionResult(status, approvedAmount)` 반환) | ✅ `pgClientCb` (애매응답 예외는 ignore) | 애매응답 → 거래조회 → 멱등 키 1회 재시도 → 실패 시 FAILED. 승인 금액 불일치 → 즉시 망취소 + FAILED. 망취소 DLT 소진 시 `payment_pg_refund_fatal_total` 증가, 수동 정산 |
+| serverC | `PgClient` (interface, 구현 `MockPgClient`) | PG사 결제·거래조회·망취소 API (승인·조회는 `PgTransactionResult(status, approvedAmount)` 반환) | ✅ `pgClientCb` (애매응답 예외는 ignore) | 애매응답 → 거래조회 → 멱등 키 1회 재시도 → 실패 시 FAILED. 승인 금액 불일치 → 즉시 망취소 + FAILED. 망취소·환불 PG 취소 실패는 `payment_cancel_failures` 자동 재시도 → 소진 시 `business_payment_cancel_retry_exhausted_total`(P0) + 관리자 API 재처리 |
 
 ---
 

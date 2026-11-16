@@ -176,8 +176,9 @@ SagaOrchestratorService.handleSagaFailure()
 **흐름:**
 - `purchase_events.DLT` → `PurchaseDltConsumer` → `dead_letter` 테이블 저장
 - 관리자 → `POST /api/v1/admin/dlt/{dltId}/retry` → 수동 재처리
-- `payment-cancel.DLT` → 카운터 증가 + 로그 (`business_payment_pg_refund_fatal_total`)
-  - 자동 재처리 없음, 수동 정산 필요
+- `payment-cancel.DLT` → `payment_cancel_failures` 기록(RETRYING) + `business_payment_pg_refund_fatal_total`(자동 재시도 진입 건수)
+  - 자동 재시도(10분 간격 6회) → 소진 시 EXHAUSTED + `business_payment_cancel_retry_exhausted_total`(P0) → 관리자 API 재처리 (BL-029, `docs/specs/user-refund.md`)
+  - PG 취소가 멱등(orderId)이라 자동·관리자 재시도가 겹쳐도 이중 환불이 없다는 것이 이 자동 재시도의 전제다
 
 **이유:** 재시도를 모두 소진한 메시지는 시스템 오류가 아닌 데이터·비즈니스 이상일 가능성이 높아 사람이 확인 후 판단해야 함
 
