@@ -1,5 +1,5 @@
 {
-  "enabledMcpServers": ["mysql", "codex", "playwright"],
+  "enabledMcpServers": ["mysql", "playwright"],
   "hooks": {
     "PreToolUse": [
       {

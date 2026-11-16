@@ -433,4 +433,4 @@ AIOps는 K8s RBAC(ServiceAccount)를 통해 `promotion` 네임스페이스의 HP
 
 ---
 
-> **codex-reviewer 주의**: `payment-request`, `payment-result`, `order-status-update`, `order-completed`, `payment-cancel`(serverA), `stock-snapshot`(saga 결과)은 `kafkaTemplate.send()` 직접 호출이 없고 Outbox INSERT → Debezium CDC → Kafka 순서로 발행된다. 직접 발행은 `purchase_events`·`stock-snapshot`(구매 접수 시점, serverA), `status-update-result`(serverB), `payment-cancel`(cs-bot 고객 환불 요청)뿐이다.
+> **리뷰어 주의**: `payment-request`, `payment-result`, `order-status-update`, `order-completed`, `payment-cancel`(serverA), `stock-snapshot`(saga 결과)은 `kafkaTemplate.send()` 직접 호출이 없고 Outbox INSERT → Debezium CDC → Kafka 순서로 발행된다. 직접 발행은 `purchase_events`·`stock-snapshot`(구매 접수 시점, serverA), `status-update-result`(serverB), `payment-cancel`(cs-bot 고객 환불 요청)뿐이다.
