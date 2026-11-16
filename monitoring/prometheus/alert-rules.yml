@@ -3,13 +3,13 @@
     rules:
       # 1. [P0] 데이터 정합성 파손 (즉각 알람)
       - alert: PaymentFatalError
-        expr: increase(business_payment_cancel_retry_exhausted_total[1m]) > 0
+        expr: increase(business_payment_cancel_retry_exhausted_total[1m]) > 0 or increase(business_payment_cancel_dlt_record_failed_total[1m]) > 0
         labels:
           severity: critical
           tier: P0
         annotations:
           summary: "🚨 [P0] PG 취소 관리자 처리 필요 ({{ printf \"%.0f\" $value }}건)"
-          description: "PG 취소(환불·망취소)가 자동 재시도까지 모두 실패했거나 취소할 수 없는 결제 상태라 수기 처리가 필요한 상태. serverC GET /api/v1/payments/admin/cancel-failures 로 확인 후 재처리."
+          description: "PG 취소(환불·망취소)가 자동 재시도까지 모두 실패했거나 취소할 수 없는 결제 상태라 수기 처리가 필요한 상태. serverC GET /api/v1/payments/admin/cancel-failures 로 확인 후 재처리. 목록에 없으면 DLT 실패 기록 자체가 실패한 것 — serverC 로그의 '[DLT 처리 실패]' payload로 확인."
 
       # 2. [P1] Saga EXPIRED — 인프라 타임아웃으로 인한 구매 실패
       - alert: SagaExpired
