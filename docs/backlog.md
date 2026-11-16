@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-16
-- **다음 ID: BL-041** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-043** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -23,6 +23,7 @@
 | BL-038 | **환불 완료 처리 실패 알람 없음**: serverA `payment-cancelled` 처리가 Kafka 재시도를 소진하면 `business_refund_complete_failed_total`만 오르고 알람 규칙이 없다. 주문이 REFUND_REQUESTED("환불 처리 중")에 남은 채 아무도 모름 — `monitoring/`·`helm/` 알람 규칙 2벌에 추가 (PR #51 교훈: `or`로 묶지 말고 별도 규칙) | 후속 작업 | 중간 | S | | BL-029 PR②-b 작업 중 발견 (2026-11-16) |
 | BL-039 | **backend-e2e 테스트 타임아웃이 폴링 대기보다 짧음**: `playwright.config.ts`에 `timeout`이 없어 기본 30초인데 시나리오 폴링은 `E2E_FLOW_TIMEOUT_MS` 60초 — 결과가 늦게 와도 폴링이 끝나기 전에 테스트가 끊김 (구매·환불 흐름 공통) | 기술 부채 | 중간 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
+| BL-042 | **1인 1회 구매 표시가 1시간만 유효**: `user:purchase:{userId}:{goodsId}` TTL 1시간이라 환불하지 않은 사용자도 1시간 뒤 같은 상품을 다시 살 수 있다. 1인 1회의 유효 기간(프로모션 기간·영구)을 정책으로 정하고, 영구라면 DB 기반 확인 여부(선착순 성능과의 트레이드오프)를 검토. 환불 사용자는 BL-041에서 영구 차단 | 정책·버그 | 중간 | S | | PR #55 리뷰 C1 (2026-11-16) |
 | BL-040 | **user-service `open-in-view` 기본값(켜짐)**: 기동 로그 `spring.jpa.open-in-view is enabled by default` — CLAUDE.md "open-in-view: false 필수" 위반. `application.yml`에 `spring.jpa.open-in-view: false` 후 컨트롤러 계층 지연 로딩 사용처 확인 | 기술 부채 | 낮음 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
 
 ## EKS 재가동 후
@@ -50,6 +51,7 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-041 PR #55 리뷰 반영 — 환불 완료 시 구매 표시 영구화(P-12, 구매 표시 TTL 1시간 문제), 환불 완료 재시도 시 Redis 재고 1회 복구(방어 키), `paid_at` 없으면 `updated_at`으로 기간 판단 + `/pr-review` 미리보기 형식 | #56 |
 | BL-037 Kafka DLT 발행 파티션 고정 해제 — serverA·B·C 에러 핸들러 DLT 대상 파티션 -1(프로듀서 선택). 원본 파티션 1·2 레코드가 파티션 1개 DLT로 못 가던 문제. BL-029 PR②-b 중 발견 | #54 |
 | BL-036 `/pr-review` 다듬기 — 리뷰 파일만 diff 저장(PR #52 기준 31.8KB→6.2KB), 재리뷰 대상(런타임 동작을 바꾼 [제안] 반영 포함)·답글 승인 범위 명시 + 포트폴리오는 기능 단위로 기록 | #53 |
 | BL-033 `/pr-review` 게시 경로 첫 실사용 — 리뷰어 JSON을 그대로 `gh api` review 게시(422 없음), 반영 시 GitHub 코멘트 읽기·커밋 해시 답글 확인. 비용 약 7만 토큰/59KB diff. 개선점은 BL-036 | #51 |

@@ -260,9 +260,12 @@ components:
 | 망취소가 실패 중일 때 serverA 재대사(`reconcileTerminatedOrders`)가 `payment-cancel`을 다시 보냄 | serverC는 PAID라 PG 취소를 다시 시도한다. 실패하면 DLT → 기존 행 갱신(attempts 유지). 재시도 경로가 둘이지만 PG 멱등으로 안전 |
 | serverA `payment-cancelled` 처리 실패 | Kafka 재시도 → DLT `payment-cancelled.DLT` (로그 + 메트릭). 주문은 REFUND_REQUESTED에 남음 → 관리자 확인 |
 | Redis 재고 복구 실패 | Saga 보상과 같은 방식(같은 트랜잭션 안에서 DB 재고 증가 + Redis 복구 + `stock-snapshot` Outbox)을 따른다 |
+| 환불 완료 처리 중 DB 실패 → Kafka 재시도, 또는 DLT 이후 재처리 | Redis는 롤백되지 않으므로 Redis 재고 복구는 방어 키(`refund:restored:{orderId}`, 만료 없음)를 처음 잡은 시도만 한다. 방어 키 SETNX와 재고 INCRBY는 Lua 스크립트 하나로 함께 실행해, 그 사이에서 실패해 덜 복구되는 일이 없다. 재시도는 DB 전이·재고·Outbox만 다시 반영 (Saga `markFailedAndCheck`와 같은 역할) |
+| `paid_at`이 없는 PAID 주문 (롤링 배포 중 옛 파드가 PAID로 바꾼 주문) | 기간 판단에 `updated_at`을 대신 쓴다 (V4 backfill과 같은 근거). 500이 나지 않는다 |
 
 ### 기존 코드에 미치는 영향
-- serverA `markAsPaid`가 `paid_at`을 기록한다. 재대사 스케줄러들은 PENDING·EXPIRED·FAILED만 보므로 새 상태의 영향을 받지 않는다.
+- serverA PAID 전이(`markPaidIfPending` — Saga 완료·결제조회 보정)가 `paid_at`을 기록한다. 재대사 스케줄러들은 PENDING·EXPIRED·FAILED만 보므로 새 상태의 영향을 받지 않는다.
+- P-12 구현: 1인 1회 구매 표시(Redis `user:purchase:{userId}:{goodsId}`)는 TTL 1시간이라, 환불 완료 시 표시를 **만료 없이** 다시 쓴다. 재고를 돌려놓기 전에 쓴다. (환불하지 않은 사용자의 표시가 1시간 뒤 사라지는 것은 별개 — BL-042)
 - serverC `PgClient.cancelPayments(List)` → orderId 단위의 멱등 취소로 바꾼다 (성공 / 이미 취소됨 / 실패 구분). `MockPgClient`는 취소 상태를 기억하고, 테스트에서 취소 실패를 재현할 수단을 둔다 (방법은 구현 때). 실제 PG 연동 시 취소 API가 멱등 키를 지원하는지 **확인 필요**.
 - serverC DLT 핸들러: 메트릭·로그만 → `payment_cancel_failures` 기록. 기존 `business_payment_pg_refund_fatal_total`은 "자동 재시도 진입" 건수로 의미가 바뀐다.
 - 알람: P0 `PaymentFatalError`(`monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`)가 지금은 `refund_fatal`에 걸려 있다 → `business_payment_cancel_retry_exhausted_total`로 바꾼다 (자동 재시도 진입은 아직 수기 정산이 아니다). BL-034에서 DLT 기록 실패(`business_payment_cancel_dlt_record_failed_total`)는 별도 P0 `PaymentCancelDltRecordFailed`로 추가했다 (처리 방법이 로그 확인으로 달라 규칙을 나눔). P2 `FallbackSuccessRateDrop`(첫 시도 성공률)과 Grafana 패널은 의미가 맞아 그대로 둔다.
@@ -292,6 +295,8 @@ components:
 | 2026-11-14 | 화면: 기간이 지난 주문에 "버튼 대신 안내 문구" → "버튼은 보이고 누르면 거절 문구". PAID 화면에 로그인 ID 입력칸 추가 | 설계 중 발견: 화면 데이터(serverB)에 결제 완료 시각이 없고, 프론트에 로그인이 없다 |
 | 2026-11-16 | "구현 단계(PR 분할)" 섹션 추가 (요구사항·설계 변경 없음) | 3종 문서가 PR 머지 후 새로 쓰여 분할 계획이 사라지는 문제 — spec 규칙 11 |
 | 2026-11-14 | P-12 추가: 환불 후 재구매 불가 | 설계 중 발견: Saga 보상은 1인 1회 구매 표시도 푸는데, 환불에서의 처리가 정해져 있지 않았다 |
+| 2026-11-16 | 환불 재고 복구 방어 키를 만료 없음 + 재고 증가와 원자적(Lua)으로 변경 | PR #56 리뷰 C1·C2 — SETNX와 INCRBY 사이 실패 시 영구 미복구, TTL 1일이면 DLT 이후 재처리에서 이중 복구 |
+| 2026-11-16 | P-12 구현을 "환불 완료 시 구매 표시 영구화"로 명시, 환불 완료 재시도 시 Redis 재고 1회 복구(방어 키), `paid_at` 없는 PAID 주문은 `updated_at`으로 기간 판단 (요구사항 변경 없음) | PR #55 머지 후 리뷰 C1·C2·C3 (BL-041) — 구매 표시 TTL 1시간이라 1시간 뒤 환불이면 재구매가 열림, 재시도 시 Redis 이중 복구, 롤링 배포 중 NPE |
 | 2026-11-16 | 환불 API 401에 에러 코드 `UNAUTHORIZED`(문구 "로그인이 필요합니다") 명시 | 구현(PR②-b) 중 확정 — 다른 거절 응답과 같은 ErrorResponse 형식 |
 | 2026-11-16 | 구현 단계 ②를 ②-a(serverB 계약·게이트웨이)·②-b(serverA·E2E)로 분할, E2E의 "PG 1회"는 재고 1회 복구로 확인 (요구사항·설계 변경 없음) | 예상 변경 파일 약 30개로 리뷰 범위가 넓음. 배포 순서상 serverB·게이트웨이가 먼저 나갈 수 있음. PG 호출 횟수는 블랙박스로 관측 불가 |
 | 2026-11-16 | BL-034: RESOLVED → RETRYING 시 attempts=0으로 변경, 이미 EXHAUSTED인 건은 알람 재발화 없음, DLT 기록 실패 시 재시도 + P0 추가 | PR #48 리뷰 C1·C2·C4 — DLT 기록 실패 시 취소 건이 알람 없이 사라짐, 이미 아는 건으로 P0 재발화, 다시 열린 건이 첫 실패에 바로 소진 |
