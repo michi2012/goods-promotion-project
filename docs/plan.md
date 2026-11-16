@@ -3,7 +3,7 @@
 - 작성일: 2026-11-16
 - 관련 이슈/티켓: BL-041 (`docs/backlog.md`), PR #55 리뷰 https://github.com/michi2012/goods-promotion-project/pull/55#pullrequestreview-5915956641 , 명세 `docs/specs/user-refund.md`
 
-## [진행 중] BL-041
+## [완료] BL-041 (PR #56)
 
 ### 목표
 머지 후 리뷰한 PR #55(BL-029 PR②-b)의 [필수] 1·[제안] 2를 고친다: 환불한 사용자의 재구매가 구매 후 1시간 뒤에도 막히게 하고(P-12), `paid_at`이 없는 PAID 주문의 환불 요청이 500이 되지 않게 하고, 환불 완료 재시도 시 Redis 재고가 두 번 오르지 않게 한다. 함께 `/pr-review` 미리보기를 원문 그대로 보여주도록 형식을 정한다.
