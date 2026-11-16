@@ -29,6 +29,7 @@
 - 백엔드 서버 기동에 1~2분 걸린다(serverA 약 95초). `compose up` 직후 사전 점검은 실패하므로 serverA 로그 `Started ServerAApplication` 또는 `/actuator/health` UP을 확인한 뒤 실행한다.
 - E2E용 설정값(스케줄러 주기 등)은 저장소 `docker-compose.yml`을 고치지 말고 임시 override 파일(`-f docker-compose.yml -f <override>`)로 주입한다. `-f`를 쓰면 `docker-compose.override.yml`이 자동으로 안 붙으므로 `-f docker-compose.override.yml`도 함께 지정한다.
 - `debezium-init`이 `Restarting (22)`를 반복하고 로그에 `curl: (22) ... error: 409`가 찍히면 → 정상이다. 커넥터가 이미 등록돼 있어서(설정이 이름 있는 볼륨 `promotion_kafka-data`에 남음) 다시 등록하려다 409를 받는 것. 판단은 `GET /connectors/{이름}/status`(8083)가 RUNNING인지로 한다. 재시작이 거슬리면 `docker compose stop debezium-init`.
+- server-a/b/c가 몇 초 간격으로 재시작을 반복하면 → `docker compose ps -a`로 인프라(mysql·mysql-c·redis·redis-b·kafka·kafka-connect)가 `Exited (255)`인지 본다 (Docker Desktop 재시작 등으로 함께 멈춤). 대처: `docker compose start <인프라...>` — `up`으로 재생성하지 않는다(MySQL 익명 볼륨이 새로 생겨 아래 binlog 오프셋 문제가 생긴다).
 - 커넥터가 RUNNING인데 결제가 serverC에 안 오면(결제 조회 404) → Kafka Connect 로그에 `Error code: 1236`(binlog 파일 없음) 또는 `log event entry exceeded max_allowed_packet`(같은 이름의 binlog 파일이 새로 만들어져 옛 오프셋 위치가 엉뚱한 곳을 가리킴 — 원인·대처 동일)이 있는지 본다. 원인: MySQL은 익명 볼륨이라 재생성 시 binlog가 새로 시작되는데 커넥터 오프셋은 이름 있는 볼륨 `promotion_kafka-data`에 남는다. 대처: 커넥터별 `PUT /connectors/{이름}/stop` → `DELETE /connectors/{이름}/offsets` → `PUT /connectors/{이름}/resume` (8083).
 
 ## 실행 시점

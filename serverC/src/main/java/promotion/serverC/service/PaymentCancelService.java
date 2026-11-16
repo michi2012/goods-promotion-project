@@ -195,13 +195,23 @@ public class PaymentCancelService {
         });
     }
 
-    // 재시도해도 소용없는 경우 — PG를 부르지 않고 관리자 확인 대상으로 남긴다
+    // 재시도해도 소용없는 경우 — PG를 부르지 않고 관리자 확인 대상으로 남긴다.
+    // 이미 EXHAUSTED였던 건(관리자 재처리 등)은 사유만 갱신하고 알람 메트릭을 다시 올리지 않는다.
     private void recordNeedsAdmin(String orderId, String reason) {
         log.error("🚨 [PaymentCancel] {} — 관리자 확인 필요: orderId={}", reason, orderId);
-        transactionTemplate.executeWithoutResult(tx ->
-                failureRepository.findByOrderId(orderId).ifPresentOrElse(
-                        f -> f.markExhausted(reason),
-                        () -> failureRepository.save(PaymentCancelFailure.exhausted(orderId, reason))));
-        needsAdmin.increment();
+        boolean newlyExhausted = Boolean.TRUE.equals(transactionTemplate.execute(tx ->
+                failureRepository.findByOrderId(orderId)
+                        .map(f -> {
+                            boolean wasExhausted = f.getStatus() == CancelFailureStatus.EXHAUSTED;
+                            f.markExhausted(reason);
+                            return !wasExhausted;
+                        })
+                        .orElseGet(() -> {
+                            failureRepository.save(PaymentCancelFailure.exhausted(orderId, reason));
+                            return true;
+                        })));
+        if (newlyExhausted) {
+            needsAdmin.increment();
+        }
     }
 }

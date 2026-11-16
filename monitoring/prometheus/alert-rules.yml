@@ -11,6 +11,17 @@
           summary: "🚨 [P0] PG 취소 관리자 처리 필요 ({{ printf \"%.0f\" $value }}건)"
           description: "PG 취소(환불·망취소)가 자동 재시도까지 모두 실패했거나 취소할 수 없는 결제 상태라 수기 처리가 필요한 상태. serverC GET /api/v1/payments/admin/cancel-failures 로 확인 후 재처리."
 
+      # 1-1. [P0] PG 취소 실패 기록 자체가 실패 (BL-034) — 관리자 목록에 없고 로그에만 남는다
+      #      PaymentFatalError와 처리 방법이 달라(목록 vs 로그) 규칙을 나눈다. `or`로 묶으면 같은 라벨의 오른쪽 시리즈가 버려진다
+      - alert: PaymentCancelDltRecordFailed
+        expr: increase(business_payment_cancel_dlt_record_failed_total[1m]) > 0
+        labels:
+          severity: critical
+          tier: P0
+        annotations:
+          summary: "🚨 [P0] PG 취소 실패 기록 불가 ({{ printf \"%.0f\" $value }}건)"
+          description: "payment-cancel DLT 도착 건을 payment_cancel_failures에 기록하지 못해 자동 재시도·관리자 목록에서 빠진 상태. serverC 로그 '[DLT 처리 실패]'의 payload(orderId)로 결제 상태를 확인한 뒤 처리."
+
       # 2. [P1] Saga EXPIRED — 인프라 타임아웃으로 인한 구매 실패
       - alert: SagaExpired
         expr: increase(saga_expired_total[1m]) > 0

@@ -1,8 +1,8 @@
 # 백로그
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
-- 마지막 업데이트: 2026-11-14
-- **다음 ID: BL-035** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- 마지막 업데이트: 2026-11-16
+- **다음 ID: BL-037** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -12,16 +12,16 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR① serverC #48 머지, 다음: PR② serverA·게이트웨이. 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
+| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 3개로 분할 — PR① serverC #48 머지 → (선행 BL-034) → PR② serverA·게이트웨이·serverB 계약 → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
 |----|------|------|---------|------|------|------|
-| BL-034 | **serverC payment-cancel DLT 기록 실패 대비** (PR #48 리뷰 C1 [필수]): DLT 리스너 팩토리가 `FixedBackOff(0,0)`이라 `recordDltArrival` DB 쓰기가 실패하면 실패 기록 없이 오프셋이 넘어가고 P0도 안 울림. DLT 팩토리 백오프 + 최종 실패 카운터를 P0 expr에 OR + 실패 경로 테스트. 함께 검토: C2(이미 EXHAUSTED인 행 재처리 시 P0 재발화), C4(RESOLVED→RETRYING 시 attempts 유지로 즉시 소진 — 의도 확인). BL-029 PR②(사용자 환불)가 이 경로에 의존하므로 그 전에 처리 권장 | 버그·정합성 | 높음 | S | | PR #48 /pr-review (2026-11-16) |
 | BL-002 | **PG 거래 내역 대사 배치**: 최소 구현 + 시드 데이터로 기준선 측정(perf-compare). 성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | BL-029 | 결제 로드맵 (2026-11-12), 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
+| BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
+| BL-036 | **`/pr-review` skill 다듬기 (PR #51 첫 실사용 회고)**: ① 1단계 diff 저장을 리뷰 대상 파일로 좁히기(`git diff main...{head} -- <파일>` — 지금은 제외한 `*.md`도 diff에 남아 토큰 낭비) ② 6단계에 "동작을 바꾼 [제안] 반영도 재리뷰 대상" 기준 추가 ③ 5단계에 "반영 요청에 답글 게시 승인이 포함되는지" 명시. `.claude/skills/pr-review/SKILL.md`만 변경 | 정리 | 중간 | S | | PR #51 /pr-review 회고 (2026-11-16) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
-| BL-033 | **`/pr-review` 게시 경로 첫 실사용**: 리뷰어가 게시용 JSON을 직접 쓰는 구조(BL-032 A안)와 `gh api` review 게시·반영 시 코멘트 읽기를 실제 PR에서 확인. 리뷰 비용은 PR #48로 측정함(약 12만 토큰/154KB diff). 대상: 다음 위험 변경 PR(BL-029 PR②) | 검증 대기 | 중간 | S | | BL-032 (2026-11-16) |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
@@ -48,6 +48,8 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-033 `/pr-review` 게시 경로 첫 실사용 — 리뷰어 JSON을 그대로 `gh api` review 게시(422 없음), 반영 시 GitHub 코멘트 읽기·커밋 해시 답글 확인. 비용 약 7만 토큰/59KB diff. 개선점은 BL-036 | #51 |
+| BL-034 serverC payment-cancel DLT 기록 실패 대비 — DLT 핸들러 백오프 5회 + 기록 실패 메트릭 P0 OR(C1), 이미 EXHAUSTED면 P0 재발화 없음(C2), RESOLVED 재도착 시 attempts=0(C4) | #51 |
 | BL-032 codex 리뷰 도구 제거 + PR 리뷰 skill(`/pr-review`) 신설 — 리뷰어가 게시용 JSON 직접 작성, 반영 시 GitHub 코멘트 읽기 | #49 |
 | K8s DiscoveryClient 서비스 조회 복구 (serverA·cs-bot·aiops) + arch-snapshot 최신화 | #21 |
 | 결제 금액 기본기 + Saga 안전망(UNKNOWN 재시도·늦은 결제 성공 보상) + Debezium DB 이름 + serverA 계약 테스트 | #22 |

@@ -158,7 +158,7 @@ sequenceDiagram
 | RETRYING | 자동 재시도 실패, attempts = 6 | EXHAUSTED + 알람 |
 | RETRYING·EXHAUSTED | 재시도 성공 (자동·관리자) | RESOLVED |
 | EXHAUSTED | 관리자 재처리 실패 | EXHAUSTED (attempts+1) |
-| RESOLVED | DLT 재도착 (예: 재대사 스케줄러가 다시 보낸 망취소가 또 실패) | RETRYING (attempts 유지) |
+| RESOLVED | DLT 재도착 (예: 재대사 스케줄러가 다시 보낸 망취소가 또 실패) | RETRYING (attempts=0 — 새 장애로 보고 자동 재시도 6회를 다시 준다) |
 
 재시도 간격 10분·최대 6회(약 1시간)는 설정값이다.
 
@@ -249,10 +249,11 @@ components:
 | 같은 주문 동시 요청 | 조건부 UPDATE(`WHERE status='PAID'`)로 한 요청만 성공. 진 요청은 다시 읽어 현재 상태로 200 (S-6) |
 | CDC·Kafka 지연 | 주문은 REFUND_REQUESTED("환불 처리 중")로 남았다가 전달되면 진행 |
 | PG 취소 실패 | Kafka 재시도 3회(지수 백오프, 기존 설정) → DLT → `payment_cancel_failures` RETRYING → 스케줄러 재시도 (S-7) |
+| DLT 핸들러가 `payment_cancel_failures` 기록에 실패 (DB 장애 등) | 지수 백오프 5회(1→2→4→8→16초) 재시도. 그래도 실패하거나 메시지를 파싱할 수 없으면 `business_payment_cancel_dlt_record_failed_total` 증가 → P0 `PaymentCancelDltRecordFailed` + 로그에 원본 payload. 이 건은 자동 재시도 대상에서 빠지므로 관리자가 로그로 처리 |
 | PG 취소 응답 유실 (실제로는 취소됨) | 재시도 시 PG가 "이미 취소됨"을 돌려주고 성공으로 처리. 이중 환불 없음 (S-12) |
 | PG 취소 성공 후 serverC DB 갱신 실패 | 예외 → Kafka 재시도 → PG "이미 취소됨" → 성공 경로 |
 | `payment-cancel` 도착 시 결제가 이미 CANCELLED | PG 호출 없이 `payment-cancelled`만 다시 발행. 옛 cs-bot 경로로 취소된 주문을 환불 요청해도 REFUND_REQUESTED에 갇히지 않는다 |
-| `payment-cancel` 도착 시 결제가 없거나 PAID·CANCELLED가 아님 | PG를 호출하지 않고 `payment_cancel_failures`에 EXHAUSTED로 기록(사유 포함) + 알람 → 관리자 확인 |
+| `payment-cancel` 도착 시 결제가 없거나 PAID·CANCELLED가 아님 | PG를 호출하지 않고 `payment_cancel_failures`에 EXHAUSTED로 기록(사유 포함) + 알람 → 관리자 확인. 이미 EXHAUSTED인 건(관리자 재처리 등)이면 사유만 갱신하고 알람은 다시 울리지 않는다 |
 | 자동 재시도 6회 소진 | EXHAUSTED + `business_payment_cancel_retry_exhausted_total` 증가 → Prometheus 알람 (S-9) |
 | serverC 여러 인스턴스가 같은 행 재시도 | 조회 후 조건부 UPDATE로 `next_retry_at`을 미뤄 행을 선점한 인스턴스만 실행. 새 의존성(ShedLock) 없음. 겹치더라도 PG 멱등으로 안전 |
 | 관리자 재처리와 자동 재시도가 겹침 | 위와 같음 — PG 멱등이 최종 안전장치 |
@@ -264,7 +265,7 @@ components:
 - serverA `markAsPaid`가 `paid_at`을 기록한다. 재대사 스케줄러들은 PENDING·EXPIRED·FAILED만 보므로 새 상태의 영향을 받지 않는다.
 - serverC `PgClient.cancelPayments(List)` → orderId 단위의 멱등 취소로 바꾼다 (성공 / 이미 취소됨 / 실패 구분). `MockPgClient`는 취소 상태를 기억하고, 테스트에서 취소 실패를 재현할 수단을 둔다 (방법은 구현 때). 실제 PG 연동 시 취소 API가 멱등 키를 지원하는지 **확인 필요**.
 - serverC DLT 핸들러: 메트릭·로그만 → `payment_cancel_failures` 기록. 기존 `business_payment_pg_refund_fatal_total`은 "자동 재시도 진입" 건수로 의미가 바뀐다.
-- 알람: P0 `PaymentFatalError`(`monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`)가 지금은 `refund_fatal`에 걸려 있다 → `business_payment_cancel_retry_exhausted_total`로 바꾼다 (자동 재시도 진입은 아직 수기 정산이 아니다). P2 `FallbackSuccessRateDrop`(첫 시도 성공률)과 Grafana 패널은 의미가 맞아 그대로 둔다.
+- 알람: P0 `PaymentFatalError`(`monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`)가 지금은 `refund_fatal`에 걸려 있다 → `business_payment_cancel_retry_exhausted_total`로 바꾼다 (자동 재시도 진입은 아직 수기 정산이 아니다). BL-034에서 DLT 기록 실패(`business_payment_cancel_dlt_record_failed_total`)는 별도 P0 `PaymentCancelDltRecordFailed`로 추가했다 (처리 방법이 로그 확인으로 달라 규칙을 나눔). P2 `FallbackSuccessRateDrop`(첫 시도 성공률)과 Grafana 패널은 의미가 맞아 그대로 둔다.
 - cs-bot: `requestRefund` → serverA 환불 API 호출(`X-User-Id`=loginId). `trackRefundStatus` → serverB 주문 상태(REFUND_REQUESTED=처리 중, REFUNDED=완료). `payment-cancel` 직접 발행 코드 제거.
 
 ### 프론트 영향
@@ -278,7 +279,7 @@ components:
 | PR | 범위 | 상태 |
 |----|------|------|
 | ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 머지 |
-| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | 진행 예정 |
+| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | #51 |
 | ② serverA + 게이트웨이 + serverB 계약 | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 게이트웨이 라우트(local·k8s), serverB 상태 enum, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구·중복 요청 시 PG 1회) | 진행 예정 |
 | ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | 진행 예정 |
 
@@ -290,3 +291,4 @@ components:
 | 2026-11-14 | 화면: 기간이 지난 주문에 "버튼 대신 안내 문구" → "버튼은 보이고 누르면 거절 문구". PAID 화면에 로그인 ID 입력칸 추가 | 설계 중 발견: 화면 데이터(serverB)에 결제 완료 시각이 없고, 프론트에 로그인이 없다 |
 | 2026-11-16 | "구현 단계(PR 분할)" 섹션 추가 (요구사항·설계 변경 없음) | 3종 문서가 PR 머지 후 새로 쓰여 분할 계획이 사라지는 문제 — spec 규칙 11 |
 | 2026-11-14 | P-12 추가: 환불 후 재구매 불가 | 설계 중 발견: Saga 보상은 1인 1회 구매 표시도 푸는데, 환불에서의 처리가 정해져 있지 않았다 |
+| 2026-11-16 | BL-034: RESOLVED → RETRYING 시 attempts=0으로 변경, 이미 EXHAUSTED인 건은 알람 재발화 없음, DLT 기록 실패 시 재시도 + P0 추가 | PR #48 리뷰 C1·C2·C4 — DLT 기록 실패 시 취소 건이 알람 없이 사라짐, 이미 아는 건으로 P0 재발화, 다시 열린 건이 첫 실패에 바로 소진 |
