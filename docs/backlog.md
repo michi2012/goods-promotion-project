@@ -13,7 +13,6 @@
 | ID | 항목 | 문서 |
 |----|------|------|
 | BL-029 | **사용자 환불 + 환불 실패 재처리** (PR 4개로 분할 — PR① serverC #48 머지 → (선행 BL-034 #51 머지) → PR②-a serverB 계약·게이트웨이 #52 → PR②-b serverA·E2E → PR③ cs-bot·FAQ·프론트. 범위·상태는 명세 "구현 단계". 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
-| BL-037 | **Kafka DLT 발행 파티션 고정 해제** (serverA·B·C 공통 에러 핸들러가 원본과 같은 파티션 번호로 DLT 발행 → 파티션 1개짜리 DLT에 원본 파티션 1·2 레코드가 못 감. BL-029 PR②-b 단계 5 착수 중 발견, ②-b보다 먼저 처리) | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
@@ -48,6 +47,7 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-037 Kafka DLT 발행 파티션 고정 해제 — serverA·B·C 에러 핸들러 DLT 대상 파티션 -1(프로듀서 선택). 원본 파티션 1·2 레코드가 파티션 1개 DLT로 못 가던 문제. BL-029 PR②-b 중 발견 | #54 |
 | BL-036 `/pr-review` 다듬기 — 리뷰 파일만 diff 저장(PR #52 기준 31.8KB→6.2KB), 재리뷰 대상(런타임 동작을 바꾼 [제안] 반영 포함)·답글 승인 범위 명시 + 포트폴리오는 기능 단위로 기록 | #53 |
 | BL-033 `/pr-review` 게시 경로 첫 실사용 — 리뷰어 JSON을 그대로 `gh api` review 게시(422 없음), 반영 시 GitHub 코멘트 읽기·커밋 해시 답글 확인. 비용 약 7만 토큰/59KB diff. 개선점은 BL-036 | #51 |
 | BL-034 serverC payment-cancel DLT 기록 실패 대비 — DLT 핸들러 백오프 5회 + 기록 실패 메트릭 P0 OR(C1), 이미 EXHAUSTED면 P0 재발화 없음(C2), RESOLVED 재도착 시 attempts=0(C4) | #51 |

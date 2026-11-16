@@ -1,6 +1,6 @@
 # 맥락 노트: Kafka DLT 발행 파티션 고정 해제 (BL-037)
 
-## [진행 중] BL-037
+## [완료] BL-037 (PR #54)
 
 ### 왜 이 방식을 선택했는가
 - BL-029 PR②-b 단계 5(`payment-cancelled` 컨슈머 + `payment-cancelled.DLT`) 착수 중, serverA·B·C 공통 `KafkaConsumerConfig.errorHandler()`의 DLT 대상이 `new TopicPartition(topic + ".DLT", record.partition())`인 것을 발견했다. 원본 토픽은 파티션 3, DLT 토픽은 모두 파티션 1이라 원본 파티션 1·2의 레코드는 DLT 발행에 실패한다 (코드로 판단, 미재현).
