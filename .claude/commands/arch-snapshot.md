@@ -1,5 +1,5 @@
 ---
-description: 프로젝트 전체를 스캔해 docs/architecture/arch-snapshot.md를 생성한다. codex-review 실행 전 선행 실행 권장.
+description: 프로젝트 전체를 스캔해 docs/architecture/arch-snapshot.md를 생성한다. /pr-review 리뷰어가 아키텍처 맥락으로 참고한다.
 ---
 
 # /arch-snapshot 명령어
@@ -163,7 +163,7 @@ sequenceDiagram
 | serverA | serverB (8081) | serverBClient | ... |
 
 ## Debezium CDC 구간
-codex-reviewer 참고용. debezium/outbox-connector.json에서 추출.
+리뷰어(/pr-review) 참고용. debezium/outbox-connector.json에서 추출.
 - 감시 DB/테이블: ...
 - 라우팅 방식: outbox_event.topic 필드 값 → Kafka 토픽명으로 동적 라우팅
 - Outbox 패턴 사용 모듈: (코드에서 OutboxEvent* 파일이 존재하는 모듈 기재)
@@ -182,5 +182,5 @@ codex-reviewer 참고용. debezium/outbox-connector.json에서 추출.
 - API 엔드포인트: N개
 - 스케줄러: N개
 - 외부 시스템: N개
-- 다음 단계: /codex-review 실행 가능
+- 다음 단계: PR 리뷰 시 /pr-review가 이 문서를 발췌해 참고
 ```

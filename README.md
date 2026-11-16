@@ -397,7 +397,7 @@ CLAUDE.md 4원칙(`Think Before Coding` · `Simplicity First` · `Surgical Chang
 | `perf-compare` (skill) | 성능 개선 전후 비교 — 가설 → 기준선 → 변경 → 재측정 → 기록, k6 + 기술별 보조 지표 |
 | `/incident` | 장애 사실 수집 → 관련 커밋 조회 → RCA 문서 생성 → 재발 방지 항목 Linear 서브태스크화 |
 | `/release-notes` | git log 기반 Conventional Commits 분류 → 버전별 릴리즈 노트 자동 생성 |
-| `arch-snapshot` / `infra-diagram` / `codex-review` / `db-migration` / `coverage` | 코드베이스 스냅샷·인프라 토폴로지 자동 생성, 멀티 에이전트 교차 검증, DDL 위험도 분석, 커버리지 등급 자동 분류 |
+| `arch-snapshot` / `infra-diagram` / `pr-review` / `db-migration` / `coverage` | 코드베이스 스냅샷·인프라 토폴로지 자동 생성, PR 팀원 리뷰(서브에이전트, [필수]/[제안] 코멘트), DDL 위험도 분석, 커버리지 등급 자동 분류 |
 
 `plan`/`incident`/`release-notes`는 Linear MCP와 연동되어 이슈 조회·계획서 코멘트·재발 방지 서브태스크 생성을 자동화하며, GitHub-Linear 연동을 통해 PR 생성·머지 시 이슈 상태가 자동 전환된다.
 

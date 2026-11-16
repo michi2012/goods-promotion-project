@@ -116,6 +116,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - E2E·전체 흐름 검증·사전 점검·스모크 테스트 작업 시 `.claude/skills/e2e` 매뉴얼을 활용할 것.
 - 성능 측정·부하 테스트(k6)·개선 전후 비교 작업 시 `.claude/skills/perf-compare` 매뉴얼을 활용할 것.
 - 프론트엔드 화면/컴포넌트 작업 시 `.claude/skills/frontend`, 프론트 테스트 작성 시 `.claude/skills/frontend-testing`, 렌더링 결과를 보며 디자인을 다듬을 때 `.claude/skills/frontend-design-feedback` 매뉴얼을 활용할 것.
+- PR 리뷰 시 `.claude/skills/pr-review` 매뉴얼을 활용할 것.
 
 ## 디버깅 루프 탈출 조건
 같은 이슈(테스트 실패, 빌드 오류 등)를 해결하기 위한 첫 수정을 시도하기 전, 현재 작업 트리 상태를 체크포인트로 기록한다 (예: `git stash` 후 즉시 재적용, 또는 변경 파일 목록 기록).
@@ -235,6 +236,7 @@ serverA·serverC·user-service는 Flyway라 서버 기동 시 마이그레이션
 - 로컬에서 실행 가능한 변경은 E2E로 검증한 뒤 커밋한다. 건너뛰려면 먼저 사용자에게 이유를 묻는다 ("환경이 없어서"는 이유가 아님 — 구성 가능하면 구성).
 - 클라우드 전용(EKS RBAC, ALB 등)은 `gradle build` + `helm template` 통과 후 커밋하고, 커밋 메시지에 "EKS 배포 후 검증 필요"를 권고한다.
 - E2E 원칙과 이 프로젝트의 시나리오·점검 대상·실행 시점은 `.claude/skills/e2e`(SKILL.md + project.md).
+- 코드 리뷰는 커밋 전이 아니라 PR 생성 후 `/pr-review`로 한다. 위험 변경(결제·동시성·보안·마이그레이션·이벤트)이면 필수, [필수] 지적은 같은 PR에서 반영 후 재리뷰.
 
 ## 보고 형식
 작업 완료 시 다음 형식으로 보고할 것:
