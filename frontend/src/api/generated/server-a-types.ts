@@ -38,10 +38,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{orderId}/refund": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 주문 환불 요청 (주문 전체) */
+        post: operations["requestRefund"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RefundResponse: {
+            orderId: string;
+            /** @enum {string} */
+            status: "REFUND_REQUESTED" | "REFUNDED";
+        };
+        ErrorResponse: {
+            status: number;
+            /** @description 에러 코드 (예 ORDER_NOT_FOUND) */
+            error: string;
+            /** @description 화면에 보여줄 문구 */
+            message: string;
+        };
         PurchaseRequest: {
             /** Format: int64 */
             userId: number;
@@ -122,6 +151,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoodsResponse"];
+                };
+            };
+        };
+    };
+    requestRefund: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description 로그인 ID. 운영에서는 게이트웨이가 JWT를 검증해 넣는다 */
+                "X-User-Id": string;
+            };
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 환불 접수됨 또는 이미 접수·완료됨 (멱등) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefundResponse"];
+                };
+            };
+            /** @description UNAUTHORIZED — X-User-Id 없음 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ORDER_NOT_FOUND — 주문이 없거나 본인 주문이 아님 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description REFUND_NOT_ALLOWED_STATUS(PAID 아님) / REFUND_PERIOD_EXPIRED(결제 후 7일 초과) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description USER_LOOKUP_UNAVAILABLE — user-service 조회 실패 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

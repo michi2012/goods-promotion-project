@@ -2,6 +2,8 @@ import { Suspense } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { client } from '@/lib/api/client'
+import { formatOrderStatus } from '@/lib/format'
+import { RefundForm } from './RefundForm'
 
 export default function OrderStatusPage({
   params,
@@ -47,9 +49,13 @@ async function OrderStatus({ params }: { params: Promise<{ orderId: string }> })
   }
 
   return (
-    <p className="text-sm">
-      주문 {status.orderId}의 상태: <span className="font-medium">{status.status}</span>
-    </p>
+    <>
+      <p className="text-sm">
+        주문 {status.orderId}의 상태: <span className="font-medium">{formatOrderStatus(status.status)}</span>
+      </p>
+      {/* 결제 완료 주문만 환불 요청을 보여준다. 기간이 지난 주문도 버튼은 보이고 serverA가 거절 문구로 안내한다 (화면은 결제 시각을 모른다) */}
+      {status.status === 'PAID' && <RefundForm orderId={status.orderId} />}
+    </>
   )
 }
 
