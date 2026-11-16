@@ -1,68 +1,66 @@
-# 계획서: codex 리뷰 도구 제거 + PR 리뷰 skill 신설 (BL-032)
+# 계획서: serverC payment-cancel DLT 기록 실패 대비 (BL-034)
 
-- 작성일: 2026-11-14
-- 관련 이슈/티켓: BL-032 (`docs/backlog.md`)
+- 작성일: 2026-11-16
+- 관련 이슈/티켓: BL-034 (`docs/backlog.md`), PR #48 리뷰 C1 [필수]·C2·C4. 정책 원본: `docs/specs/user-refund.md`
 
-## [완료] BL-032 (PR #49)
+## [진행 중] BL-034
 
 ### 목표
-연결이 불안정한 codex 리뷰 도구를 없애고, PR을 올린 뒤 "팀원"(새 컨텍스트의 리뷰어 에이전트)이 PR을 리뷰해 [필수]/[제안]/[질문]/[사소] 코멘트를 PR에 남기는 `/pr-review` skill을 만든다.
+PG 취소가 Kafka 재시도를 다 쓰고 DLT에 왔을 때, 실패 기록(`payment_cancel_failures`)을 DB에 쓰지 못해도 그 건이 알람 없이 사라지지 않게 한다. 함께 P0 알람이 이미 아는 건 때문에 다시 울리는 문제(C2)와, 다시 열린 실패 건의 재시도 횟수(C4)를 바로잡는다.
 
 ### 성공 기준
-- [ ] codex 흔적이 저장소에서 사라진다 — `grep -ri codex`가 `docs/CHANGELOG.md`(이력)·`docs/batch/`(미추적) 외에 없음. `.mcp.json`·`settings*.json`은 JSON으로 유효
-- [ ] `.claude/skills/pr-review/`(SKILL.md + project.md)와 개편한 `code-reviewer` 에이전트가 정한 흐름을 담는다: PR diff 수집 → 리뷰어(작성자 설명 없이) → [필수] 재검증 → 미리보기 → 승인 후 게시 → 반영·재리뷰
-- [ ] `/pr`, `/plan` checklist 템플릿, CLAUDE.md가 새 리뷰 단계를 가리킨다 (단계별 "코드리뷰 통과" 제거, 최종 검증에 "PR 리뷰 1회 — 위험 변경 필수")
-- [ ] PR #48에 `/pr-review`를 실제로 적용해 미리보기가 정한 형식으로 나오고, 승인 후 PR에 게시된다. 토큰 사용량을 기록한다
+- [ ] DLT 핸들러가 계속 실패하면 정해진 횟수만큼 재시도한 뒤 `business_payment_cancel_dlt_record_failed_total`이 1 오르고, JSON 파싱 오류는 재시도 없이 바로 오른다 (`KafkaConsumerConfigTest`)
+- [ ] `business_payment_pg_refund_fatal_total`은 DLT 기록이 성공했을 때만 오른다 (`PaymentCancelConsumerTest`)
+- [ ] 이미 EXHAUSTED인 행을 다시 EXHAUSTED로 기록하면 `business_payment_cancel_retry_exhausted_total`이 오르지 않는다 (`PaymentCancelServiceTest`)
+- [ ] RESOLVED 행이 DLT에 다시 도착하면 attempts=0인 RETRYING이 된다 (`PaymentCancelFailureTest`)
+- [ ] P0 `PaymentFatalError`가 두 메트릭 중 하나라도 늘면 울린다 (알람 규칙 2개 파일 동일, YAML 파싱 + `helm template` 통과)
 
-### 비범위
-- PR #48 리뷰에서 나온 [필수]·[제안]의 코드 반영 (PR #48은 머지됨 → 필요하면 별도 브랜치·백로그)
-- CI 자동 리뷰 (사용자 결정: 넣지 않음)
-- OpenAI 키 폐기 (사용자가 OpenAI 콘솔에서 직접)
-- `docs/CHANGELOG.md`의 과거 codex 기록
+### 비범위 (Out of Scope)
+- serverA·serverB DLT 팩토리의 같은 `FixedBackOff(0,0)` 패턴 → 발견 사항으로 백로그 이전
+- Grafana 패널 정리 (BL-031)
+- 최종 실패 건의 자동 복구 (사람이 로그·DLT 토픽 원본으로 처리)
+- BL-029 PR② 이후 범위 전부
 
 ### 단계별 작업 계획
 
-#### 단계 1: codex 흔적 제거
-- 변경 파일: `.claude/commands/codex-review.md`(삭제), `.claude/settings.json`, `.claude/commands/arch-snapshot.md`, `README.md`, `docs/architecture/arch-snapshot.md` / 로컬 전용(미추적): `.mcp.json`, `.claude/settings.local.json`
-- 변경 내용: 명령 파일 삭제, MCP 서버 항목·활성화 목록에서 codex 제거, 다른 문서의 codex 언급을 `/pr-review`·"리뷰어"로 교체
-- 검증: `grep -ri codex` (위 예외 외 0건), JSON 파싱 확인
-- 롤백: `git checkout` + `git restore` (미추적 파일은 수정 전 내용을 스크래치패드에 백업)
+#### 단계 1: C2·C4 — 엔티티·서비스
+- 변경 파일: `serverC/.../entity/PaymentCancelFailure.java`, `serverC/.../service/PaymentCancelService.java`, 테스트 `PaymentCancelFailureTest.java`, `PaymentCancelServiceTest.java`
+- 변경 내용: `recordDltArrival`이 RESOLVED → RETRYING일 때 attempts를 0으로 초기화. `recordNeedsAdmin`은 행이 없거나 EXHAUSTED가 아니던 경우에만 `needsAdmin`을 올린다(이미 EXHAUSTED면 사유만 갱신).
+- 검증: `.\gradlew.bat :serverC:test --tests "*PaymentCancelFailureTest" --tests "*PaymentCancelServiceTest"`
+- 롤백: `git checkout -- <위 파일>`
 - 예상 소요: 짧음
 
-#### 단계 2: `/pr-review` skill 작성
-- 변경 파일: `.claude/skills/pr-review/SKILL.md`(범용 흐름·코멘트 형식·처리 규칙), `.claude/skills/pr-review/project.md`(이 프로젝트 점검 기준·제외 파일·명세 위치)
-- 변경 내용: 다른 skill(e2e·spec)처럼 범용/프로젝트 값을 나눈다. 리뷰어에게는 PR 번호·변경 파일·관련 명세 경로만 넘기고 작성자 설명은 넘기지 않는다. 게시는 `gh api` PR review 1개(event COMMENT, 줄 단위 + 요약). [사소]는 요약에만.
-- 검증: 문서 육안 확인 (실동작은 단계 5)
-- 롤백: 새 폴더 삭제
+#### 단계 2: C1 — DLT 핸들러 재시도 + 최종 실패 메트릭
+- 변경 파일: `serverC/.../config/KafkaConsumerConfig.java`, `serverC/.../kafka/PaymentCancelConsumer.java`, 테스트 `KafkaConsumerConfigTest.java`(신규), `PaymentCancelConsumerTest.java`
+- 변경 내용: DLT 팩토리 백오프를 지수 5회(1→2→4→8→16초, 약 31초)로 바꾸고, `JsonProcessingException`은 재시도하지 않는다. 최종 실패 시 `business_payment_cancel_dlt_record_failed_total`(빈 생성 시 등록)을 올리고 원본 payload를 에러 로그로 남긴다. `handleDlt`의 `refundFatal.increment()`는 `recordDltArrival` 성공 뒤로 옮긴다(재시도 시 중복 집계 방지).
+- 검증: `.\gradlew.bat :serverC:test --tests "*KafkaConsumerConfigTest" --tests "*PaymentCancelConsumerTest"`
+- 롤백: `git checkout -- <위 파일>`, 신규 테스트 삭제
 - 예상 소요: 보통
 
-#### 단계 3: `code-reviewer` 에이전트 개편
-- 변경 파일: `.claude/agents/code-reviewer.md`
-- 변경 내용: 출력을 [필수]/[제안]/[질문]/[사소] + 파일:줄 + 근거(명세 ID 등) 구조로. [필수]는 보고 전 코드를 다시 읽어 확인. 프로젝트 점검(명세 대조, Kafka·Saga, 결제·금액, 프로젝트 규칙)은 skill `project.md`를 읽게 하고, Spring/JPA 세부는 기존 skill(jpa·kafka 등) 참조로 줄인다. diff 중심·큰 문서 발췌로 토큰을 아낀다.
-- 검증: 문서 육안 확인 (실동작은 단계 5)
-- 롤백: `git checkout`
-- 예상 소요: 보통
-
-#### 단계 4: 기존 규칙에 연결
-- 변경 파일: `.claude/commands/pr.md`, `.claude/commands/plan.md`, `CLAUDE.md`
-- 변경 내용: `/pr` Step 3 뒤에 "위험 변경이면 `/pr-review`" 안내. `/plan` checklist 템플릿의 단계별 "코드리뷰 통과"를 빼고 최종 검증에 "PR 리뷰 1회(위험 변경 필수)". CLAUDE.md "작업 시작 시" skill 목록과 "커밋 전 검증" 근처에 PR 리뷰 한 줄.
-- 검증: 문서 육안 확인 + 서로 가리키는 경로가 실제 존재하는지 확인
-- 롤백: `git checkout`
+#### 단계 3: P0 알람 규칙
+- 변경 파일: `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`
+- 변경 내용: `PaymentFatalError` expr에 `or increase(business_payment_cancel_dlt_record_failed_total[1m]) > 0` 추가, description에 "DLT 기록 실패 시 serverC 로그의 payload로 확인" 추가.
+- 검증: 두 파일 YAML 파싱(Node) + `helm template helm/promotion-monitoring` 통과, 두 파일 해당 블록 동일 확인 (`promtool`이 있으면 `promtool check rules`)
+- 롤백: `git checkout -- <위 파일>`
 - 예상 소요: 짧음
 
-#### 단계 5: PR #48에 첫 적용
-- 변경 파일: 없음 (PR #48에 코멘트 게시 — 외부 게시라 승인 후)
-- 변경 내용: `/pr-review 48` 실행 → 미리보기 보고 → 승인 시 게시. 리뷰 1회 토큰 사용량을 기록하고, 너무 크면 skill의 절약 장치를 조정한다.
-- 검증: 미리보기가 정한 형식([필수] 재검증 표시 포함)이고, 게시 후 PR #48에 review 1개(줄 단위 + 요약)가 보인다
-- 롤백: 게시한 review 코멘트 삭제 (`gh api` DELETE)
+#### 단계 4: 명세 갱신
+- 변경 파일: `docs/specs/user-refund.md`
+- 변경 내용: 상태 전이 표의 RESOLVED → RETRYING을 "attempts=0"으로, "장애 시 동작"에 "DLT 기록 실패 → 5회 재시도 → 메트릭 + P0" 행 추가, C2 동작(이미 EXHAUSTED면 알람 없음) 반영, 변경 이력 행 추가.
+- 검증: 육안 (코드 동작과 표 일치)
+- 롤백: `git checkout -- docs/specs/user-refund.md`
+- 예상 소요: 짧음
+
+#### 단계 5: 전체 빌드 + 로컬 E2E 회귀
+- 검증: `.\gradlew.bat :serverC:build` (백그라운드). 로컬 스택이 떠 있으면 `backend-e2e/`의 serverC 관리자 API 시나리오 포함 회귀 실행, 없으면 기동 여부를 사용자에게 확인 (새 마이그레이션 없음)
+- 롤백: 해당 없음
 - 예상 소요: 보통
 
 ### 리스크 및 대응
-- 같은 계정이라 Approve/Request changes 불가 → event `COMMENT`로만 게시, 판정은 요약 본문에
-- 줄 단위 코멘트의 줄 번호가 diff 밖이면 GitHub API가 거절 → diff 안의 줄만 줄 단위로, 나머지는 요약에
-- 리뷰어 오탐 → [필수]는 리뷰어가 재검증한 것만, 게시 전 미리보기에서 사용자가 걸러냄
-- PR #48이 이미 머지된 상태 → 코멘트는 가능, [필수]는 후속 브랜치·백로그로
+- 리스크: 테스트에서 실제 백오프(약 31초)를 기다리게 됨 → 대응: mock 컨테이너(`isRunning()=false`)로 대기를 건너뛰는 방식을 먼저 시도, 안 되면 팩토리 생성 로직에서 백오프를 인자로 받는 package-private 메서드로 분리
+- 리스크: 백오프 동안 DLT 컨슈머 스레드가 막힘 → 대응: 최대 31초로 `max.poll.interval.ms`(기본 5분)보다 훨씬 짧고, DLT 팩토리를 쓰는 리스너는 `payment-cancel.DLT` 하나뿐
+- 리스크: 새 메트릭을 처음 증가할 때 등록하면 Prometheus `increase()`가 첫 증가를 놓침 → 대응: 빈 생성 시 0으로 등록
 
 ### 의존성
-- `gh` CLI 인증(현재 PR 생성에 사용 중)
-- 새 의존성 없음
+- 새 의존성 없음 (`spring-kafka-test`·Micrometer 기존)
+- BL-029 PR②가 이 경로에 의존 — 이 작업 머지 후 착수

@@ -1,41 +1,34 @@
-# 맥락 노트: codex 리뷰 도구 제거 + PR 리뷰 skill 신설 (BL-032)
+# 맥락 노트: serverC payment-cancel DLT 기록 실패 대비 (BL-034)
 
-## [완료] BL-032 (PR #49)
+## [진행 중] BL-034
 
 ### 왜 이 방식을 선택했는가
-- BL-029 PR① 커밋 전 리뷰에서 codex MCP가 연결되지 않았고(CONNECTION_CLOSED), 리뷰 없이 커밋했다. 사용자가 codex를 없애고 Claude 기반 리뷰를 고도화하기로 결정.
-- **팀원 리뷰 방식** (사용자 제안): 현업처럼 PR을 올린 뒤 리뷰 → 코멘트 → 반영 커밋 → 재리뷰. 리뷰 이력이 PR에 남아 포트폴리오에서도 보인다. 테스트·E2E는 지금처럼 커밋 전, 리뷰만 PR 뒤로.
-- **코멘트 구분** (Conventional Comments식): [필수]만 머지를 막는다(버그·데이터 손상·보안·명세 위반). [제안]·[질문]은 작성자가 판단해 답글, [사소]는 요약에만.
-- **리뷰어 1개 + [필수]만 재검증**: 관점별 리뷰어 여러 개는 같은 파일을 여러 번 읽어 토큰이 몇 배. 재검증은 리뷰어 안에서 한다 — 작성자(구현 세션)가 재검증하면 작성자 판단이 다시 끼어든다.
-- **리뷰어에게 작성자 설명을 넘기지 않음**: 새 컨텍스트로 띄우는 이유(작성자 판단에 끌려가지 않음)를 지키기 위해.
-- **현 세션 서브에이전트**: 별도 세션과 효과가 비슷하고 반영 흐름이 끊기지 않는다.
-- **PR 코멘트로 게시, 미리보기 승인 후**: 공개 저장소라 외부 게시. 오탐·민감 내용은 게시 전에 거른다.
-- **PR당 1회, 위험 변경 필수**: 토큰 비용은 횟수가 좌우한다. 위험 변경 = 결제·금액, 동시성, 보안·인가, DB 마이그레이션, 이벤트(토픽·메시지) 변경.
-- **이름 `/pr-review`**: 내장 `/code-review`와 겹치지 않게.
+- PR #48(BL-029 PR①) 리뷰 C1 [필수]: DLT 팩토리가 `FixedBackOff(0,0)` + 로그만 남기는 복구 함수라, `recordDltArrival` DB 쓰기가 한 번 실패하면 그 취소 건이 자동 재시도에서도, 알람에서도 사라진다. 사용자 환불(BL-029 PR②)이 이 경로를 쓰므로 그 전에 막는다.
+- 사용자 결정 (2026-11-16):
+  - C1: 횟수 제한 백오프(지수 5회, 약 31초) + 최종 실패 메트릭을 P0에 OR (A안)
+  - C2: 새로 EXHAUSTED가 될 때만 P0 메트릭 증가
+  - C4: RESOLVED → RETRYING 시 attempts=0 (새 장애로 보고 자동 재시도 6회를 다시 준다). 명세 표(`user-refund.md` "attempts 유지")를 함께 바꾼다
+- `refundFatal`("자동 재시도 진입" 건수)을 기록 성공 뒤로 옮기는 이유: DLT 핸들러가 재시도되면 앞에서 올린 카운터가 재시도 횟수만큼 중복된다.
 
 ### 검토했으나 채택하지 않은 대안
-#### 관점별 리뷰어 병렬
-- 왜 안 썼나: 토큰 몇 배. 혼자 하는 프로젝트에서 이득 대비 비용이 큼
-#### 별도 세션에서 리뷰
-- 왜 안 썼나: 매번 세션을 오가야 하고 반영 흐름이 끊김. 서브에이전트도 새 컨텍스트라 독립성은 비슷
-#### 로컬 보고서만
-- 왜 안 썼나: 세션이 끝나면 사라져 리뷰 이력이 남지 않음
-#### 내장 `/code-review --comment`
-- 왜 안 썼나: [필수]/[제안] 구분, 명세 대조, 프로젝트 전용 점검, 게시 전 미리보기를 맞추기 어려움. 에이전트가 안 뜰 때의 대체 수단으로만 둔다
-#### CI 자동 리뷰
-- 왜 안 썼나: API 과금·소음, 로컬 리뷰와 중복, AI 리뷰는 결정적이지 않아 merge 게이트로 부적합
+#### 무한 재시도 (DB 복구까지 대기)
+- 왜 안 썼나: 해결되지 않는 메시지 하나가 DLT 처리 전체를 막고, 막힌 동안 알람이 없다.
+#### 일반 이름 + topic 태그 카운터 (`kafka_dlt_handler_failed_total{topic}`) — Step 1 가정에서 변경
+- 왜 안 썼나: 태그 시리즈는 첫 실패 때 생겨서 Prometheus `increase()`가 첫 증가를 놓친다. 미리 등록하려면 토픽을 하드코딩해야 해 일반화 이점이 없다. 이 팩토리를 쓰는 리스너는 하나뿐이라 기존 `business_payment_*` 이름 규칙의 전용 카운터를 빈 생성 시 등록한다.
 
 ### 기존 코드베이스 컨벤션
-- skill 구조: 범용 `SKILL.md` + 프로젝트 값 `project.md` (`.claude/skills/e2e`, `.claude/skills/spec`)
-- 에이전트: `.claude/agents/code-reviewer.md` (frontmatter `name`/`description`/`tools`)
-- 명령: `.claude/commands/*.md` (`/plan`, `/pr`)
+- 메트릭: `business_*_total`, `@PostConstruct`에서 `Counter.builder(...).register(meterRegistry)` (`PaymentCancelService.java`, `PaymentCancelConsumer.java`)
+- 트랜잭션: 서비스에서 `TransactionTemplate`으로 짧게 묶음, PG 호출은 트랜잭션 밖
+- 테스트: Mockito 단위 + `SimpleMeterRegistry` (`PaymentCancelServiceTest.java`), 엔티티 순수 단위 (`PaymentCancelFailureTest.java`), Testcontainers 통합 (`PaymentCancelRetryIntegrationTest.java`)
+- 알람 규칙은 `monitoring/`(로컬)과 `helm/promotion-monitoring/files/`(k8s) 두 벌을 같이 수정
 
 ### 관련 파일/위치
-- `.claude/agents/code-reviewer.md` — 리뷰어 (개편 대상)
-- `.claude/commands/codex-review.md` — 삭제 대상
-- `.claude/commands/pr.md`, `.claude/commands/plan.md`, `CLAUDE.md` — 연결 지점
-- `.mcp.json`, `.claude/settings.local.json` — 미추적(로컬 전용). PR에 들어가지 않음
+- `serverC/src/main/java/promotion/serverC/config/KafkaConsumerConfig.java` — 메인·DLT 리스너 팩토리
+- `serverC/src/main/java/promotion/serverC/kafka/PaymentCancelConsumer.java` — `payment-cancel`·`payment-cancel.DLT` 리스너
+- `serverC/src/main/java/promotion/serverC/service/PaymentCancelService.java` — 취소·DLT 기록·자동/관리자 재시도
+- `serverC/src/main/java/promotion/serverC/entity/PaymentCancelFailure.java` — 실패 행 상태 전이
+- `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml` — P0 `PaymentFatalError`
+- `docs/specs/user-refund.md` — 상태 전이 표(146-161행), 장애 시 동작(251-260행), 변경 이력
 
 ### 외부 참조
-- Conventional Comments (코멘트 앞 표시 관례)
-- GitHub REST: Create a review for a pull request (`POST /repos/{owner}/{repo}/pulls/{n}/reviews`, event COMMENT)
+- `.claude/skills/kafka` (DLT 설계), Spring Kafka `DefaultErrorHandler`·`ExponentialBackOffWithMaxRetries`
