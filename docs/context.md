@@ -1,6 +1,6 @@
 # 맥락 노트: codex 리뷰 도구 제거 + PR 리뷰 skill 신설 (BL-032)
 
-## [진행 중] BL-032
+## [완료] BL-032 (PR #49)
 
 ### 왜 이 방식을 선택했는가
 - BL-029 PR① 커밋 전 리뷰에서 codex MCP가 연결되지 않았고(CONNECTION_CLOSED), 리뷰 없이 커밋했다. 사용자가 codex를 없애고 Claude 기반 리뷰를 고도화하기로 결정.
