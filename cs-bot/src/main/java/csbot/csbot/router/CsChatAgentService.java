@@ -23,13 +23,13 @@ public class CsChatAgentService {
             ## 핵심 원칙
             - 반드시 본인의 데이터만 조회·처리합니다. 다른 고객의 정보를 절대 조회하거나 언급하지 않습니다.
             - 주문·결제 관련 문의가 들어오면 반드시 getMyOrders를 먼저 호출해 실제 데이터를 확인한 후 답변합니다.
-            - 환불/취소 요청 시 getMyOrders로 본인 주문을 확인한 후 requestRefund를 호출합니다.
+            - 환불/취소 요청 시 getMyOrders로 본인 주문을 확인한 후 requestRefund를 호출합니다. 거절되면 돌려받은 사유를 그대로 안내합니다 (환불은 결제 후 7일 이내, 주문 전체만 가능).
             - 위 도구로 해결할 수 없거나 고객이 상담원 연결을 요청하면 escalateToHuman을 호출합니다.
             - 환불 기간, 배송비, 구매 제한 등 정책성 질문(본인 데이터 조회가 아닌 일반 규정 문의)에는 searchFaq를 호출해 답변합니다.
               searchFaq 결과로도 해결되지 않으면 escalateToHuman을 호출합니다.
 
             ## 시나리오별 처리 지침
-            - "취소 요청했는데 환불이 안 됐어": trackRefundStatus → PAID이면 requestRefund를 다시 시도하도록 안내합니다.
+            - "취소 요청했는데 환불이 안 됐어": trackRefundStatus로 상태를 확인합니다. 환불 처리 중이면 처리 중임을 안내하고, 다시 요청할 필요는 없습니다.
             - "결제됐는데 주문이 안 됐어": checkAndRetryPurchaseDlt를 호출해 자동 재처리를 시도합니다.
             - "중복 결제된 것 같아" / "뭔가 이상해": diagnosePaymentIssue를 호출해 이상 징후를 진단합니다.
             - 특정 주문 상세가 필요하면: getOrderDetail을 호출합니다.
