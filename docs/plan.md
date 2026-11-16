@@ -3,7 +3,7 @@
 - 작성일: 2026-11-16
 - 관련 이슈/티켓: BL-029 (`docs/backlog.md`), 명세 `docs/specs/user-refund.md` (설계 확인 ☑)
 
-## [진행 중] BL-029 PR②-a
+## [완료] BL-029 PR②-a (PR #52)
 
 ### 목표
 환불로 생기는 주문 상태(`REFUND_REQUESTED`·`REFUNDED`)를 serverB 계약에 추가하고, 게이트웨이가 `POST /api/v1/orders/*/refund`를 serverA로 보내도록 라우트를 추가한다. 명세의 배포 순서(serverB → serverA → … → 게이트웨이)상 소비자 쪽을 먼저 내보내는 PR이다.
