@@ -249,7 +249,7 @@ components:
 | 같은 주문 동시 요청 | 조건부 UPDATE(`WHERE status='PAID'`)로 한 요청만 성공. 진 요청은 다시 읽어 현재 상태로 200 (S-6) |
 | CDC·Kafka 지연 | 주문은 REFUND_REQUESTED("환불 처리 중")로 남았다가 전달되면 진행 |
 | PG 취소 실패 | Kafka 재시도 3회(지수 백오프, 기존 설정) → DLT → `payment_cancel_failures` RETRYING → 스케줄러 재시도 (S-7) |
-| DLT 핸들러가 `payment_cancel_failures` 기록에 실패 (DB 장애 등) | 지수 백오프 5회(1→2→4→8→16초) 재시도. 그래도 실패하거나 메시지를 파싱할 수 없으면 `business_payment_cancel_dlt_record_failed_total` 증가 → P0 + 로그에 원본 payload. 이 건은 자동 재시도 대상에서 빠지므로 관리자가 로그로 처리 |
+| DLT 핸들러가 `payment_cancel_failures` 기록에 실패 (DB 장애 등) | 지수 백오프 5회(1→2→4→8→16초) 재시도. 그래도 실패하거나 메시지를 파싱할 수 없으면 `business_payment_cancel_dlt_record_failed_total` 증가 → P0 `PaymentCancelDltRecordFailed` + 로그에 원본 payload. 이 건은 자동 재시도 대상에서 빠지므로 관리자가 로그로 처리 |
 | PG 취소 응답 유실 (실제로는 취소됨) | 재시도 시 PG가 "이미 취소됨"을 돌려주고 성공으로 처리. 이중 환불 없음 (S-12) |
 | PG 취소 성공 후 serverC DB 갱신 실패 | 예외 → Kafka 재시도 → PG "이미 취소됨" → 성공 경로 |
 | `payment-cancel` 도착 시 결제가 이미 CANCELLED | PG 호출 없이 `payment-cancelled`만 다시 발행. 옛 cs-bot 경로로 취소된 주문을 환불 요청해도 REFUND_REQUESTED에 갇히지 않는다 |
@@ -265,7 +265,7 @@ components:
 - serverA `markAsPaid`가 `paid_at`을 기록한다. 재대사 스케줄러들은 PENDING·EXPIRED·FAILED만 보므로 새 상태의 영향을 받지 않는다.
 - serverC `PgClient.cancelPayments(List)` → orderId 단위의 멱등 취소로 바꾼다 (성공 / 이미 취소됨 / 실패 구분). `MockPgClient`는 취소 상태를 기억하고, 테스트에서 취소 실패를 재현할 수단을 둔다 (방법은 구현 때). 실제 PG 연동 시 취소 API가 멱등 키를 지원하는지 **확인 필요**.
 - serverC DLT 핸들러: 메트릭·로그만 → `payment_cancel_failures` 기록. 기존 `business_payment_pg_refund_fatal_total`은 "자동 재시도 진입" 건수로 의미가 바뀐다.
-- 알람: P0 `PaymentFatalError`(`monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`)가 지금은 `refund_fatal`에 걸려 있다 → `business_payment_cancel_retry_exhausted_total`로 바꾼다 (자동 재시도 진입은 아직 수기 정산이 아니다). BL-034에서 `business_payment_cancel_dlt_record_failed_total`(DLT 기록 실패)을 OR로 추가했다. P2 `FallbackSuccessRateDrop`(첫 시도 성공률)과 Grafana 패널은 의미가 맞아 그대로 둔다.
+- 알람: P0 `PaymentFatalError`(`monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`)가 지금은 `refund_fatal`에 걸려 있다 → `business_payment_cancel_retry_exhausted_total`로 바꾼다 (자동 재시도 진입은 아직 수기 정산이 아니다). BL-034에서 DLT 기록 실패(`business_payment_cancel_dlt_record_failed_total`)는 별도 P0 `PaymentCancelDltRecordFailed`로 추가했다 (처리 방법이 로그 확인으로 달라 규칙을 나눔). P2 `FallbackSuccessRateDrop`(첫 시도 성공률)과 Grafana 패널은 의미가 맞아 그대로 둔다.
 - cs-bot: `requestRefund` → serverA 환불 API 호출(`X-User-Id`=loginId). `trackRefundStatus` → serverB 주문 상태(REFUND_REQUESTED=처리 중, REFUNDED=완료). `payment-cancel` 직접 발행 코드 제거.
 
 ### 프론트 영향

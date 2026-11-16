@@ -23,7 +23,7 @@
 - [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (serverA·B·Grafana 미변경)
 - [x] 의도하지 않은 파일 변경이 없는지 git status로 최종 확인 (`docs/batch/`는 이 작업과 무관, 미포함)
 - [x] 발견 사항을 백로그로 이전 (BL-035)
-- [ ] (위험 변경 — 결제·이벤트) PR 생성 후 `/pr-review` 1회 — [필수] 반영·재리뷰 (`.claude/skills/pr-review`). BL-033(게시 경로 첫 실사용)도 이 PR에서 확인 가능
+- [x] (위험 변경 — 결제·이벤트) PR 생성 후 `/pr-review` 1회 — 판정 머지 가능, [필수] 0·[제안] 2(C1 P0 규칙 분리, C2 원인 예외 로그) 모두 반영. review: https://github.com/michi2012/goods-promotion-project/pull/51#pullrequestreview-5914845325 (리뷰어 약 7만 토큰·도구 9회·1분 35초). BL-033 게시 경로(리뷰어 JSON → `gh api` 게시) 정상 동작 확인
 
 ### 발견 사항 (작업 중 별도 처리 필요한 것)
 - serverA·serverB `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만 → BL-035로 이전
