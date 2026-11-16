@@ -36,6 +36,22 @@ class GatewayRouteOrderTest {
         assertThat(refund.get("predicates"))
                 .asList()
                 .containsExactlyInAnyOrder("Path=/api/v1/orders/*/refund", "Method=POST");
+
+        // Rate limit은 serverA 기본값(초당 20, 버스트 50) — 구매 라우트(2/5)와 다르다 (명세 user-refund.md 게이트웨이 항목)
+        Map<String, Object> args = rateLimiterArgs(refund);
+        assertThat(args.get("redis-rate-limiter.replenishRate")).isEqualTo(20);
+        assertThat(args.get("redis-rate-limiter.burstCapacity")).isEqualTo(50);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> rateLimiterArgs(Map<String, Object> route) {
+        List<Map<String, Object>> filters = (List<Map<String, Object>>) route.get("filters");
+        assertThat(filters).as("filters").isNotNull();
+        return filters.stream()
+                .filter(f -> "RequestRateLimiter".equals(f.get("name")))
+                .map(f -> (Map<String, Object>) f.get("args"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("RequestRateLimiter 필터가 없다"));
     }
 
     @SuppressWarnings("unchecked")

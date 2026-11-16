@@ -19,7 +19,7 @@
 - [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (serverA 미변경)
 - [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (`docs/batch/`는 무관, 미포함)
 - [x] 발견 사항을 백로그로 이전 (발견 사항 없음)
-- [ ] (위험 변경 — 게이트웨이 라우트) PR 생성 후 `/pr-review` 1회 — [필수] 반영·재리뷰 (`.claude/skills/pr-review`)
+- [x] (위험 변경 — 게이트웨이 라우트) PR 생성 후 `/pr-review` 1회 — 판정 머지 가능, [필수] 0·[제안] 2(C1 라우트 테스트에 rate limit 확인, C2 프론트 생성 타입 재생성) 모두 반영. review: https://github.com/michi2012/goods-promotion-project/pull/52#pullrequestreview-5915025225 (리뷰어 약 5.3만 토큰·도구 12회·1분)
 
 ### 발견 사항 (작업 중 별도 처리 필요한 것)
 - (없음)
