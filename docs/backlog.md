@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-14
-- **다음 ID: BL-032** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-035** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -12,14 +12,17 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR① serverC #48, 다음: PR② serverA·게이트웨이) | `docs/specs/user-refund.md` |
+| BL-029 | **사용자 환불 + 환불 실패 재처리** (PR① serverC #48 머지, 다음: PR② serverA·게이트웨이. 마지막 PR에서 arch-snapshot·purchase-saga-flow·design-notes의 `refund_fatal` 설명 갱신) | `docs/specs/user-refund.md` |
+| BL-032 | **codex 리뷰 도구 제거 + PR 리뷰 skill(`/pr-review`) 신설** | `docs/plan.md` |
 
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
 |----|------|------|---------|------|------|------|
+| BL-034 | **serverC payment-cancel DLT 기록 실패 대비** (PR #48 리뷰 C1 [필수]): DLT 리스너 팩토리가 `FixedBackOff(0,0)`이라 `recordDltArrival` DB 쓰기가 실패하면 실패 기록 없이 오프셋이 넘어가고 P0도 안 울림. DLT 팩토리 백오프 + 최종 실패 카운터를 P0 expr에 OR + 실패 경로 테스트. 함께 검토: C2(이미 EXHAUSTED인 행 재처리 시 P0 재발화), C4(RESOLVED→RETRYING 시 attempts 유지로 즉시 소진 — 의도 확인). BL-029 PR②(사용자 환불)가 이 경로에 의존하므로 그 전에 처리 권장 | 버그·정합성 | 높음 | S | | PR #48 /pr-review (2026-11-16) |
 | BL-002 | **PG 거래 내역 대사 배치**: 최소 구현 + 시드 데이터로 기준선 측정(perf-compare). 성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | BL-029 | 결제 로드맵 (2026-11-12), 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
+| BL-033 | **`/pr-review` 게시 경로 첫 실사용**: 리뷰어가 게시용 JSON을 직접 쓰는 구조(BL-032 A안)와 `gh api` review 게시·반영 시 코멘트 읽기를 실제 PR에서 확인. 리뷰 비용은 PR #48로 측정함(약 12만 토큰/154KB diff). 대상: 다음 위험 변경 PR(BL-029 PR②) | 검증 대기 | 중간 | S | | BL-032 (2026-11-16) |
 
 ## EKS 재가동 후
 | ID | 항목 | 규모 | 선행 | 출처 |
@@ -35,7 +38,7 @@
 |----|------|------|------|------|
 | BL-008 | 대사 배치 성능 개선 (키셋 페이징, chunk 크기, 배치 전용 커넥션 풀 등) — perf-compare로 개선 하나씩 전후 측정, `docs/portfolio.md`에 요약. 병목별로 항목을 나눠 진행 | BL-002 기준선 측정에서 해당 병목이 확인될 때 | 병목별 S~M | 결제 로드맵, 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-004 | 금액 필수화 (확장-축소 마지막 단계): 금액 없는 `payment-request` 거부 | 운영에서 `business_payment_legacy_without_amount_total`이 계속 0 | S | PR #22 |
-| BL-025 | `.claude/` 명령·훅의 OS 의존 제거. **훅 우선**: `settings.json`의 안전 훅(`git push --force`·`DROP` 차단)이 `powershell -File ...ps1`이라 Mac/Linux에서는 조용히 실패해 안전장치가 꺼짐. 그 외 `/coverage`·`/release-notes`는 계산 로직이 PowerShell, `/db-migration`·`/codex-review`·`incident`·`pr`은 표기·지시가 Windows 기준. 논의된 방식: 계산이 있는 것(coverage·release-notes·훅)은 Node 스크립트(`.claude/scripts/`, 내장 기능만), git 명령뿐인 것은 OS 중립 지시. `/coverage` 기본 모듈의 `mcp`는 존재하지 않는 모듈 | Windows 외 OS를 쓰는 팀원 합류, 또는 개발 환경 OS 변경 | M | BL-013 작업 중 발견, 조건부 이동 #41 |
+| BL-025 | `.claude/` 명령·훅의 OS 의존 제거. **훅 우선**: `settings.json`의 안전 훅(`git push --force`·`DROP` 차단)이 `powershell -File ...ps1`이라 Mac/Linux에서는 조용히 실패해 안전장치가 꺼짐. 그 외 `/coverage`·`/release-notes`는 계산 로직이 PowerShell, `/db-migration`·`incident`·`pr`은 표기·지시가 Windows 기준. 논의된 방식: 계산이 있는 것(coverage·release-notes·훅)은 Node 스크립트(`.claude/scripts/`, 내장 기능만), git 명령뿐인 것은 OS 중립 지시. `/coverage` 기본 모듈의 `mcp`는 존재하지 않는 모듈 | Windows 외 OS를 쓰는 팀원 합류, 또는 개발 환경 OS 변경 | M | BL-013 작업 중 발견, 조건부 이동 #41 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 | `docs/design-notes.md` "E2E 두 층과 도구"의 전환 조건 | M | BL-001 작업 중 논의 |
 | BL-007 | 전체 스택 E2E CI 워크플로 (docker compose 기반) — 백엔드 E2E(`backend-e2e/`) + UI E2E(`frontend/e2e/`). 논의된 설계: 트리거는 main 머지 후(경로 필터)·수동·워크플로 파일 변경 PR, 야간 없음 / 필요한 서비스 11개만 기동(grafana 3000 포트 충돌) / 한 job에서 순차 실행 / 표준 러너(PUBLIC, 4 vCPU·16GB) 실측 후 기록 / `bitnami/kafka:latest` pull 실패 가능성. 현업 표준은 스테이징 E2E(BL-018)이며, 이 항목은 스테이징이 없는 동안의 대체재 또는 배포 전 게이트 | ① EKS 재가동 후 BL-018과 함께 역할(대체·배포 전 게이트·통합) 판단, 또는 ② 로컬 E2E 누락으로 main의 서버 간 흐름이 깨진 사례 발생 | M | E2E 회고, 조건부 이동 #38 |
 | BL-020 | 수동 확인·팀 간 공유용 API 도구 (Postman 컬렉션 또는 IntelliJ `.http`). 자동 검증 원본은 `backend-e2e/` — 같은 검증을 중복 자동화하지 않음. 할 때는 `contracts/openapi.yaml`·`contracts/server-a-openapi.yaml`을 가져와(import) 생성 | 팀원 합류, 또는 수동 API 호출이 반복돼 불편할 때 | S | BL-001 작업 중 논의, 조건부 이동 #39 |
