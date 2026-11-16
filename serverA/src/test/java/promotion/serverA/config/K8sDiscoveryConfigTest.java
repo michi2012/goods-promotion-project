@@ -45,4 +45,27 @@ class K8sDiscoveryConfigTest {
                     assertThat(instances.get(0).isSecure()).isFalse();
                 });
     }
+
+    @Test
+    @DisplayName("k8s 프로필 설정으로 user-service 인스턴스가 K8s Service DNS로 조회된다 (환불 본인 확인용)")
+    void userServiceResolvedToK8sServiceDns() {
+        new ApplicationContextRunner()
+                .withInitializer(ctx -> {
+                    try {
+                        new YamlPropertySourceLoader()
+                                .load("application-k8s", new ClassPathResource("application-k8s.yml"))
+                                .forEach(ctx.getEnvironment().getPropertySources()::addFirst);
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                })
+                .withConfiguration(AutoConfigurations.of(
+                        UtilAutoConfiguration.class, SimpleDiscoveryClientAutoConfiguration.class))
+                .run(ctx -> {
+                    List<ServiceInstance> instances = ctx.getBean(SimpleDiscoveryClient.class).getInstances("user-service");
+
+                    assertThat(instances).hasSize(1);
+                    assertThat(instances.get(0).getUri().toString()).isEqualTo("http://user-service:8086");
+                });
+    }
 }

@@ -63,6 +63,20 @@ class OpenApiContractTest extends AbstractSpringBootTest {
                 .isEqualTo(propertyNames(contract, contractSchema));
     }
 
+    @Test
+    @DisplayName("POST /api/v1/orders/{orderId}/refund 응답 스키마가 계약과 일치한다")
+    void refundEndpointMatchesContract() throws Exception {
+        Map<String, Object> live = fetchLiveSpec();
+        Map<String, Object> contract = loadContract();
+
+        Map<String, Object> liveSchema = resolveResponseSchema(live, "/api/v1/orders/{orderId}/refund", "post", "200");
+        Map<String, Object> contractSchema = resolveResponseSchema(contract, "/api/v1/orders/{orderId}/refund", "post", "200");
+
+        assertThat(propertyNames(live, liveSchema))
+                .as("RefundResponse 필드가 계약과 일치해야 한다")
+                .isEqualTo(propertyNames(contract, contractSchema));
+    }
+
     private Map<String, Object> fetchLiveSpec() throws Exception {
         String liveJson = restTemplate.getForObject("http://localhost:" + port + "/v3/api-docs", String.class);
         return new ObjectMapper().readValue(liveJson, Map.class);

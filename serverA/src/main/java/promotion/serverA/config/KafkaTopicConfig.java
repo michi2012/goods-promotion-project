@@ -83,4 +83,13 @@ public class KafkaTopicConfig {
                            .replicas(1)
                            .build();
     }
+
+    // payment-cancelled(serverC가 생성)의 DLT — 소비하는 serverA가 선언한다 (status-update-result.DLT와 같은 관례)
+    @Bean
+    public NewTopic paymentCancelledDltTopic() {
+        return TopicBuilder.name("payment-cancelled.DLT")
+                           .partitions(1)
+                           .replicas(1)
+                           .build();
+    }
 }
