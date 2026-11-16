@@ -32,14 +32,6 @@ spring:
         dimensions: 3072
   elasticsearch:
     uris: ${ELASTICSEARCH_URIS:http://localhost:9200}
-  kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    producer:
-      acks: all
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      properties:
-        enable.idempotence: true
 
 server:
   port: 8089

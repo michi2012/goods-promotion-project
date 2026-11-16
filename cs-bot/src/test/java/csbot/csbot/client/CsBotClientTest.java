@@ -1,6 +1,7 @@
 package csbot.csbot.client;
 
 import csbot.csbot.client.dto.PaymentResponse;
+import csbot.csbot.client.dto.RefundResponse;
 import csbot.csbot.client.dto.UserProfileResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,10 +12,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -24,6 +28,7 @@ import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 @ExtendWith(MockitoExtension.class)
@@ -63,6 +68,47 @@ class CsBotClientTest {
         Long result = csBotClient.resolveNumericUserId("test-uuid-123");
 
         assertThat(result).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("환불 요청은 serverA 환불 API에 X-User-Id(로그인 ID)를 담아 POST하고 응답 상태를 돌려준다")
+    void requestRefund_성공() {
+        given(discoveryClient.getInstances("serverA")).willReturn(List.of(serviceInstance));
+        given(serviceInstance.isSecure()).willReturn(false);
+        given(serviceInstance.getHost()).willReturn("localhost");
+        given(serviceInstance.getPort()).willReturn(8080);
+
+        server.expect(requestTo("http://localhost:8080/api/v1/orders/order-1/refund"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("X-User-Id", "test-uuid-123"))
+                .andRespond(withSuccess("""
+                        { "orderId": "order-1", "status": "REFUND_REQUESTED" }
+                        """, MediaType.APPLICATION_JSON));
+
+        RefundResponse result = csBotClient.requestRefund("order-1", "test-uuid-123");
+
+        assertThat(result.status()).isEqualTo("REFUND_REQUESTED");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("환불 거절(409)은 응답 본문을 담은 예외로 던진다 — 호출자가 문구를 꺼내 안내")
+    void requestRefund_거절() {
+        given(discoveryClient.getInstances("serverA")).willReturn(List.of(serviceInstance));
+        given(serviceInstance.isSecure()).willReturn(false);
+        given(serviceInstance.getHost()).willReturn("localhost");
+        given(serviceInstance.getPort()).willReturn(8080);
+
+        server.expect(requestTo("http://localhost:8080/api/v1/orders/order-1/refund"))
+                .andRespond(withStatus(HttpStatus.CONFLICT).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"status":409,"error":"REFUND_NOT_ALLOWED_STATUS","message":"환불할 수 없는 주문 상태입니다"}
+                        """));
+
+        assertThatThrownBy(() -> csBotClient.requestRefund("order-1", "test-uuid-123"))
+                .isInstanceOfSatisfying(RestClientResponseException.class, e -> {
+                    assertThat(e.getStatusCode().value()).isEqualTo(409);
+                    assertThat(e.getResponseBodyAsString(StandardCharsets.UTF_8)).contains("환불할 수 없는 주문 상태입니다");
+                });
     }
 
     @Test

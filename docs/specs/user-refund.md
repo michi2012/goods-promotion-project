@@ -279,15 +279,17 @@ components:
 없음. 새 Gradle 의존성 없음 (스케줄러 선점은 조건부 UPDATE, user-service 호출은 기존 RestClient).
 
 ### 구현 단계 (PR 분할)
-| PR | 범위 | 상태 |
+| PR | 범위 | 백로그 / PR |
 |----|------|------|
-| ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 머지 |
-| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | #51 머지 |
+| ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 |
+| (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | BL-034 #51 |
 | ②-a serverB 계약 + 게이트웨이 | serverB 상태 enum(`REFUND_REQUESTED`·`REFUNDED`, `contracts/openapi.yaml`), 게이트웨이 `serverA-refund` 라우트(local·k8s, `serverB-orders` 앞) | #52 |
-| ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | #55 |
-| ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | 진행 예정 |
+| ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | #55 (리뷰 반영 BL-041 #56) |
+| ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | BL-043 #59 |
 
-마지막 PR에서 할 일: arch-snapshot·`flows/purchase-saga-flow.md`·design-notes의 `refund_fatal` 설명 갱신(자동 재시도 진입 / 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`), `docs/portfolio.md` 문제 해결 기록(PG 취소 멱등화·실패 재처리, P0 알람 오탐 제거)
+진행 상태는 백로그(BL-029와 하위 항목)에서 관리한다 (이 표에는 범위와 백로그·PR만).
+
+마지막 PR에서 할 일 (BL-043): arch-snapshot·`flows/purchase-saga-flow.md`·design-notes의 `refund_fatal` 설명 갱신(자동 재시도 진입 / 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`). 머지 후 `docs/portfolio.md` "문제 해결" 4개 질문 기준으로 **BL-029 전체를 한 줄** — "분산 환경에서 환불의 이중 처리·유실·재고 불일치를 막은 문제" (BL-034·041 포함, 부분 수정은 따로 적지 않음)
 
 ## 4. 변경 이력 (확인 이후)
 | 날짜 | 변경 | 이유 |
@@ -295,6 +297,7 @@ components:
 | 2026-11-14 | 화면: 기간이 지난 주문에 "버튼 대신 안내 문구" → "버튼은 보이고 누르면 거절 문구". PAID 화면에 로그인 ID 입력칸 추가 | 설계 중 발견: 화면 데이터(serverB)에 결제 완료 시각이 없고, 프론트에 로그인이 없다 |
 | 2026-11-16 | "구현 단계(PR 분할)" 섹션 추가 (요구사항·설계 변경 없음) | 3종 문서가 PR 머지 후 새로 쓰여 분할 계획이 사라지는 문제 — spec 규칙 11 |
 | 2026-11-14 | P-12 추가: 환불 후 재구매 불가 | 설계 중 발견: Saga 보상은 1인 1회 구매 표시도 푸는데, 환불에서의 처리가 정해져 있지 않았다 |
+| 2026-11-16 | "구현 단계" 표의 상태 칸을 백로그/PR 칸으로, 포트폴리오 문구를 BL-029 전체 한 줄로 (요구사항·설계 변경 없음) | 백로그 분할 규칙(#58) — 상태는 백로그에만, 포트폴리오 기준(#57) — 같은 문제는 한 줄로 |
 | 2026-11-16 | 환불 재고 복구 방어 키를 만료 없음 + 재고 증가와 원자적(Lua)으로 변경 | PR #56 리뷰 C1·C2 — SETNX와 INCRBY 사이 실패 시 영구 미복구, TTL 1일이면 DLT 이후 재처리에서 이중 복구 |
 | 2026-11-16 | P-12 구현을 "환불 완료 시 구매 표시 영구화"로 명시, 환불 완료 재시도 시 Redis 재고 1회 복구(방어 키), `paid_at` 없는 PAID 주문은 `updated_at`으로 기간 판단 (요구사항 변경 없음) | PR #55 머지 후 리뷰 C1·C2·C3 (BL-041) — 구매 표시 TTL 1시간이라 1시간 뒤 환불이면 재구매가 열림, 재시도 시 Redis 이중 복구, 롤링 배포 중 NPE |
 | 2026-11-16 | 환불 API 401에 에러 코드 `UNAUTHORIZED`(문구 "로그인이 필요합니다") 명시 | 구현(PR②-b) 중 확정 — 다른 거절 응답과 같은 ErrorResponse 형식 |

@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import csbot.csbot.client.CsBotClient;
 import csbot.csbot.client.dto.DltResponse;
 import csbot.csbot.client.dto.GoodsResponse;
+import csbot.csbot.client.dto.ApiErrorResponse;
 import csbot.csbot.client.dto.OrderStatusResponse;
-import csbot.csbot.client.dto.PaymentCancelMessage;
 import csbot.csbot.client.dto.PaymentResponse;
+import csbot.csbot.client.dto.RefundResponse;
 import csbot.csbot.client.dto.UserProfileResponse;
 import csbot.csbot.context.CsUserContext;
 import csbot.csbot.linear.CsEscalationService;
@@ -14,9 +15,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,13 +31,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CsBotTools {
 
-    private static final String PAYMENT_CANCEL_TOPIC = "payment-cancel";
-    private static final String CANCELABLE_STATUS = "PAID";
+    private static final String REFUND_REQUESTED = "REFUND_REQUESTED";
+    private static final String REFUNDED = "REFUNDED";
 
     private final CsBotClient csBotClient;
     private final CsUserContext csUserContext;
     private final CsEscalationService escalationService;
-    private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
     @Tool(description = """
@@ -74,34 +75,41 @@ public class CsBotTools {
     }
 
     @Tool(description = """
-            본인의 주문에 대해 환불/취소를 요청합니다.
+            본인의 주문에 대해 환불(주문 전체)을 요청합니다.
             언제 호출: getMyOrders로 본인 주문을 먼저 확인한 뒤, 고객이 특정 주문번호의 환불/취소를 요청할 때.
-            처리: 결제 상태가 PAID인 본인 주문만 취소 요청을 접수한다. 처리는 비동기이며, 결과는 잠시 후 getMyOrders로 재확인할 수 있다.
+            처리: 주문 서버가 본인 주문·결제 완료 상태·결제 후 7일 이내인지 판단해 접수하거나 거절한다. 거절 사유는 그대로 안내한다.
+            같은 주문에 다시 요청해도 새로 처리되지 않고 현재 환불 상태를 돌려준다.
             """)
-    public String requestRefund(@ToolParam(description = "취소할 주문번호 (orderId)") String orderId) {
+    public String requestRefund(@ToolParam(description = "환불할 주문번호 (orderId)") String orderId) {
         try {
-            List<PaymentResponse> payments = csBotClient.getMyPayments(csUserContext.resolveNumericId());
-            PaymentResponse target = payments.stream()
-                    .filter(p -> p.orderId().equals(orderId))
-                    .findFirst()
-                    .orElse(null);
-
-            if (target == null) {
-                return "본인의 주문 중 주문번호 " + orderId + "를 찾을 수 없습니다.";
+            // 정책 판단(본인·상태·기간)은 serverA 한 곳에서 한다 (명세 P-1). 여기서 미리 걸러 내지 않는다
+            RefundResponse response = csBotClient.requestRefund(orderId, csUserContext.getLoginId());
+            log.info("[CsBotTools] 환불 요청 결과: orderId={}, status={}", orderId, response.status());
+            if (REFUNDED.equals(response.status())) {
+                return "주문번호 " + orderId + "의 환불은 이미 완료되었습니다.";
             }
-            if (!CANCELABLE_STATUS.equals(target.status())) {
-                return "주문번호 " + orderId + "는 현재 상태(" + target.status() + ")에서는 취소할 수 없습니다.";
-            }
-
-            String payload = objectMapper.writeValueAsString(new PaymentCancelMessage(orderId));
-            kafkaTemplate.send(PAYMENT_CANCEL_TOPIC, orderId, payload);
-
-            log.info("[CsBotTools] 환불/취소 요청 접수: orderId={}", orderId);
-            return "주문번호 " + orderId + "의 취소 요청이 접수되었습니다. 처리 결과는 잠시 후 다시 조회해 주세요.";
+            return "주문번호 " + orderId + "의 환불이 접수되었습니다. 지금은 환불 처리 중이며, 완료되면 결제 수단으로 환불됩니다.";
+        } catch (RestClientResponseException e) {
+            String reason = rejectionReason(e);
+            log.info("[CsBotTools] 환불 거절: orderId={}, status={}, reason={}", orderId, e.getStatusCode().value(), reason);
+            return "주문번호 " + orderId + "의 환불 요청이 거절되었습니다: " + reason;
         } catch (Exception e) {
-            log.warn("[CsBotTools] 환불/취소 요청 실패: orderId={}, error={}", orderId, e.getMessage());
-            return "환불/취소 요청 처리 중 오류가 발생했습니다: " + e.getMessage();
+            log.warn("[CsBotTools] 환불 요청 실패: orderId={}, error={}", orderId, e.getMessage());
+            return "환불 요청 처리 중 오류가 발생했습니다: " + e.getMessage();
         }
+    }
+
+    // serverA 에러 본문의 message(명세 화면 문구)를 꺼낸다. 본문이 없거나 형식이 다르면 일반 문구
+    private String rejectionReason(RestClientResponseException e) {
+        try {
+            ApiErrorResponse body = objectMapper.readValue(e.getResponseBodyAsString(StandardCharsets.UTF_8), ApiErrorResponse.class);
+            if (body.message() != null && !body.message().isBlank()) {
+                return body.message();
+            }
+        } catch (Exception ignored) {
+            // 아래 일반 문구로
+        }
+        return "잠시 후 다시 시도해주세요.";
     }
 
     @Tool(description = """
@@ -141,24 +149,23 @@ public class CsBotTools {
     }
 
     @Tool(description = """
-            환불/취소 처리 상태를 추적합니다.
-            언제 호출: requestRefund로 취소 요청 후 실제 처리됐는지 확인할 때. "환불이 됐나요", "취소 확인" 문의 시.
-            반환: CANCELLED=완료, PAID=아직 처리 중(requestRefund 재시도 가능).
+            환불 처리 상태를 확인합니다.
+            언제 호출: requestRefund로 환불을 요청한 뒤 처리됐는지 확인할 때. "환불이 됐나요", "취소 확인" 문의 시.
+            반환: 환불 처리 중(REFUND_REQUESTED) / 환불 완료(REFUNDED) / 그 외 현재 주문 상태.
             """)
     public String trackRefundStatus(@ToolParam(description = "확인할 주문번호 (orderId)") String orderId) {
         try {
-            List<PaymentResponse> payments = csBotClient.getMyPayments(csUserContext.resolveNumericId());
-            PaymentResponse target = payments.stream()
-                    .filter(p -> p.orderId().equals(orderId))
-                    .findFirst()
-                    .orElse(null);
-            if (target == null) {
+            // 주문 상태 조회 API에는 본인 확인이 없어서, 본인 주문인지는 결제 내역으로 먼저 확인한다
+            boolean mine = csBotClient.getMyPayments(csUserContext.resolveNumericId()).stream()
+                    .anyMatch(p -> p.orderId().equals(orderId));
+            if (!mine) {
                 return "본인의 주문 중 주문번호 " + orderId + "를 찾을 수 없습니다.";
             }
-            return switch (target.status()) {
-                case "CANCELLED" -> "주문번호 " + orderId + "의 환불이 완료되었습니다.";
-                case "PAID" -> "주문번호 " + orderId + "의 취소 처리가 아직 진행 중입니다. 잠시 후 다시 확인하거나, 지연되면 requestRefund를 다시 시도할 수 있습니다.";
-                default -> "주문번호 " + orderId + "의 현재 상태는 " + target.status() + "입니다.";
+            String status = csBotClient.getOrderStatus(orderId).status();
+            return switch (status) {
+                case REFUND_REQUESTED -> "주문번호 " + orderId + "는 환불 처리 중입니다. 완료되면 결제 수단으로 환불됩니다.";
+                case REFUNDED -> "주문번호 " + orderId + "의 환불이 완료되었습니다.";
+                default -> "주문번호 " + orderId + "의 현재 주문 상태는 " + status + "입니다. 환불을 요청하지 않았다면 requestRefund로 요청할 수 있습니다.";
             };
         } catch (Exception e) {
             log.warn("[CsBotTools] 환불 상태 조회 실패: orderId={}, error={}", orderId, e.getMessage());

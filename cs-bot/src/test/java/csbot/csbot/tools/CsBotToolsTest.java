@@ -16,8 +16,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.kafka.core.KafkaTemplate;
+import csbot.csbot.client.dto.RefundResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -40,14 +43,11 @@ class CsBotToolsTest {
     @Mock
     private CsEscalationService escalationService;
 
-    @Mock
-    private KafkaTemplate<String, String> kafkaTemplate;
-
     private CsBotTools csBotTools;
 
     @BeforeEach
     void setUp() {
-        csBotTools = new CsBotTools(csBotClient, csUserContext, escalationService, kafkaTemplate, new ObjectMapper());
+        csBotTools = new CsBotTools(csBotClient, csUserContext, escalationService, new ObjectMapper());
     }
 
     @Test
@@ -89,45 +89,51 @@ class CsBotToolsTest {
     }
 
     @Test
-    @DisplayName("requestRefund: PAID 상태의 본인 주문이면 취소 요청을 produce하고 접수 메시지를 반환한다")
-    void requestRefund_성공() {
-        given(csUserContext.resolveNumericId()).willReturn(1L);
-        given(csBotClient.getMyPayments(1L)).willReturn(List.of(
-                new PaymentResponse("order-1", 1L, 10L, 2, "CARD", "PAID", LocalDateTime.of(2026, 6, 1, 10, 0))
-        ));
+    @DisplayName("requestRefund: serverA 환불 API를 로그인 ID로 호출하고, 접수되면 환불 처리 중으로 안내한다 (P-1)")
+    void requestRefund_접수() {
+        given(csUserContext.getLoginId()).willReturn("test-uuid-123");
+        given(csBotClient.requestRefund("order-1", "test-uuid-123"))
+                .willReturn(new RefundResponse("order-1", "REFUND_REQUESTED"));
 
         String result = csBotTools.requestRefund("order-1");
 
-        assertThat(result).contains("order-1").contains("접수");
-        verify(kafkaTemplate).send("payment-cancel", "order-1", "{\"orderId\":\"order-1\"}");
+        assertThat(result).contains("order-1").contains("접수").contains("환불 처리 중");
+        verify(csBotClient, never()).getMyPayments(any()); // 정책 판단은 serverA에서만
     }
 
     @Test
-    @DisplayName("requestRefund: 본인 주문이 아니면 거부 메시지를 반환하고 produce하지 않는다")
-    void requestRefund_본인주문아님() {
-        given(csUserContext.resolveNumericId()).willReturn(1L);
-        given(csBotClient.getMyPayments(1L)).willReturn(List.of(
-                new PaymentResponse("order-2", 1L, 10L, 2, "CARD", "PAID", LocalDateTime.of(2026, 6, 1, 10, 0))
-        ));
+    @DisplayName("requestRefund: 이미 환불 완료된 주문이면 완료로 안내한다 (멱등)")
+    void requestRefund_이미완료() {
+        given(csUserContext.getLoginId()).willReturn("test-uuid-123");
+        given(csBotClient.requestRefund("order-1", "test-uuid-123"))
+                .willReturn(new RefundResponse("order-1", "REFUNDED"));
 
-        String result = csBotTools.requestRefund("order-1");
-
-        assertThat(result).contains("찾을 수 없습니다");
-        verify(kafkaTemplate, never()).send(any(), any(), any());
+        assertThat(csBotTools.requestRefund("order-1")).contains("이미 완료");
     }
 
     @Test
-    @DisplayName("requestRefund: 취소 가능 상태(PAID)가 아니면 거부 메시지를 반환하고 produce하지 않는다")
-    void requestRefund_취소불가상태() {
-        given(csUserContext.resolveNumericId()).willReturn(1L);
-        given(csBotClient.getMyPayments(1L)).willReturn(List.of(
-                new PaymentResponse("order-1", 1L, 10L, 2, "CARD", "FAILED", LocalDateTime.of(2026, 6, 1, 10, 0))
-        ));
+    @DisplayName("requestRefund: serverA가 거절하면(409 기간 초과) 응답 본문의 문구를 그대로 안내한다")
+    void requestRefund_거절문구전달() {
+        given(csUserContext.getLoginId()).willReturn("test-uuid-123");
+        byte[] body = """
+                {"status":409,"error":"REFUND_PERIOD_EXPIRED","message":"환불 기간(결제 후 7일)이 지났습니다"}
+                """.getBytes(StandardCharsets.UTF_8);
+        given(csBotClient.requestRefund("order-1", "test-uuid-123")).willThrow(
+                HttpClientErrorException.create(HttpStatus.CONFLICT, "Conflict", null, body, StandardCharsets.UTF_8));
 
         String result = csBotTools.requestRefund("order-1");
 
-        assertThat(result).contains("취소할 수 없습니다");
-        verify(kafkaTemplate, never()).send(any(), any(), any());
+        assertThat(result).contains("거절").contains("환불 기간(결제 후 7일)이 지났습니다");
+    }
+
+    @Test
+    @DisplayName("requestRefund: 거절 응답에 본문이 없으면 일반 문구로 안내한다")
+    void requestRefund_거절본문없음() {
+        given(csUserContext.getLoginId()).willReturn("test-uuid-123");
+        given(csBotClient.requestRefund("order-1", "test-uuid-123")).willThrow(
+                HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", null, new byte[0], StandardCharsets.UTF_8));
+
+        assertThat(csBotTools.requestRefund("order-1")).contains("거절").contains("잠시 후 다시 시도해주세요");
     }
 
     @Test
@@ -175,29 +181,41 @@ class CsBotToolsTest {
     }
 
     @Test
-    @DisplayName("trackRefundStatus: CANCELLED이면 환불 완료 메시지를 반환한다")
+    @DisplayName("trackRefundStatus: 본인 주문이고 serverB 상태가 REFUNDED면 환불 완료로 안내한다")
     void trackRefundStatus_완료() {
         given(csUserContext.resolveNumericId()).willReturn(1L);
         given(csBotClient.getMyPayments(1L)).willReturn(List.of(
                 new PaymentResponse("order-1", 1L, 10L, 2, "CARD", "CANCELLED", LocalDateTime.of(2026, 6, 1, 10, 0))
         ));
+        given(csBotClient.getOrderStatus("order-1")).willReturn(new OrderStatusResponse("order-1", "REFUNDED"));
 
-        String result = csBotTools.trackRefundStatus("order-1");
-
-        assertThat(result).contains("완료");
+        assertThat(csBotTools.trackRefundStatus("order-1")).contains("환불이 완료");
     }
 
     @Test
-    @DisplayName("trackRefundStatus: PAID이면 처리 중 메시지를 반환한다")
+    @DisplayName("trackRefundStatus: serverB 상태가 REFUND_REQUESTED면 처리 중으로 안내하고 재요청을 권하지 않는다")
     void trackRefundStatus_처리중() {
         given(csUserContext.resolveNumericId()).willReturn(1L);
         given(csBotClient.getMyPayments(1L)).willReturn(List.of(
                 new PaymentResponse("order-1", 1L, 10L, 2, "CARD", "PAID", LocalDateTime.of(2026, 6, 1, 10, 0))
         ));
+        given(csBotClient.getOrderStatus("order-1")).willReturn(new OrderStatusResponse("order-1", "REFUND_REQUESTED"));
 
         String result = csBotTools.trackRefundStatus("order-1");
 
-        assertThat(result).contains("진행 중");
+        assertThat(result).contains("환불 처리 중").doesNotContain("다시 시도");
+    }
+
+    @Test
+    @DisplayName("trackRefundStatus: 본인 주문이 아니면 주문 상태를 조회하지 않는다")
+    void trackRefundStatus_본인주문아님() {
+        given(csUserContext.resolveNumericId()).willReturn(1L);
+        given(csBotClient.getMyPayments(1L)).willReturn(List.of(
+                new PaymentResponse("order-2", 1L, 10L, 2, "CARD", "PAID", LocalDateTime.of(2026, 6, 1, 10, 0))
+        ));
+
+        assertThat(csBotTools.trackRefundStatus("order-1")).contains("찾을 수 없습니다");
+        verify(csBotClient, never()).getOrderStatus(any());
     }
 
     @Test

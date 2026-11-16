@@ -119,7 +119,7 @@ Saga가 끝난(상태 삭제) 뒤 `payment-result(success)`가 오는 경우. �
   - `GET /api/v1/admin/dlt` — `UNRESOLVED` 전체 조회 (aiops `DltTools.listUnresolvedDlt` 전용)
   - `GET /api/v1/admin/dlt/orders/{orderId}` — 단건 조회 (cs-bot 내부 호출)
   - `POST /api/v1/admin/dlt/{dltId}/retry` — `DeadLetterService.retryDeadLetter()`가 `goodsRepository.increaseStockAtomically()`로 재고를 강제 복구하고 DLT를 `RESOLVED`로 마킹. 이미 `RESOLVED`면 `AlreadyResolvedDltException`.
-- `payment-cancel.DLT` — serverC `PaymentCancelConsumer.handleDlt()`가 `business_payment_pg_refund_fatal_total` 카운터만 증가시키고 로그 경고(PG 망취소까지 실패한 치명 케이스 — 수동 정산 대상, README P0 알람 대상).
+- `payment-cancel.DLT` — serverC `PaymentCancelConsumer.handleDlt()`가 `payment_cancel_failures`에 RETRYING으로 기록하고 `business_payment_pg_refund_fatal_total`(= 자동 재시도 진입 건수)을 올린다. 스케줄러가 10분 간격 최대 6회 자동 재시도하고, 소진되면 EXHAUSTED + `business_payment_cancel_retry_exhausted_total` → P0 `PaymentFatalError` → 관리자 API(`GET/POST /api/v1/payments/admin/cancel-failures`)로 재처리. 기록 자체가 실패하면 `business_payment_cancel_dlt_record_failed_total` → P0 `PaymentCancelDltRecordFailed`. 사용자 환불도 같은 경로를 쓴다 (`docs/specs/user-refund.md`).
 
 ## 7. 클라이언트 조회 — `OrderQueryController` (serverB)
 

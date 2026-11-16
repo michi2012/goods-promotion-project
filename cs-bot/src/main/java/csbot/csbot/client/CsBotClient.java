@@ -5,6 +5,7 @@ import csbot.csbot.client.dto.GoodsResponse;
 import csbot.csbot.client.dto.InternalUserResponse;
 import csbot.csbot.client.dto.OrderStatusResponse;
 import csbot.csbot.client.dto.PaymentResponse;
+import csbot.csbot.client.dto.RefundResponse;
 import csbot.csbot.client.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -65,6 +66,16 @@ public class CsBotClient {
                 .uri("/api/v1/orders/{orderId}/status", orderId)
                 .retrieve()
                 .body(OrderStatusResponse.class);
+    }
+
+    // 환불 요청은 serverA 환불 API 한 곳으로 모은다 (명세 P-1). 4xx/5xx는 RestClientResponseException으로 던진다 — 본문에 거절 문구가 있다
+    public RefundResponse requestRefund(String orderId, String loginId) {
+        return clientFor("serverA")
+                .post()
+                .uri("/api/v1/orders/{orderId}/refund", orderId)
+                .header("X-User-Id", loginId)
+                .retrieve()
+                .body(RefundResponse.class);
     }
 
     public DltResponse getDltByOrderId(String orderId) {
