@@ -185,7 +185,7 @@ sequenceDiagram
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RefundResponse' }
-        '401': { description: X-User-Id 없음 }
+        '401': { description: "UNAUTHORIZED — X-User-Id 없음", content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
         '404': { description: "ORDER_NOT_FOUND — 주문이 없거나 본인 주문이 아님", content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
         '409': { description: "REFUND_NOT_ALLOWED_STATUS(PAID 아님) / REFUND_PERIOD_EXPIRED(결제 후 7일 초과)", content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
         '503': { description: "USER_LOOKUP_UNAVAILABLE — user-service 조회 실패", content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
@@ -281,7 +281,7 @@ components:
 | ① serverC | PG 취소 멱등화, `payment-cancelled` 발행, `payment_cancel_failures`(V3)·자동 재시도·관리자 API, P0 알람 교체, E2E 관리자 API 시나리오 | #48 머지 |
 | (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | #51 머지 |
 | ②-a serverB 계약 + 게이트웨이 | serverB 상태 enum(`REFUND_REQUESTED`·`REFUNDED`, `contracts/openapi.yaml`), 게이트웨이 `serverA-refund` 라우트(local·k8s, `serverB-orders` 앞) | #52 |
-| ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | 진행 예정 |
+| ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | #55 |
 | ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | 진행 예정 |
 
 마지막 PR에서 할 일: arch-snapshot·`flows/purchase-saga-flow.md`·design-notes의 `refund_fatal` 설명 갱신(자동 재시도 진입 / 관리자 처리 필요는 `business_payment_cancel_retry_exhausted_total`), `docs/portfolio.md` 문제 해결 기록(PG 취소 멱등화·실패 재처리, P0 알람 오탐 제거)
@@ -292,5 +292,6 @@ components:
 | 2026-11-14 | 화면: 기간이 지난 주문에 "버튼 대신 안내 문구" → "버튼은 보이고 누르면 거절 문구". PAID 화면에 로그인 ID 입력칸 추가 | 설계 중 발견: 화면 데이터(serverB)에 결제 완료 시각이 없고, 프론트에 로그인이 없다 |
 | 2026-11-16 | "구현 단계(PR 분할)" 섹션 추가 (요구사항·설계 변경 없음) | 3종 문서가 PR 머지 후 새로 쓰여 분할 계획이 사라지는 문제 — spec 규칙 11 |
 | 2026-11-14 | P-12 추가: 환불 후 재구매 불가 | 설계 중 발견: Saga 보상은 1인 1회 구매 표시도 푸는데, 환불에서의 처리가 정해져 있지 않았다 |
+| 2026-11-16 | 환불 API 401에 에러 코드 `UNAUTHORIZED`(문구 "로그인이 필요합니다") 명시 | 구현(PR②-b) 중 확정 — 다른 거절 응답과 같은 ErrorResponse 형식 |
 | 2026-11-16 | 구현 단계 ②를 ②-a(serverB 계약·게이트웨이)·②-b(serverA·E2E)로 분할, E2E의 "PG 1회"는 재고 1회 복구로 확인 (요구사항·설계 변경 없음) | 예상 변경 파일 약 30개로 리뷰 범위가 넓음. 배포 순서상 serverB·게이트웨이가 먼저 나갈 수 있음. PG 호출 횟수는 블랙박스로 관측 불가 |
 | 2026-11-16 | BL-034: RESOLVED → RETRYING 시 attempts=0으로 변경, 이미 EXHAUSTED인 건은 알람 재발화 없음, DLT 기록 실패 시 재시도 + P0 추가 | PR #48 리뷰 C1·C2·C4 — DLT 기록 실패 시 취소 건이 알람 없이 사라짐, 이미 아는 건으로 P0 재발화, 다시 열린 건이 첫 실패에 바로 소진 |

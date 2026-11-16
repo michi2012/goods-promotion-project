@@ -4,15 +4,15 @@
 이 문서는 **도구와 무관한 명세**다. 지금은 Playwright(`request`)로 구현돼 있고, REST Assured 등으로 옮길 때는 이 문서를 기준으로 다시 만든다.
 
 ## 실행
-1. 백엔드 환경 기동 (MySQL 2·Redis 2·Kafka·Kafka Connect·Eureka·serverA/B/C, Debezium 커넥터 등록)
+1. 백엔드 환경 기동 (MySQL 3·Redis 2·Kafka·Kafka Connect·Eureka·serverA/B/C·user-service, Debezium 커넥터 등록)
 2. `cd backend-e2e && npm ci && npm test`
 3. 결과 보기: `npm run report` (단계별 진행, 첨부된 응답 JSON, trace 뷰어로 요청·응답 확인)
 
-대상 주소·대기 시간은 환경변수로 바꾼다: `E2E_SERVER_A_URL`(기본 `http://localhost:8080`), `E2E_SERVER_B_URL`(8081), `E2E_SERVER_C_URL`(8082), `E2E_KAFKA_CONNECT_URL`(8083), `E2E_FLOW_TIMEOUT_MS`(60000). 사전 점검 생략: `E2E_SKIP_PREFLIGHT=1`.
+대상 주소·대기 시간은 환경변수로 바꾼다: `E2E_SERVER_A_URL`(기본 `http://localhost:8080`), `E2E_SERVER_B_URL`(8081), `E2E_SERVER_C_URL`(8082), `E2E_USER_SERVICE_URL`(8086), `E2E_KAFKA_CONNECT_URL`(8083), `E2E_FLOW_TIMEOUT_MS`(60000). 사전 점검 생략: `E2E_SKIP_PREFLIGHT=1`.
 
 ## 사전 점검 (모든 시나리오 전에)
 실패하면 시나리오를 실행하지 않고 원인을 보고한다 (환경 문제 — 코드를 고치지 않는다).
-- serverA·B·C `GET /actuator/health` → `status: UP` (DB·Redis 상태 포함)
+- serverA·B·C·user-service `GET /actuator/health` → `status: UP` (DB·Redis 상태 포함)
 - Kafka Connect `GET /connectors/{name}/status` → `promotion-outbox-connector`, `payment-outbox-connector`의 connector·모든 task가 `RUNNING`
 - 각 점검은 타임아웃 10초, 실패 시 1회 재확인
 
@@ -39,4 +39,24 @@
 | ④ 없는 주문 재처리 | `POST .../{없는 orderId}/retry`, `X-User-Role: ROLE_ADMIN` | **404** |
 
 - `X-User-Role`은 운영에서 게이트웨이가 JWT로 검증해 넣는다. 여기서는 serverC를 직접 호출해 역할 검사만 확인한다.
-- PG 취소 실패 → 자동 재시도 → 소진 흐름은 실패를 일부러 만들 수단이 없어 serverC 통합 테스트(`PaymentCancelRetryIntegrationTest`)가 담당한다. 사용자 환불 E2E는 BL-029 PR②에서 추가한다.
+- PG 취소 실패 → 자동 재시도 → 소진 흐름은 실패를 일부러 만들 수단이 없어 serverC 통합 테스트(`PaymentCancelRetryIntegrationTest`)가 담당한다. 사용자 환불은 시나리오 3.
+
+## 시나리오 3: 사용자 환불 (`refund-flow.spec.ts`)
+명세: `docs/specs/user-refund.md` (S-1·S-5·S-6·P-5·P-12)
+
+| 단계 | 요청 | 기대 결과 |
+|---|---|---|
+| ① 사용자 생성 | user-service `POST /internal/api/users` (실행마다 고유 email·전화번호) | **201**, `id`(숫자)·`userId`(로그인 ID) |
+| ② 상품 생성 | serverA `POST /api/v1/goods` `{price: 15000, stock: 5}` | 200 |
+| ③ 구매 2개 | serverA `POST /api/v1/promotions/purchase` `{userId: ①의 id, quantity: 2, ...}` | 202, `orderId` |
+| ④ 결제 완료 | serverB `GET /api/v1/orders/{orderId}/status` 최대 60초 폴링 | `status: PAID` |
+| ⑤ 구매 후 재고 | serverA `GET /api/v1/goods/{goodsId}` | `stock: 3` |
+| ⑥ 없는 로그인 ID 환불 | serverA `POST /api/v1/orders/{orderId}/refund`, `X-User-Id: 없는 값` | **404** `ORDER_NOT_FOUND` |
+| ⑦ 환불 동시 2회 | 같은 요청을 `X-User-Id: ①의 userId`로 동시에 2번 | **둘 다 200**, `status`는 `REFUND_REQUESTED` 또는 `REFUNDED` |
+| ⑧ 환불 완료 | serverB 주문 상태 최대 60초 폴링 | `status: REFUNDED` |
+| ⑨ 재고 복구 | serverA 상품 조회 | **`stock: 5`** (정확히 1회 복구) |
+| ⑩ 재구매 | ③과 같은 구매 요청 | **400** `DUPLICATE_ORDER` (환불해도 구매 표시 유지) |
+
+- `X-User-Id`는 운영에서 게이트웨이가 JWT로 검증해 넣는다. 여기서는 serverA를 직접 호출한다.
+- "중복 요청에도 PG 취소 1회"는 블랙박스로 볼 수 없어 재고가 정확히 1회 복구됐는지(⑨)로 확인한다. PG 취소 멱등 자체는 serverC 단위 테스트가 담당한다.
+- 모의 PG 거절(1%) 대비 1회 재시도, 재시도마다 사용자·상품을 새로 만든다.

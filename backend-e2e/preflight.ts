@@ -11,6 +11,8 @@ const SERVERS: Array<[name: string, baseUrl: string]> = [
   ['serverA', process.env.E2E_SERVER_A_URL ?? 'http://localhost:8080'],
   ['serverB', process.env.E2E_SERVER_B_URL ?? 'http://localhost:8081'],
   ['serverC', process.env.E2E_SERVER_C_URL ?? 'http://localhost:8082'],
+  // 환불 시나리오: 사용자 생성 + serverA의 로그인 ID 조회
+  ['user-service', process.env.E2E_USER_SERVICE_URL ?? 'http://localhost:8086'],
 ]
 
 const KAFKA_CONNECT_URL = process.env.E2E_KAFKA_CONNECT_URL ?? 'http://localhost:8083'

@@ -47,8 +47,84 @@ paths:
               schema:
                 $ref: '#/components/schemas/GoodsResponse'
 
+  /api/v1/orders/{orderId}/refund:
+    post:
+      operationId: requestRefund
+      summary: 주문 환불 요청 (주문 전체)
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-User-Id
+          in: header
+          required: true
+          description: 로그인 ID. 운영에서는 게이트웨이가 JWT를 검증해 넣는다
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 환불 접수됨 또는 이미 접수·완료됨 (멱등)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          description: UNAUTHORIZED — X-User-Id 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: ORDER_NOT_FOUND — 주문이 없거나 본인 주문이 아님
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: REFUND_NOT_ALLOWED_STATUS(PAID 아님) / REFUND_PERIOD_EXPIRED(결제 후 7일 초과)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: USER_LOOKUP_UNAVAILABLE — user-service 조회 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
+    RefundResponse:
+      type: object
+      required:
+        - orderId
+        - status
+      properties:
+        orderId:
+          type: string
+        status:
+          type: string
+          enum:
+            - REFUND_REQUESTED
+            - REFUNDED
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - error
+        - message
+      properties:
+        status:
+          type: integer
+        error:
+          type: string
+          description: 에러 코드 (예 ORDER_NOT_FOUND)
+        message:
+          type: string
+          description: 화면에 보여줄 문구
     PurchaseRequest:
       type: object
       required:

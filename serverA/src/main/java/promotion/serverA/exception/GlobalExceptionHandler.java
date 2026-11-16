@@ -30,6 +30,13 @@ public class GlobalExceptionHandler {
                              .body(new ErrorResponse(400, e.getErrorCode(), e.getMessage()));
     }
 
+    @ExceptionHandler(RefundException.class)
+    public ResponseEntity<ErrorResponse> handleRefundException(RefundException e) {
+        log.warn("⚠️ 환불 거절: [{}] {}", e.getErrorCode(), e.getMessage());
+        return ResponseEntity.status(e.getStatus())
+                             .body(new ErrorResponse(e.getStatus().value(), e.getErrorCode(), e.getMessage()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException e) {
         log.warn("⚠️ 비즈니스 에러: [{}] {}", e.getErrorCode(), e.getMessage());

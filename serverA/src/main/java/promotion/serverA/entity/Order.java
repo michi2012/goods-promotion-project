@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(
         name = "orders",
@@ -69,6 +71,9 @@ public class Order extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderStatus status;
+
+    // 결제 완료 시각. PAID 전이 쿼리(OrderRepository.markPaidIfPending)가 기록한다 — 환불 기간 판단용.
+    private LocalDateTime paidAt;
 
     @Builder
     public Order(String orderId, Long userId, Long goodsId, int quantity,
