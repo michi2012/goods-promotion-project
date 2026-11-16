@@ -81,7 +81,7 @@ public class RefundService {
         if (status != OrderStatus.PAID) {
             throw RefundException.notAllowedStatus();
         }
-        if (order.getPaidAt().plusDays(periodDays).isBefore(LocalDateTime.now())) {
+        if (paidAt(order).plusDays(periodDays).isBefore(LocalDateTime.now())) {
             throw RefundException.periodExpired(periodDays);
         }
 
@@ -110,7 +110,14 @@ public class RefundService {
 
             // Saga 보상과 같은 방식: 같은 트랜잭션에서 DB 재고 + Redis 재고 + 스냅샷·상태 Outbox
             goodsRepository.increaseStockAtomically(order.getGoodsId(), order.getQuantity());
-            redisStockService.releaseStock(order.getGoodsId(), order.getQuantity());
+            // 재고를 돌려놓기 전에 구매 기회를 영구히 막는다 — 순서가 반대면 그 사이 재구매할 틈이 생긴다 (P-12)
+            redisStockService.markUserPurchasedPermanently(order.getUserId(), order.getGoodsId());
+            // Redis는 롤백되지 않는다: 이후 단계가 실패해 Kafka가 재시도해도 Redis 재고는 주문당 한 번만 올린다
+            if (redisStockService.tryMarkRefundRestored(orderId)) {
+                redisStockService.releaseStock(order.getGoodsId(), order.getQuantity());
+            } else {
+                log.warn("[Refund] Redis 재고는 이미 복구됨 (재시도) — DB만 다시 반영: orderId={}", orderId);
+            }
             Long remaining = redisStockService.getCurrentStock(order.getGoodsId());
             outboxEventService.save(String.valueOf(order.getGoodsId()), STOCK_SNAPSHOT_TOPIC,
                     new StockSnapshotMessage(order.getGoodsId(), remaining));
@@ -119,6 +126,12 @@ public class RefundService {
             log.info("[Refund] 환불 완료 + 재고 복구: orderId={}, goodsId={}, quantity={}",
                     orderId, order.getGoodsId(), order.getQuantity());
         });
+    }
+
+    // 결제 완료 시각. 롤링 배포 중 옛 파드가 paid_at 없이 PAID로 바꾼 주문은 updated_at으로 대신한다
+    // (PAID 이후 상태 변경이 없어 updated_at이 결제 확정 시각 — V4 backfill과 같은 근거)
+    private LocalDateTime paidAt(Order order) {
+        return order.getPaidAt() != null ? order.getPaidAt() : order.getUpdatedAt();
     }
 
     private RefundResponse currentRefundStatus(String orderId) {

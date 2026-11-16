@@ -36,6 +36,8 @@ public class RedisStockService {
 
     private static final String STOCK_KEY_PREFIX = "goods:stock:";
     private static final String USER_PURCHASE_KEY_PREFIX = "user:purchase:";
+    // TTL 1일 — Kafka 재시도 구간(수 초~수십 초)보다 충분히 길다
+    private static final String REFUND_RESTORED_KEY_PREFIX = "refund:restored:";
 
     public void initStock(Long goodsId, int stock) {
         redisTemplate.opsForValue().set(stockKey(goodsId), String.valueOf(stock));
@@ -80,6 +82,20 @@ public class RedisStockService {
     // Kafka produce 실패 시 중복 방어 플래그 복구
     public void releaseUserPurchase(Long userId, Long goodsId) {
         redisTemplate.delete(userPurchaseKey(userId, goodsId));
+    }
+
+    // 환불 완료 시: 구매 표시를 만료 없이 다시 써서 환불한 사용자의 재구매를 영구히 막는다 (명세 P-12).
+    // tryMarkUserPurchased의 TTL(1시간)이 지난 뒤 환불돼도 기회가 되살아나지 않게 한다.
+    public void markUserPurchasedPermanently(Long userId, Long goodsId) {
+        redisTemplate.opsForValue().set(userPurchaseKey(userId, goodsId), "1");
+    }
+
+    // 환불 완료의 Redis 재고 복구를 주문당 한 번으로 제한한다 (Kafka 재시도 시 이중 복구 방지 — Saga markFailedAndCheck와 같은 역할).
+    // @return true: 이번 호출이 처음 — 재고를 복구한다 / false: 이미 복구했다 (재시도)
+    public boolean tryMarkRefundRestored(String orderId) {
+        Boolean set = redisTemplate.opsForValue()
+                .setIfAbsent(REFUND_RESTORED_KEY_PREFIX + orderId, "1", Duration.ofDays(1));
+        return Boolean.TRUE.equals(set);
     }
 
     private String stockKey(Long goodsId) {

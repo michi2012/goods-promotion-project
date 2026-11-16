@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -28,9 +29,11 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -229,6 +232,7 @@ class RefundServiceTest {
                 .willReturn(1);
         given(orderRepository.findByOrderId(ORDER_ID))
                 .willReturn(Optional.of(order(USER_ID, OrderStatus.REFUNDED, LocalDateTime.now().minusDays(1))));
+        given(redisStockService.tryMarkRefundRestored(ORDER_ID)).willReturn(true);
         given(redisStockService.getCurrentStock(100L)).willReturn(5L);
 
         refundService.completeRefund(ORDER_ID);
@@ -239,6 +243,66 @@ class RefundServiceTest {
         verify(outboxEventService).save("100", "stock-snapshot", new StockSnapshotMessage(100L, 5L));
         verify(outboxEventService).save(ORDER_ID, "order-status-update",
                 new OrderStatusMessage(ORDER_ID, USER_ID, "REFUNDED"));
+    }
+
+    @Test
+    @DisplayName("환불 완료: 재고를 돌려놓기 전에 구매 표시를 만료 없이 다시 쓴다 — 구매 후 1시간이 지난 환불도 재구매 차단 (P-12, PR #55 리뷰 C1)")
+    void completeRefund_marksPurchasePermanentlyBeforeRestoringStock() {
+        given(orderRepository.updateStatusIfCurrent(ORDER_ID, OrderStatus.REFUND_REQUESTED, OrderStatus.REFUNDED))
+                .willReturn(1);
+        given(orderRepository.findByOrderId(ORDER_ID))
+                .willReturn(Optional.of(order(USER_ID, OrderStatus.REFUNDED, LocalDateTime.now().minusDays(3))));
+        given(redisStockService.tryMarkRefundRestored(ORDER_ID)).willReturn(true);
+
+        refundService.completeRefund(ORDER_ID);
+
+        InOrder inOrder = inOrder(redisStockService);
+        inOrder.verify(redisStockService).markUserPurchasedPermanently(USER_ID, 100L);
+        inOrder.verify(redisStockService).releaseStock(100L, 2);
+    }
+
+    @Test
+    @DisplayName("환불 완료 재시도: Redis 재고가 이미 복구됐으면(방어 키 있음) DB 재고·Outbox만 다시 하고 Redis는 올리지 않는다 (PR #55 리뷰 C3)")
+    void completeRefund_retryDoesNotRestoreRedisTwice() {
+        given(orderRepository.updateStatusIfCurrent(ORDER_ID, OrderStatus.REFUND_REQUESTED, OrderStatus.REFUNDED))
+                .willReturn(1);
+        given(orderRepository.findByOrderId(ORDER_ID))
+                .willReturn(Optional.of(order(USER_ID, OrderStatus.REFUNDED, LocalDateTime.now().minusDays(1))));
+        given(redisStockService.tryMarkRefundRestored(ORDER_ID)).willReturn(false);
+        given(redisStockService.getCurrentStock(100L)).willReturn(5L);
+
+        refundService.completeRefund(ORDER_ID);
+
+        verify(goodsRepository).increaseStockAtomically(100L, 2);
+        verify(redisStockService, never()).releaseStock(any(), anyInt());
+        verify(redisStockService).markUserPurchasedPermanently(USER_ID, 100L);
+        verify(outboxEventService).save("100", "stock-snapshot", new StockSnapshotMessage(100L, 5L));
+        verify(outboxEventService).save(ORDER_ID, "order-status-update",
+                new OrderStatusMessage(ORDER_ID, USER_ID, "REFUNDED"));
+    }
+
+    @Test
+    @DisplayName("paid_at이 없는 PAID 주문(롤링 배포 중 옛 파드가 만든 주문)은 updated_at으로 기간을 판단한다 — 7일 이내면 접수 (PR #55 리뷰 C2)")
+    void requestRefund_paidAtMissingFallsBackToUpdatedAt() {
+        givenUser();
+        Order order = order(USER_ID, OrderStatus.PAID, null);
+        ReflectionTestUtils.setField(order, "updatedAt", LocalDateTime.now().minusDays(1));
+        given(orderRepository.findByOrderId(ORDER_ID)).willReturn(Optional.of(order));
+        given(orderRepository.updateStatusIfCurrent(ORDER_ID, OrderStatus.PAID, OrderStatus.REFUND_REQUESTED))
+                .willReturn(1);
+
+        assertThat(refundService.requestRefund(ORDER_ID, LOGIN_ID).status()).isEqualTo("REFUND_REQUESTED");
+    }
+
+    @Test
+    @DisplayName("paid_at이 없고 updated_at도 7일이 지났으면 409 REFUND_PERIOD_EXPIRED (500이 아님)")
+    void requestRefund_paidAtMissingAndUpdatedAtExpired() {
+        givenUser();
+        Order order = order(USER_ID, OrderStatus.PAID, null);
+        ReflectionTestUtils.setField(order, "updatedAt", LocalDateTime.now().minusDays(8));
+        given(orderRepository.findByOrderId(ORDER_ID)).willReturn(Optional.of(order));
+
+        assertRefundError(() -> refundService.requestRefund(ORDER_ID, LOGIN_ID), HttpStatus.CONFLICT, "REFUND_PERIOD_EXPIRED");
     }
 
     @Test
