@@ -285,7 +285,7 @@ components:
 | (선행) BL-034 | serverC DLT 기록 실패 대비 (PR #48 리뷰 [필수]) — ②의 사용자 환불이 이 경로에 의존 | BL-034 #51 |
 | ②-a serverB 계약 + 게이트웨이 | serverB 상태 enum(`REFUND_REQUESTED`·`REFUNDED`, `contracts/openapi.yaml`), 게이트웨이 `serverA-refund` 라우트(local·k8s, `serverB-orders` 앞) | #52 |
 | ②-b serverA | 환불 API(`POST /api/v1/orders/{orderId}/refund`), user-service loginId 조회, `orders.paid_at`(V4), `payment-cancelled` 소비 → REFUNDED + DB·Redis 재고 복구, 백엔드 E2E 환불 시나리오(구매 → 환불 → REFUNDED·재고 복구, 동시 2회 요청 시 둘 다 200·재고 1회만 복구, 환불 후 재구매 거절) | #55 (리뷰 반영 BL-041 #56) |
-| ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | BL-043 |
+| ③ cs-bot + FAQ + 프론트 | cs-bot `requestRefund`→serverA API·`trackRefundStatus`→serverB, 직접 발행 제거, FAQ 정책 맞춤, 주문 상세 화면 환불 버튼·상태 문구(Vitest) | BL-043 #59 |
 
 진행 상태는 백로그(BL-029와 하위 항목)에서 관리한다 (이 표에는 범위와 백로그·PR만).
 
