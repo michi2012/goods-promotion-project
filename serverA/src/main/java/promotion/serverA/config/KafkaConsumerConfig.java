@@ -33,7 +33,7 @@ public class KafkaConsumerConfig {
                 (ConsumerRecord<?, ?> record, Exception ex) ->
                         new org.apache.kafka.common.TopicPartition(
                                 record.topic() + ".DLT",
-                                record.partition()
+                                -1 // 음수면 프로듀서가 파티션을 고른다 — DLT는 파티션 1개라 원본 번호를 쓰면 원본 파티션 1·2가 발행 실패 (BL-037)
                         )
         );
 

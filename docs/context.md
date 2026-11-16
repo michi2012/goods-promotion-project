@@ -1,36 +1,27 @@
-# 맥락 노트: 사용자 환불 PR②-a — serverB 상태 enum + 게이트웨이 환불 라우트 (BL-029)
+# 맥락 노트: Kafka DLT 발행 파티션 고정 해제 (BL-037)
 
-## [완료] BL-029 PR②-a (PR #52)
+## [완료] BL-037 (PR #54)
 
 ### 왜 이 방식을 선택했는가
-- 명세(`docs/specs/user-refund.md`, 설계 확인 ☑)의 PR②는 serverA·게이트웨이·serverB 계약·E2E를 한 PR로 잡았지만, 예상 변경 파일이 약 30개라 둘로 나눴다 (사용자 결정 2026-11-16).
-  - ②-a: serverB enum + `contracts/openapi.yaml` + 게이트웨이 라우트 (명세 배포 순서상 serverB가 먼저)
-  - ②-b: serverA 환불 API·컨슈머·V4·user-service 조회 + 환불 E2E
-- 환불 E2E의 "중복 요청에도 PG 취소 1회"는 재고가 정확히 한 번 복구됐는지로 확인한다 (사용자 결정). PG 멱등 자체는 serverC 단위 테스트(PR①). → ②-b에서 적용
-
-### PR②-b로 넘기는 확인 사실 (Step 1 조사)
-- PAID 전이는 `Order.markAsPaid()`가 아니라 `OrderRepository.updateStatusIfPending(orderId, PAID)`(JPQL 벌크) — 호출부 `SagaOrchestratorService.tryCompleteSaga`·`reconcileToPaid`. `paid_at`은 이 UPDATE에서 함께 기록해야 한다 (명세의 "markAsPaid에서 기록"은 구현 위치만 다름)
-- serverA 예외: `BusinessException`은 항상 400, `PromotionException`은 에러 코드가 HTTP 상태명 → 명세의 404 `ORDER_NOT_FOUND`·409 `REFUND_*`·503 `USER_LOOKUP_UNAVAILABLE`용 예외·핸들러가 필요
-- `payment-cancelled` 토픽은 serverC `KafkaTopicConfig`에 있음. Debezium은 `topic` 필드로 라우팅(`debezium/*.json`)이라 설정 변경 없음
-- user-service `GET /internal/api/users/{loginId}` — 없으면 404(`UserNotFoundException`). cs-bot `CsBotClient.resolveNumericUserId`가 같은 호출
-- Saga 보상 재고 복구 패턴: `SagaOrchestratorService.handleSagaFailure` (환불은 `releaseUserPurchase` 제외 — P-12)
-- E2E에는 `user-service`·`mysql-user` 기동 필요 (현재 로컬 스택에서 꺼져 있음). 사용자 생성은 `POST /internal/api/users`(8086)
+- BL-029 PR②-b 단계 5(`payment-cancelled` 컨슈머 + `payment-cancelled.DLT`) 착수 중, serverA·B·C 공통 `KafkaConsumerConfig.errorHandler()`의 DLT 대상이 `new TopicPartition(topic + ".DLT", record.partition())`인 것을 발견했다. 원본 토픽은 파티션 3, DLT 토픽은 모두 파티션 1이라 원본 파티션 1·2의 레코드는 DLT 발행에 실패한다 (코드로 판단, 미재현).
+- 사용자 결정 (2026-11-16): ②-b를 멈추고 main에서 별도 긴급 PR로 먼저 처리 / 방식 A (대상 파티션 -1).
+- spring-kafka 3.3.15 `DeadLetterPublishingRecoverer`는 대상 파티션이 음수면 `ProducerRecord`에 파티션을 넣지 않아 프로듀서 파티셔너가 고른다. 원본 토픽·파티션·오프셋·예외는 DLT 헤더(`kafka_dlt-original-*`, `kafka_dlt-exception-*`)로 남는다.
 
 ### 검토했으나 채택하지 않은 대안
-#### PR② 하나로 유지
-- 왜 안 썼나: 리뷰 범위가 넓다(약 30개). 배포 순서상 serverB·게이트웨이는 독립적으로 먼저 나갈 수 있다.
-#### 게이트웨이 라우트 검증을 프로필별 `@SpringBootTest`로
-- 왜 안 썼나: k8s 프로필은 클러스터 주소·환경변수를 전제로 해 로컬 컨텍스트 기동이 어렵다. 두 YAML 파일을 직접 읽어 순서·조건을 확인하는 편이 단순하고 두 설정을 모두 덮는다.
+#### B. DLT 토픽 파티션을 원본과 같게 (3)
+- 왜 안 썼나: DLT 토픽 선언 여러 개 + 기존 토픽 파티션 증가가 필요하고, 원본 파티션이 늘면 다시 어긋난다. 프로젝트 관례(`.claude/skills/kafka` — DLT 파티션 1)와도 다르다.
+#### 고정 파티션 0
+- 왜 안 썼나: 지금은 같은 결과지만 DLT 파티션을 늘리면 쏠린다. -1이 의도(파티션은 상관없음)를 그대로 드러낸다.
 
 ### 기존 코드베이스 컨벤션
-- 게이트웨이 라우트: `application.yml`(local, `lb://`)·`application-k8s.yml`(서비스 DNS) 두 벌, 라우트마다 `RequestRateLimiter` + `ipKeyResolver`
-- 계약: `contracts/openapi.yaml`(serverB)이 원본, `OpenApiContractTest`가 `/v3/api-docs`와 enum까지 비교 (`serverB/src/test/java/promotion/serverB/contract/OpenApiContractTest.java`)
+- 세 서버 `config/KafkaConsumerConfig.java`가 같은 구조 (메인 `errorHandler()` + `dltKafkaListenerContainerFactory`)
+- serverC에는 BL-034에서 만든 `KafkaConsumerConfigTest`(DLT 리스너 에러 핸들러 테스트)가 있다 — 같은 클래스에 메인 에러 핸들러 테스트를 추가
 
 ### 관련 파일/위치
-- `serverB/src/main/java/promotion/serverB/dto/OrderStatusResponse.java` — status `allowableValues`
-- `contracts/openapi.yaml` — serverB 계약 (45행 근처 status enum)
-- `gateway-service/src/main/resources/application.yml`(55행 `serverB-orders`), `application-k8s.yml`(20행)
-- `gateway-service/src/main/java/com/example/gateway_service/filter/JwtAuthFilter.java` — 화이트리스트 밖은 JWT 필수 + `X-User-Id`·`X-User-Role` 주입 (환불 라우트도 자동 적용)
+- `serverA/src/main/java/promotion/serverA/config/KafkaConsumerConfig.java`
+- `serverB/src/main/java/promotion/serverB/config/KafkaConsumerConfig.java`
+- `serverC/src/main/java/promotion/serverC/config/KafkaConsumerConfig.java`
+- 원본·DLT 토픽 선언: 각 서버 `config/KafkaTopicConfig.java`
 
-### 외부 참조
-- 명세 `docs/specs/user-refund.md` "API"(게이트웨이·serverB), "이벤트"(배포 순서), "구현 단계"
+### 보류 중인 작업
+- BL-029 PR②-b: 단계 1~4 완료분이 `git stash`(`BL-029 PR②-b WIP (단계 1~4 완료, 단계 5 착수 전)`)에 있다. 브랜치 `feature/bl-029-refund-servera`. 재개 절차는 plan.md 리스크 항목.
