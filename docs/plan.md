@@ -1,6 +1,6 @@
 # 계획서: PG 대사 PR②-b — 대사 운영 연결 (BL-051)
 
-## [진행 중] BL-002 PR②-b — BL-051
+## [완료] BL-002 PR②-b — BL-051 (PR #64)
 
 - 작성일: 2026-11-17
 - 관련 항목: BL-051 (BL-046 하위, 상위 BL-002) / 명세 `docs/specs/pg-reconciliation-batch.md` 구현 단계 ②-b
