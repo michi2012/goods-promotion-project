@@ -1,6 +1,6 @@
 # 맥락 노트: PG 대사 PR②-a — 대사 Job 본체 (BL-050)
 
-## [진행 중] BL-002 PR②-a — BL-050
+## [완료] BL-002 PR②-a — BL-050 (PR #63)
 
 ## 왜 이 방식을 선택했는가
 - 요구사항·설계는 명세(`docs/specs/pg-reconciliation-batch.md`, 설계 확인 ☑)가 전제. 여기에는 /plan에서 정한 구현 세부만 적는다.

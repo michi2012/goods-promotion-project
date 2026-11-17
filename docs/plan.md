@@ -1,5 +1,7 @@
 # 계획서: PG 대사 PR②-a — 대사 Job 본체 (BL-050)
 
+## [완료] BL-002 PR②-a — BL-050 (PR #63)
+
 - 작성일: 2026-11-17
 - 관련 이슈/티켓: BL-050 (BL-046의 하위, BL-002 묶음, `docs/backlog.md`), 명세 `docs/specs/pg-reconciliation-batch.md` (설계 확인 ☑)
 
