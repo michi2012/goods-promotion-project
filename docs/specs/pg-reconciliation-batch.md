@@ -213,7 +213,8 @@ CREATE TABLE reconciliation_mismatches (
 | PR | 백로그 | 범위 |
 |----|------|------|
 | ① | BL-045 | 대사 기반 데이터: V4 이벤트 시각 기록, 모의 PG 원장(V5 중 `mock_pg_transactions`) + CSV 파일 생성기 |
-| ② | BL-046 | 대사 Job: Spring Batch 도입(V5 나머지·V6), Step 1~5, 수동 실행 API, 메트릭·알람, 재현 테스트 3종(S-8·S-9·S-11) |
+| ②-a | BL-050 (BL-046) | 대사 Job 본체: Spring Batch 도입(V6·V7), Step 1~5, 재현 테스트 3종(S-8·S-9·S-11) |
+| ②-b | BL-051 (BL-046) | 운영 연결: 수동 실행 API, 스케줄 03:00, 기동 시 정리, 메트릭·알람 |
 | ③ | BL-047 | 시드 생성기 + 기준선 측정(perf-compare) → BL-008 판단 |
 
 진행 상태는 백로그 하위 항목에서 관리한다 (이 표에 적지 않는다).
@@ -227,3 +228,4 @@ CREATE TABLE reconciliation_mismatches (
 | 2026-11-17 | 이벤트 시각은 DB `NOW(6)`가 아니라 앱 시계(`LocalDateTime.now()`)를 파라미터로 기록 | 모의 PG 원장과 같은 JVM 시계여야 "PG 시각 ≤ 우리 기록 시각" 불변식이 시계 어긋남과 무관하게 성립 (BL-045 /plan) |
 | 2026-11-17 | 이벤트 시각은 JVM 기본 타임존이 아니라 KST로 고정(`ReconciliationTime.now()`). 거래 파일은 serverC 로컬 디렉터리 — 단일 인스턴스 전제, 다중 파드 저장소는 BL-048 | PR #62 리뷰 C2·C3: 파드 TZ 미설정 시 대사 범위(P-1 KST)와 9시간 어긋남, 파일이 파드마다 따로 생김 |
 | 2026-11-17 | 마이그레이션 번호: PR①은 V4(시각)·V5(`mock_pg_transactions`), PR②는 V6(`pg_settlement_lines`·`reconciliation_mismatches`)·V7(Batch 메타) | PR 분할에 맞춤 |
+| 2026-11-17 | PR②를 ②-a(Job 본체, BL-050)·②-b(운영 연결, BL-051)로 분할. chunk 크기 500(설정값), D-1 파일 없음은 경고 후 진행, Step 3은 승인·취소 정렬 키가 달라 3a·3b로 분리 | 변경 파일 20개 초과 예상, 위험 변경과 운영 연결의 리뷰 분리 (BL-046 /plan) |
