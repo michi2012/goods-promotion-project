@@ -1,5 +1,6 @@
 package promotion.serverC.batch;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import promotion.serverC.repository.PaymentRepository;
 import promotion.serverC.repository.PgSettlementLineRepository;
 import promotion.serverC.repository.ReconciliationMismatchRepository;
+import promotion.serverC.repository.ReconciliationRunRepository;
 import promotion.serverC.scheduler.MockPgFileExporter;
 import promotion.serverC.support.AbstractRepositoryTest;
 
@@ -48,7 +50,8 @@ import java.util.List;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @ImportAutoConfiguration(BatchAutoConfiguration.class)
 @Import({ReconciliationJobConfig.class, PaymentRepository.class, PgSettlementLineRepository.class,
-        ReconciliationMismatchRepository.class, ReconciliationJobTestSupport.BatchTestUtils.class})
+        ReconciliationMismatchRepository.class, ReconciliationRunRepository.class, ReconciliationMetrics.class,
+        ReconciliationJobTestSupport.BatchTestUtils.class})
 abstract class ReconciliationJobTestSupport extends AbstractRepositoryTest {
 
     // @SpringBatchTest는 JobExecution을 돌려주는 테스트 메서드(run 헬퍼)를 스코프용 팩토리로 오인해 직접 등록한다.
@@ -67,6 +70,12 @@ abstract class ReconciliationJobTestSupport extends AbstractRepositoryTest {
         @Bean
         JobRepositoryTestUtils jobRepositoryTestUtils(JobRepository jobRepository) {
             return new JobRepositoryTestUtils(jobRepository);
+        }
+
+        // Job 리스너(ReconciliationMetrics)용 — @JdbcTest에는 메트릭 자동 설정이 없다
+        @Bean
+        SimpleMeterRegistry meterRegistry() {
+            return new SimpleMeterRegistry();
         }
     }
 

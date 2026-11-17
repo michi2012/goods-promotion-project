@@ -4,7 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 @Slf4j
@@ -29,6 +31,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<String> handleAdminForbidden(AdminForbiddenException e) {
         log.warn("[관리자 API] 권한 없는 호출 거부");
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+    }
+
+    @ExceptionHandler(InvalidReconciliationDateException.class)
+    public ResponseEntity<String> handleInvalidReconciliationDate(InvalidReconciliationDateException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+    }
+
+    // 쿼리 파라미터 누락·형식 오류 (예: date=2026-13-01) — 아래 Exception 핸들러가 500으로 바꾸지 않게
+    @ExceptionHandler({MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<String> handleBadRequestParameter(Exception e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("잘못된 요청 파라미터입니다");
+    }
+
+    @ExceptionHandler(ReconciliationAlreadyRunningException.class)
+    public ResponseEntity<String> handleReconciliationAlreadyRunning(ReconciliationAlreadyRunningException e) {
+        log.warn("[Reconciliation] {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
     }
 
     // 서버 B가 보상 트랜잭션을 시작할 수 있도록 400 Bad Request를 정확히 반환
