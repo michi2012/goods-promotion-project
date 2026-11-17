@@ -26,6 +26,7 @@
 - [x] 사용자에게 E2E 결과(리포트 URL + 메트릭 전후)를 보여주고 확인받은 뒤 커밋
 - [x] 실제 서버 성공 경로 데모 (사용자 요청): 2026-11-10, 우리 8건 + CSV 9줄 → 4유형 각 1건, 정상·경계 제외, 재실행 시 교체. 결과는 명세 3-1절
 - [x] (위험 변경: 배치 재시작·운영 알람) PR 생성 후 `/pr-review` 1회 — 판정 머지 가능, [필수] 0 / [제안] 2 (C1 스케줄의 ABANDONED 건너뜀, C2 E2E 정확 비교). https://github.com/michi2012/goods-promotion-project/pull/64#pullrequestreview-5932542545
+  - C1 반영(c7eac8d, 스케줄도 ABANDONED면 새 실행) → 재리뷰 머지 가능, 지적 0: https://github.com/michi2012/goods-promotion-project/pull/64#pullrequestreview-5932585004 / C2는 정확 비교 유지 이유 답글
 - [x] 포트폴리오 — 사용자 요청으로 이 PR에서 기록: BL-045·050·051을 묶어 "PG 대사 배치 정합성" 한 줄 (`docs/portfolio.md`). BL-047 기준선은 성능 표에 별도
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
