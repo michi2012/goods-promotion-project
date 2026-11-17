@@ -1,5 +1,5 @@
 # Architecture Snapshot
-_생성일: 2026-05-28 / 업데이트: 2026-11-16 (사용자 환불 BL-029 — 환불 API·payment-cancelled·PG 취소 실패 재처리·cs-bot 직접 발행 제거, 프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영) / 재스캔: 2026-11-14 (payment-result Outbox 발행, cs-bot payment-cancel 직접 발행, Debezium 감시 DB `order`, 누락 엔드포인트·예외 핸들러 보완)_
+_생성일: 2026-05-28 / 업데이트: 2026-11-17 (PG 대사 배치 BL-002 — serverC Spring Batch `pgReconciliationJob`·대사 테이블·관리자 실행 API·모의 PG 원장/거래 파일), 2026-11-16 (사용자 환불 BL-029 — 환불 API·payment-cancelled·PG 취소 실패 재처리·cs-bot 직접 발행 제거, 프론트 Next.js 전환·contract-first, serverC PG 애매응답 조회+멱등 키, serverA Saga 복구 안전망(결제조회 보정·DB 재대사), 결제 금액 기본기(가격·주문 금액 스냅샷·PG 승인 금액 검증) 반영) / 재스캔: 2026-11-14 (payment-result Outbox 발행, cs-bot payment-cancel 직접 발행, Debezium 감시 DB `order`, 누락 엔드포인트·예외 핸들러 보완)_
 
 ---
 
@@ -163,6 +163,17 @@ sequenceDiagram
 | 저장 | serverC `payments.amount/currency` | `claimOrder`가 함께 INSERT. 옛 메시지는 NULL |
 | 승인 금액 검증 | serverC `PaymentService` | `PgTransactionResult.approvedAmount ≠ totalAmount` → 즉시 망취소 + FAILED + `payment-result(false, "금액 불일치")` |
 | 옛 메시지 | serverC `PaymentService` | 금액 없으면 검증 생략 + `business_payment_legacy_without_amount_total` (확장-축소 1단계, 권장 배포 순서 serverC → serverA) |
+### PG 대사 배치 (serverC, BL-002 — 명세 `docs/specs/pg-reconciliation-batch.md`)
+
+| 구성 | 위치 | 동작 |
+|------|------|------|
+| 이벤트 시각 | `payments.approved_at/cancelled_at` | PAID·CANCELLED 전환 시 앱 시계(KST, `ReconciliationTime`)로 기록. 대사 범위의 기준 |
+| 모의 PG 원장 | `MockPgClient` → `mock_pg_transactions` (REQUIRES_NEW) | 실제 PG사 내부 흉내. 우리 트랜잭션이 롤백돼도 남음 |
+| PG 거래 파일 | `MockPgFileExporter` 매일 00:10 | 전일 원장 → `{mock-pg.file-dir}/pg-transactions-YYYYMMDD.csv` (임시 파일 → 이름 변경). 파드 로컬 디렉터리 — 단일 인스턴스 전제(BL-048) |
+| 대사 Job | `pgReconciliationJob` (Spring Batch, 메타 `BATCH_*` V7) | clear → loadPrevTail → loadDay → oursApprove → oursCancel → pgToOurs → report. chunk 500, 키셋 페이징, 유니크 키 중복 무시 → 실패 Step의 마지막 커밋부터 재시작 |
+| 실행 | `ReconciliationScheduler` 매일 03:00(어제) / 관리자 API | `ReconciliationRunService`: 기록 없음 NEW, FAILED RESTART, COMPLETED는 수동만 NEW(결과 교체), 실행 중 409 |
+| 결과·알람 | `reconciliation_mismatches` + `ReconciliationMetrics` | 불일치 4유형(OURS_ONLY/PG_ONLY/AMOUNT/STATUS) 기록만(자동 보정 없음). P1 `ReconciliationMismatch`·`ReconciliationJobFailed`·`ReconciliationNotRun`. 기동 시 `ReconciliationStartupCleaner`가 끊긴 실행을 FAILED로 정리 |
+| 기준선 | `docs/perf/2026-11-17-pg-reconciliation-baseline.md` | 로컬 10만 건 59.5초 / 100만 건 713.8초, 재시작 42% 단축 |
 
 ---
 
@@ -174,8 +185,9 @@ sequenceDiagram
 | serverA | `Goods` | id, name, price, stock | 재고 원본(DB). price는 원 단위(KRW) |
 | serverA | `DeadLetter` | orderId, goodsId, quantity, reason | DLT 실패 메시지 저장 |
 | serverA | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
-| serverC | `Payment` | orderId(UK), userId, goodsId, quantity, amount, currency, status, paymentMethod | Saga 완료 후 결제 확정 기록 (테이블: payments) |
+| serverC | `Payment` | orderId(UK), userId, goodsId, quantity, amount, currency, status, paymentMethod, approvedAt, cancelledAt | Saga 완료 후 결제 확정 기록 (테이블: payments). 승인·취소 시각은 대사 기준, 인덱스 `(approved_at, id)`·`(cancelled_at, id)` |
 | serverC | `OutboxEvent` | aggregateId, topic, payload, traceparent | Debezium CDC 발행 원본 |
+| serverC | (JDBC 테이블) `mock_pg_transactions` / `pg_settlement_lines` / `reconciliation_mismatches` | order_id, event_type(APPROVE/CANCEL), amount, occurred_at / recon_date / mismatch_type | 엔티티 없이 JdbcTemplate. 모의 PG 원장 / PG 파일 적재 사본 / 대사 결과(날짜당 한 벌) |
 | user-service | `User` | id(UUID), email(UK), password(BCrypt), name, role, createdAt | ROLE_USER / ROLE_ADMIN |
 | user-service | `PaymentMethod` | id, userId(FK), type, cardNumber, isDefault | 사용자별 결제수단. `isDefault` 단일 보장은 `resetDefaultPaymentMethod` 벌크 쿼리로 처리 |
 | user-service | `RefreshToken` | id, userId(FK), token(UK), expiryDate | 만료 시 Reissue 거절. 로그아웃 시 삭제 |
@@ -226,6 +238,7 @@ sequenceDiagram
 |--------|-----|------|------|
 | GET | /api/v1/payments/{orderId} | 주문 ID로 결제 단건 조회 (없으면 404). serverA `PaymentQueryClient` 보정 조회에도 사용 | 퍼블릭 |
 | GET | /api/v1/payments/users/{userId} | 사용자별 결제 내역 (page, size 파라미터) | 퍼블릭 |
+| POST | /api/v1/payments/admin/reconciliations?date= | PG 대사 수동 실행. 202 `{jobExecutionId, mode: NEW\|RESTART}`, date ≥ 오늘 400, 실행 중 409 | `X-User-Role: ROLE_ADMIN` |
 
 ### cs-bot (8089)
 | 메서드 | URL | 설명 | 인증 |
@@ -296,6 +309,8 @@ Slack Bot으로만 노출. Gateway 라우팅 없음. aiops RouterService가 Slac
 | serverA | `OrderReconciliationScheduler.reconcileTerminatedOrders` | fixedDelay=600초 (`saga.reconcile.terminated.interval-ms`) | 생성 후 10분(`saga.reconcile.terminated.min-age-minutes`)~24시간 EXPIRED/FAILED 주문 조회(결과 이벤트 CDC 유실 대비) → serverC PAID면 `payment-cancel` 발행 + `saga.reconcile_cancel.total` |
 | serverA | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
 | serverC | `OutboxCleanupScheduler` | fixedDelay=3600초 | `outbox_event` 24시간 이전 행 삭제 |
+| serverC | `MockPgFileExporter` | cron 00:10 (KST) | 전일 모의 PG 원장 → 일자별 거래 CSV |
+| serverC | `ReconciliationScheduler` | cron 03:00 (KST, `reconciliation.cron`) | 어제 날짜 `pgReconciliationJob` 비동기 실행 (COMPLETED면 건너뜀, FAILED면 재시작) |
 
 ---
 

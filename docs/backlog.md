@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-17
-- **다음 ID: BL-052** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-054** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -12,15 +12,16 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-| BL-002 | **PG 거래 내역 대사 배치**: 기본 구현에 정합성 요건 포함 — chunk 단위 커밋 + 실패 지점부터 재시작, 컷오프 시각 고정(같은 기간 재실행 시 결과 동일), 키셋 페이징(처리 중 상태 변경으로 인한 row 누락 방지). 각 요건은 단순 구현에서 깨지는 재현 테스트 → 설계로 통과로 증명(포트폴리오는 "가정"이 아니라 재현 기준). 이후 시드 데이터로 기준선 측정(perf-compare), 실시간 간섭·성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | `docs/specs/pg-reconciliation-batch.md` (설계 확정, 하위 BL-045 → BL-046 → BL-047) |
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
 |----|------|------|---------|------|------|------|
-| BL-047 | **BL-002 PR③ 시드 + 기준선 측정**: 시드 생성기(`payments` 행 + CSV 직접 생성), perf-compare 기준선 → BL-008 판단 (명세 ③). 마지막 PR이라 BL-002 완료, 포트폴리오 사례 처리량 채우기, arch-snapshot 반영 포함 (명세 "마지막 PR에서 할 일") | 로드맵 | 높음 | S | | BL-002 /spec (2026-11-17) |
+| BL-052 | **대사 배치 레거시 구현 대비 측정**: 같은 100만 건 시드(`perf/seed/`)로 단순 구현(스케줄러 + 한 트랜잭션 + OFFSET 페이징 + 건별 처리) vs `pgReconciliationJob`의 정상 처리 시간·실패 후 복구 시간·처리 중 변경 시 누락을 비교, 키셋 vs OFFSET 속도 포함. 결과는 개선이든 오버헤드든 그대로 기록 (재현 테스트의 단순 구현 재사용 가능성은 /plan에서 확인). 측정용 코드는 운영 코드와 분리 | 로드맵 | 높음 | S~M | | BL-047 측정 중 사용자 합의 (2026-11-17) |
+| BL-008 | **대사 배치 성능 개선** (기준선 `docs/perf/2026-11-17-pg-reconciliation-baseline.md`, 운영상 급하지 않음 — 100만 건 약 12분): ① 건별 조회(N+1) → chunk 단위 일괄 조회 — 비교 Step 두 개가 전체의 약 75% ② chunk 크기 — 2000에서 −18%(설정만), ①뒤 재측정, 큰 chunk의 재처리 분량·잠금 범위와 함께 판단 ③ 재실행 시 대량 DELETE(100만에서 약 95초 추가) — 나눠 삭제 또는 날짜별 파티션. 개선 하나씩 perf-compare 전후 측정. 실시간 간섭(p95)·배치 전용 커넥션 풀은 필요 시. 멀티스레드·파티셔닝·Read Replica는 현 규모에서 불필요 | 기술 부채 | 중간 | 병목별 S~M | BL-052 | 결제 로드맵 (2026-11-14), BL-047 기준선으로 조건 충족 (2026-11-17) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
 | BL-038 | **환불 완료 처리 실패 알람 없음**: serverA `payment-cancelled` 처리가 Kafka 재시도를 소진하면 `business_refund_complete_failed_total`만 오르고 알람 규칙이 없다. 주문이 REFUND_REQUESTED("환불 처리 중")에 남은 채 아무도 모름 — `monitoring/`·`helm/` 알람 규칙 2벌에 추가 (PR #51 교훈: `or`로 묶지 말고 별도 규칙) | 후속 작업 | 중간 | S | | BL-029 PR②-b 작업 중 발견 (2026-11-16) |
 | BL-039 | **backend-e2e 테스트 타임아웃이 폴링 대기보다 짧음**: `playwright.config.ts`에 `timeout`이 없어 기본 30초인데 시나리오 폴링은 `E2E_FLOW_TIMEOUT_MS` 60초 — 결과가 늦게 와도 폴링이 끝나기 전에 테스트가 끊김 (구매·환불 흐름 공통) | 기술 부채 | 중간 | S | | BL-029 PR②-b E2E 중 발견 (2026-11-16) |
+| BL-053 | **D-1 파일이 늦게 온 뒤 재시작하면 경계 건 오탐**: D-1 파일 없이 `reconLoadPrevTailStep`이 0줄로 COMPLETED되면, 이후 파일이 생겨도 재시작은 그 Step을 건너뛰어 자정 경계 건이 OURS_ONLY로 기록된다 (BL-047 측정 실행 29에서 2건 재현). 오탐만, 돈은 안 움직임. 대응 후보: 재시작 시 꼬리 Step 재실행(`allowStartIfComplete`) 또는 D-1 파일 없음이면 새 실행 안내 | 버그·정합성 | 낮음 | S | | BL-047 측정 중 발견 (2026-11-17) |
 | BL-031 | **Grafana "4. [P0] 자동 복구 실패" 패널 제목 정리**: BL-029로 P0 알람은 `business_payment_cancel_retry_exhausted_total`로 옮겨졌고, 이 패널의 `refund_fatal`은 "자동 재시도 진입" 의미가 됐다. 제목의 P0를 빼거나 소진 메트릭 패널을 추가 (`monitoring/grafana/dashboards/sre-dashboard.json`, `helm/promotion-monitoring/files/sre-dashboard.json`) | 정리 | 낮음 | S | | BL-029 PR① 중 발견 (2026-11-14) |
 | BL-042 | **1인 1회 구매 표시가 1시간만 유효**: `user:purchase:{userId}:{goodsId}` TTL 1시간이라 환불하지 않은 사용자도 1시간 뒤 같은 상품을 다시 살 수 있다. 1인 1회의 유효 기간(프로모션 기간·영구)을 정책으로 정하고, 영구라면 DB 기반 확인 여부(선착순 성능과의 트레이드오프)를 검토. 환불 사용자는 BL-041에서 영구 차단 | 정책·버그 | 중간 | S | | PR #55 리뷰 C1 (2026-11-16) |
 | BL-044 | **cs-bot Kafka 흔적·기동 테스트 정리**: BL-043에서 cs-bot의 Kafka 사용·`spring-kafka`를 제거했지만 `docker-compose.yml`(cs-bot `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `depends_on: kafka`)·`helm/promotion-app/templates/cs-bot/deployment.yaml`(`csBot.kafka.bootstrapServers`)에 설정이 남음(무해). 함께 cs-bot에 `@SpringBootTest` 컨텍스트 로드 테스트가 없어 의존성 변경 후 기동을 테스트로 확인할 수 없음 — LLM·Elasticsearch 없이 뜨는 슬라이스/모킹 방식 검토 | 정리 | 낮음 | S | | BL-043 작업 중 발견 (2026-11-16) |
@@ -40,7 +41,6 @@
 ## 조건부 (조건 충족 시 "진행 예정"으로 이동 — 선행 조건이 있거나 특정 변경이 생길 때만 필요한 항목)
 | ID | 항목 | 조건 | 규모 | 출처 |
 |----|------|------|------|------|
-| BL-008 | 대사 배치 성능·실시간 간섭 개선 (chunk 크기, 배치 전용 커넥션 풀·동시 실행 제한, 처리 속도 조절 등. 정합성 요건은 BL-002에 포함) — 배치 실행 중 실시간 API p95 등 perf-compare로 개선 하나씩 전후 측정, `docs/portfolio.md`에 요약. 병목별로 항목을 나눠 진행. Read Replica·배치 인스턴스 분리는 현 규모에서 불필요 | BL-002 기준선 측정에서 해당 병목이 확인될 때 | 병목별 S~M | 결제 로드맵, 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-004 | 금액 필수화 (확장-축소 마지막 단계): 금액 없는 `payment-request` 거부 | 운영에서 `business_payment_legacy_without_amount_total`이 계속 0 | S | PR #22 |
 | BL-025 | `.claude/` 명령·훅의 OS 의존 제거. **훅 우선**: `settings.json`의 안전 훅(`git push --force`·`DROP` 차단)이 `powershell -File ...ps1`이라 Mac/Linux에서는 조용히 실패해 안전장치가 꺼짐. 그 외 `/coverage`·`/release-notes`는 계산 로직이 PowerShell, `/db-migration`·`incident`·`pr`은 표기·지시가 Windows 기준. 논의된 방식: 계산이 있는 것(coverage·release-notes·훅)은 Node 스크립트(`.claude/scripts/`, 내장 기능만), git 명령뿐인 것은 OS 중립 지시. `/coverage` 기본 모듈의 `mcp`는 존재하지 않는 모듈 | Windows 외 OS를 쓰는 팀원 합류, 또는 개발 환경 OS 변경 | M | BL-013 작업 중 발견, 조건부 이동 #41 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 | `docs/design-notes.md` "E2E 두 층과 도구"의 전환 조건 | M | BL-001 작업 중 논의 |
@@ -53,6 +53,8 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-047 BL-002 PR③ 시드 + 기준선 — Node 시드 생성기(`perf/seed/`), 10만 59.5초·100만 713.8초, 재시작 42% 단축, 일괄 쓰기·chunk 설정 비교, BL-008 판단(진행 예정, 선행 BL-052) | #65 |
+| BL-002 PG 거래 내역 대사 배치 (묶음 완료) — 이벤트 시각·모의 PG 원장/파일, Spring Batch Job(chunk 커밋·키셋·재시작), 운영 연결(API·스케줄·메트릭·알람), 기준선. PR: ① BL-045 #62, ②-a BL-050 #63, ②-b BL-051 #64, ③ BL-047 #65 | #62·#63·#64·#65 |
 | BL-051 BL-046 PR②-b 대사 운영 연결 — 수동 실행 API(FAILED 재시작/COMPLETED 새 실행/409/400), 03:00 스케줄, 기동 시 STARTED 정리, Job 종료 리스너 메트릭 3종 + P1 알람 3종, API E2E, 실제 서버 4유형 데모 | #64 |
 | BL-046 BL-002 PR② 대사 Job (묶음 완료) — Spring Batch 도입, Step 1~5, 재현 테스트 3종, 운영 연결. PR: ②-a BL-050 #63, ②-b BL-051 #64 | #63·#64 |
 | BL-050 BL-046 PR②-a 대사 Job 본체 — Spring Batch(V7 메타), V6 대사 테이블, Step 1~5(경계 5분·키셋·INSERT IGNORE·재시작), 재현 테스트 3종(컷오프·재시작·키셋), chunk 500 | #63 |

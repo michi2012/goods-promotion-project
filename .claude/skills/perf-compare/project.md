@@ -20,11 +20,17 @@
   - consumer lag: `kafka` exporter
   - 쿼리 수·슬로 쿼리: `mysql` exporter, 쿼리 단위는 `EXPLAIN ANALYZE`
   - 컨테이너 CPU·메모리: `cadvisor`
-  - 배치: (Spring Batch 도입 시 — BL-002) `BATCH_STEP_EXECUTION`
+  - 배치: mysql-c `BATCH_JOB_EXECUTION`·`BATCH_STEP_EXECUTION` (Job·Step 소요, READ/WRITE/FILTER/COMMIT 건수). 대사 시드·실행 방법은 `perf/seed/README.md`
+    ```sql
+    SELECT STEP_NAME, STATUS, READ_COUNT, WRITE_COUNT, FILTER_COUNT, COMMIT_COUNT,
+           TIMESTAMPDIFF(MICROSECOND, START_TIME, END_TIME)/1e6 AS sec
+    FROM BATCH_STEP_EXECUTION WHERE JOB_EXECUTION_ID = ? ORDER BY STEP_EXECUTION_ID;
+    ```
 
 ## 이 프로젝트에서 배운 것
 - **구매 API는 202(접수) 후 비동기 Saga로 처리된다.** k6 TPS만 보면 안 된다. 과거 큐 한도 제거 시 응답 5,700 TPS였지만 DB 처리 완료까지 12분이 걸렸다. 재고가 모두 처리 완료되는 시점까지를 함께 잰다 — 과거에는 Grafana Saga 완료 메트릭으로 확인했다(현재 `sre-dashboard`의 "결제 Saga 완료율" 패널, recording rule `saga:payment_error_rate:*`). 완료 시점을 재는 정확한 쿼리는 첫 실측 때 확정해 여기에 적는다.
 - 지금까지의 단계별 개선(60 → 10,300 TPS)은 로컬 docker compose에서 상대 비교로 측정했다.
+- **serverC 컨테이너를 재생성하면 PG 거래 파일 디렉터리(`/app/pg-files`)가 사라진다** (볼륨 없음, 디렉터리는 파일 생성기가 처음 쓸 때 생긴다). 그대로 `docker cp`하면 "no such directory"로 실패하고 대사가 파일 없음으로 FAILED → 설정을 바꿔 재생성한 뒤에는 `docker exec promotion-server-c mkdir -p /app/pg-files` 후 복사한다. `docker kill`/`start`는 컨테이너가 유지돼 파일이 남는다.
 
 ## 환경
 | 환경 | 상태 |
