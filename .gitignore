@@ -64,3 +64,6 @@ port.md
 
 # 모의 PG 일자별 거래 파일 (serverC 로컬 실행 시 생성)
 pg-files/
+
+# 포트폴리오 — 로컬 전용 (개인 기록)
+docs/portfolio.md

@@ -1,28 +1,26 @@
-# 체크리스트: PG 대사 PR③ — 시드 생성기 + 기준선 측정 (BL-047)
+# 체크리스트: 대사 배치 성능 개선 (BL-008)
 
-## [완료] BL-002 PR③ — BL-047 (PR #65)
+## [완료] BL-008 (PR #66)
 
-- 마지막 업데이트: 2026-11-17 15:55
+- 마지막 업데이트: 2026-11-17
 
 ## 진행 상황
-- [x] 단계 1: 시드 생성기 (`perf/seed/` — 스크립트, README, `.gitignore`(out/))
-  - [x] 같은 인자 2회 해시 동일 (SQL·CSV sha256 일치)
-  - [x] 1만 건 적용 → 대사(실행 7) → OURS_ONLY 5·PG_ONLY 7·AMOUNT 5·STATUS 7 = 요약, 15.6초
-- [x] 단계 2: 10만 규모 측정 (2026-10-02, 실행 8 워밍업 + 9·10·11) — 57.4/59.5/60.5초, 매회 90/106/92/86 일치
-- [x] (1만 검증 날짜 2026-10-01은 2026-10-02의 D-1 꼬리 파일로 쓰여 꼬리 46줄 적재 — 측정 조건으로 기록)
-- [x] 단계 3: 100만 규모 측정 (2026-10-04, 실행 12 첫 실행 618.7초 / 13·14 재실행 713.8·717.2초, 매회 993/988/1004/982 일치) + 재시작 (실행 15를 ours승인 50.6만 읽은 시점 kill → 기동 28초, FAILED 정리 → 실행 16 RESTART 411.2초, 읽기 506,000+491,538=997,538 중복 없음, 건수 일치)
-- [x] 단계 3-1: 설정 비교 (10만) — 일괄 쓰기 끔 72.9초(+23%) / chunk 100 79.7초(+34%) / chunk 2000 48.6초(−18%), 각 3회 건수 일치, 원복 확인 (1차 시도는 재생성 컨테이너에 `/app/pg-files` 없어 실패 → mkdir 추가, perf-compare project.md 기록)
-- [x] 단계 4: `docs/perf/2026-11-17-pg-reconciliation-baseline.md` + BL-008 판단(운영상 급하지 않음, 후보 3개 → 진행 예정, 선행 BL-052) + perf-compare `project.md`(배치 조회 쿼리)
-- [x] 단계 5: 포트폴리오 처리량, arch-snapshot(대사 배치 절·테이블·API·스케줄러), 명세 완료 기준, 백로그(BL-052 레거시 비교, BL-008 이동, BL-053)
+- [x] 단계 1: 일괄 조회 메서드 (`PgSettlementLineRepository.findAll`, `PaymentRepository.findEventTimes(Collection)`, 단건 메서드 제거)
+  - [x] 저장소 테스트 통과 (PaymentRepositoryTest 11, PgSettlementLineRepositoryTest 5)
+- [x] 단계 2: 비교 Step 3개 → writer에서 chunk 일괄 판정 (1·2 묶음 실행 — 1만 바꾸면 컴파일 불가)
+  - [x] `promotion.serverC.batch.*` 테스트 통과 30건 (재현 3종 포함). 1차 실패: `ReconciliationPagingReproTest` 스파이가 `find` 참조 → `findAll`로 (chunk 2라 끼워 넣는 시점 동일)
+- [x] 단계 3: 100만 전후 측정 — 실행 42·43·44: 316.7/310.7/302.1초(중앙값 310.7, 기준선 713.8 대비 −56%), 비교 Step 268→74·267→71초, 건수 매회 일치. 실행 41은 시드 적재 중 시작돼 제외 (TaskStop 후 스크립트가 살아 두 벌 실행 → 정리, CLAUDE.local.md 기록)
+- [x] 단계 4: 생략 (사용자 결정) — 500 유지, 결과 문서 "하지 않은 것"에 기록
+- [x] 단계 5: `docs/perf/2026-11-17-pg-reconciliation-batch-lookup.md`, 명세 변경 이력, arch-snapshot, 백로그(BL-052 종료, BL-054 조건부)
 
 ## 최종 검증
-- [x] 프로덕션 코드 변경 없음 (`git status` — docs·perf·skill project.md만)
+- [x] serverC 전체 테스트 통과 (gradlew :serverC:test — 152건, 실패 0)
 - [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인
-- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (시드 산출물 SQL·CSV는 커밋하지 않음)
-- [x] 측정 후 로컬 시드 행 정리 (사용자 승인, `seed-` 행·CSV 삭제)
-- [x] 사용자에게 측정 결과(수치·BL-008 판단) 보여주고 확인받은 뒤 커밋
-- [x] `/pr-review` — 위험 변경 아님(문서·스크립트)이라 선택 (PR #65)
-- [x] 포트폴리오 후보 판단 — 새 사례가 아니라 기존 "하루치 PG 대사 배치" 사례의 처리량 칸 채움 (명세 지정)
+- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인
+- [x] 측정 후 로컬 시드 정리(seed 0행, payments 26행), serverC 원래 설정 확인(chunk 기본 500)
+- [x] 사용자에게 전후 수치 보여주고 확인받은 뒤 커밋
+- [x] (위험 변경 — 대사 정확성) `/pr-review` 1회 (sonnet) — 머지 가능, [필수] 0 / [제안] 1(C1 반영 253da6e, 동작 변경 없어 재리뷰 생략) — https://github.com/michi2012/goods-promotion-project/pull/66#pullrequestreview-5934764897
+- [x] 포트폴리오 후보 판단 — 예 (측정으로 병목 확인·원인 분석·대안 비교(chunk만 vs 일괄 조회)·전후 실측). 머지 후 새 사례로 제안
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
-- D-1 파일 늦게 온 뒤 재시작 시 경계 건 오탐 → 백로그 BL-053으로 이전 완료
+- (없음 — BL-054는 /plan에서 바로 백로그로 분리)

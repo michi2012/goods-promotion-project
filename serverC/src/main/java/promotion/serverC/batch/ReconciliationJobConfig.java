@@ -32,8 +32,14 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 
 /**
  * PG 거래 내역 대사 Job (docs/specs/pg-reconciliation-batch.md "배치 Job").
@@ -42,6 +48,8 @@ import java.util.Map;
  * clear → loadPrevTail → loadDay → oursApprove → oursCancel → pgToOurs → report
  * - 비교 대상은 이벤트 시각으로만 고른다 (컷오프 P-3, 처리 중 상태 변경에 흔들리지 않음 S-11).
  * - DB 조회는 키셋 페이징(JdbcPagingItemReader), 쓰기는 유니크 충돌 무시(ON DUPLICATE KEY)라 chunk 재시도·재시작에도 한 벌 (S-9).
+ * - 비교 Step은 writer가 chunk 단위로 상대편을 한 번에 조회해 판정·저장한다 (건마다 조회하면 100만 건에 쿼리 100만 번 — BL-008).
+ *   조회·판정·저장이 같은 chunk 트랜잭션이라 재시작 시 판정 누락·중복이 없다.
  */
 @Configuration
 @Slf4j
@@ -122,32 +130,26 @@ public class ReconciliationJobConfig {
     @Bean
     public Step reconOursApproveStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
                                      JdbcPagingItemReader<OurEvent> reconOursApproveReader,
-                                     ItemProcessor<OurEvent, Mismatch> reconOursProcessor,
-                                     ItemWriter<Mismatch> reconMismatchWriter) {
-        return oursStep("reconOursApproveStep", jobRepository, transactionManager,
-                reconOursApproveReader, reconOursProcessor, reconMismatchWriter);
+                                     ItemWriter<OurEvent> reconOursWriter) {
+        return oursStep("reconOursApproveStep", jobRepository, transactionManager, reconOursApproveReader, reconOursWriter);
     }
 
     @Bean
     public Step reconOursCancelStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
                                     JdbcPagingItemReader<OurEvent> reconOursCancelReader,
-                                    ItemProcessor<OurEvent, Mismatch> reconOursProcessor,
-                                    ItemWriter<Mismatch> reconMismatchWriter) {
-        return oursStep("reconOursCancelStep", jobRepository, transactionManager,
-                reconOursCancelReader, reconOursProcessor, reconMismatchWriter);
+                                    ItemWriter<OurEvent> reconOursWriter) {
+        return oursStep("reconOursCancelStep", jobRepository, transactionManager, reconOursCancelReader, reconOursWriter);
     }
 
     // Step 4: D 안의 PG 줄 → 우리 (②④). D-1 꼬리 줄은 비교 대상이 아니다.
     @Bean
     public Step reconPgToOursStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
                                   JdbcPagingItemReader<PgLine> reconPgLineReader,
-                                  ItemProcessor<PgLine, Mismatch> reconPgProcessor,
-                                  ItemWriter<Mismatch> reconMismatchWriter) {
+                                  ItemWriter<PgLine> reconPgWriter) {
         return new StepBuilder("reconPgToOursStep", jobRepository)
-                .<PgLine, Mismatch>chunk(chunkSize, transactionManager)
+                .<PgLine, PgLine>chunk(chunkSize, transactionManager)
                 .reader(reconPgLineReader)
-                .processor(reconPgProcessor)
-                .writer(reconMismatchWriter)
+                .writer(reconPgWriter)
                 .build();
     }
 
@@ -241,42 +243,75 @@ public class ReconciliationJobConfig {
                 .build();
     }
 
+    // 우리 이벤트 chunk → 같은 대사일로 적재된 PG 줄을 한 번에 조회 → 판정 → 불일치만 저장.
+    // 승인·취소 Step이 이 writer를 함께 쓰지만, 각 Step의 reader가 한 이벤트 종류만 읽어 chunk 안의 종류는 하나다.
     @Bean
     @StepScope
-    public ItemProcessor<OurEvent, Mismatch> reconOursProcessor(
+    public ItemWriter<OurEvent> reconOursWriter(
             @Value("#{jobParameters['reconDate']}") LocalDate reconDate,
             @Value("${reconciliation.boundary-tolerance:5m}") Duration tolerance,
-            PgSettlementLineRepository lineRepository) {
+            PgSettlementLineRepository lineRepository,
+            ReconciliationMismatchRepository mismatchRepository) {
         ReconciliationMatcher matcher = new ReconciliationMatcher(reconDate, tolerance);
-        return ours -> matcher.oursToPg(ours, lineRepository.find(reconDate, ours.orderId(), ours.eventType()));
+        return chunk -> {
+            List<? extends OurEvent> events = chunk.getItems();
+            String eventType = events.get(0).eventType();
+            Map<String, PgLine> pgLines = lineRepository.findAll(reconDate, eventType, orderIds(events, OurEvent::orderId));
+            List<Mismatch> mismatches = new ArrayList<>();
+            for (OurEvent ours : events) {
+                addIfMismatch(mismatches, matcher.oursToPg(ours, Optional.ofNullable(pgLines.get(ours.orderId()))));
+            }
+            saveMismatches(mismatchRepository, mismatches);
+        };
     }
 
+    // PG 줄 chunk → 결제 건을 한 번에 조회 → 판정 → 불일치만 저장
     @Bean
     @StepScope
-    public ItemProcessor<PgLine, Mismatch> reconPgProcessor(
+    public ItemWriter<PgLine> reconPgWriter(
             @Value("#{jobParameters['reconDate']}") LocalDate reconDate,
             @Value("${reconciliation.boundary-tolerance:5m}") Duration tolerance,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            ReconciliationMismatchRepository mismatchRepository) {
         ReconciliationMatcher matcher = new ReconciliationMatcher(reconDate, tolerance);
-        return pg -> matcher.pgToOurs(pg, paymentRepository.findEventTimes(pg.orderId()));
-    }
-
-    @Bean
-    public ItemWriter<Mismatch> reconMismatchWriter(ReconciliationMismatchRepository mismatchRepository) {
-        return chunk -> mismatchRepository.insertIgnore(chunk.getItems());
+        return chunk -> {
+            Map<String, PaymentRepository.PaymentEventTimes> payments =
+                    paymentRepository.findEventTimes(orderIds(chunk.getItems(), PgLine::orderId));
+            List<Mismatch> mismatches = new ArrayList<>();
+            for (PgLine pg : chunk.getItems()) {
+                addIfMismatch(mismatches, matcher.pgToOurs(pg, Optional.ofNullable(payments.get(pg.orderId()))));
+            }
+            saveMismatches(mismatchRepository, mismatches);
+        };
     }
 
     // ---- helpers ----
 
     private Step oursStep(String name, JobRepository jobRepository, PlatformTransactionManager transactionManager,
-                          JdbcPagingItemReader<OurEvent> reader, ItemProcessor<OurEvent, Mismatch> processor,
-                          ItemWriter<Mismatch> writer) {
+                          JdbcPagingItemReader<OurEvent> reader, ItemWriter<OurEvent> writer) {
         return new StepBuilder(name, jobRepository)
-                .<OurEvent, Mismatch>chunk(chunkSize, transactionManager)
+                .<OurEvent, OurEvent>chunk(chunkSize, transactionManager)
                 .reader(reader)
-                .processor(processor)
                 .writer(writer)
                 .build();
+    }
+
+    private static <T> Set<String> orderIds(List<? extends T> items, Function<T, String> orderId) {
+        Set<String> ids = new LinkedHashSet<>();
+        items.forEach(item -> ids.add(orderId.apply(item)));
+        return ids;
+    }
+
+    private static void addIfMismatch(List<Mismatch> mismatches, Mismatch mismatch) {
+        if (mismatch != null) {
+            mismatches.add(mismatch);
+        }
+    }
+
+    private static void saveMismatches(ReconciliationMismatchRepository repository, List<Mismatch> mismatches) {
+        if (!mismatches.isEmpty()) {
+            repository.insertIgnore(mismatches);
+        }
     }
 
     // 조회 조건은 이벤트 시각뿐 — 처리 중 상태(status)가 바뀌어도 대상이 흔들리지 않는다.

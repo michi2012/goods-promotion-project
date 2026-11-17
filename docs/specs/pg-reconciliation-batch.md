@@ -274,3 +274,4 @@ CREATE TABLE reconciliation_mismatches (
 | 2026-11-17 | 대사 테이블 쓰기를 `INSERT IGNORE` → `ON DUPLICATE KEY UPDATE id = id` | PR #63 리뷰 C1: IGNORE는 유니크 충돌 외 데이터 오류도 경고로 바꿔 대사 대상이 조용히 빠짐. 중복만 무시하고 나머지는 Step 실패로 드러냄 |
 | 2026-11-17 | `business_reconciliation_last_success_date_seconds` 값 = 마지막 COMPLETED 대사일 D의 **끝(D+1 00:00 KST)** epoch 초. 성공 기록이 없으면 NaN | 대사일(D 00:00)로 잡으면 정상 운영이어도 다음 날 03:00 실행 직전 `time() - 값`이 51시간이 되어 30시간 알람이 매일 울림. D+1 00:00이면 정상 시 최대 약 27시간 (BL-051 /plan) |
 | 2026-11-17 | API 400 기준 = `date ≥ 오늘(KST)` (어제까지만 실행 가능). 스케줄 실행은 그 날짜가 이미 COMPLETED면 건너뜀(FAILED면 재시작). 수동·스케줄 모두 비동기 실행 | 오늘 파일은 다음 날 00:10에 생성됨. 스케줄 재실행은 결과가 같아(P-3) 낭비. 스케줄러 스레드(2개, 다른 스케줄과 공유)를 붙잡지 않음 (BL-051 /plan) |
+| 2026-11-17 | 비교 Step(우리→PG, PG→우리)의 상대편 조회를 건마다 1회(processor) → chunk마다 `IN` 1회(writer에서 조회·판정·저장)로 변경. 판정 규칙·chunk 500 그대로 | 기준선에서 비교 Step이 전체의 약 75% (100만 기준 약 210만 쿼리). 100만 재실행 713.8 → 310.7초 (`docs/perf/2026-11-17-pg-reconciliation-batch-lookup.md`, BL-008) |

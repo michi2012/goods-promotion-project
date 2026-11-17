@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
@@ -70,10 +71,10 @@ class ReconciliationPagingReproTest extends ReconciliationJobTestSupport {
         AtomicBoolean refunded = new AtomicBoolean();
         doAnswer(invocation -> {
             if (refunded.compareAndSet(false, true)) {
-                refundFirstTwo(); // 첫 건 판정 중 = 첫 페이지를 읽은 뒤
+                refundFirstTwo(); // 첫 chunk 판정 중 = 첫 페이지를 읽은 뒤
             }
             return invocation.callRealMethod();
-        }).when(lineRepository).find(any(), anyString(), anyString());
+        }).when(lineRepository).findAll(any(), anyString(), anyCollection());
 
         assertThat(run(D).getStatus()).isEqualTo(BatchStatus.COMPLETED);
 

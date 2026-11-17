@@ -17,6 +17,7 @@ import promotion.serverC.dto.PaymentResponse;
 import promotion.serverC.dto.PurchaseMessage;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -196,20 +197,23 @@ class PaymentRepositoryTest {
     }
 
     @Test
-    @DisplayName("대사용 조회는 금액과 승인·취소 시각을 반환하고, 결제 건이 없으면 empty다")
+    @DisplayName("대사용 조회는 여러 주문의 금액과 승인·취소 시각을 한 번에 반환하고, 결제 건이 없는 주문은 결과에 없다")
     void findEventTimes() {
         paymentRepository.claimOrder(message("order-events"));
+        paymentRepository.claimOrder(message("order-processing"));
         LocalDateTime approvedAt = LocalDateTime.of(2026, 11, 16, 10, 0);
         LocalDateTime cancelledAt = LocalDateTime.of(2026, 11, 17, 0, 0, 1);
         paymentRepository.markPaid("order-events", approvedAt);
         paymentRepository.markCancelled("order-events", cancelledAt);
 
-        PaymentRepository.PaymentEventTimes found = paymentRepository.findEventTimes("order-events").orElseThrow();
+        Map<String, PaymentRepository.PaymentEventTimes> found =
+                paymentRepository.findEventTimes(List.of("order-events", "order-processing", "order-none"));
 
-        assertThat(found.amount()).isEqualTo(30_000L);
-        assertThat(found.approvedAt()).isEqualTo(approvedAt);
-        assertThat(found.cancelledAt()).isEqualTo(cancelledAt);
-        assertThat(paymentRepository.findEventTimes("order-none")).isEmpty();
+        assertThat(found).containsOnlyKeys("order-events", "order-processing");
+        assertThat(found.get("order-events"))
+                .isEqualTo(new PaymentRepository.PaymentEventTimes("order-events", 30_000L, approvedAt, cancelledAt));
+        assertThat(found.get("order-processing").approvedAt()).isNull();
+        assertThat(paymentRepository.findEventTimes(List.of())).isEmpty();
     }
 
     private Map<String, Object> eventRow(String orderId) {

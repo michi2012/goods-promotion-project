@@ -1,76 +1,68 @@
-# 계획서: PG 대사 PR③ — 시드 생성기 + 기준선 측정 (BL-047)
+# 계획서: 대사 배치 성능 개선 — 건별 조회 → chunk 일괄 조회 + chunk 크기 (BL-008)
 
-## [완료] BL-002 PR③ — BL-047 (PR #65)
+## [완료] BL-008 (PR #66)
 
 - 작성일: 2026-11-17
-- 관련 항목: BL-047 (상위 BL-002, 마지막 PR) / 명세 `docs/specs/pg-reconciliation-batch.md` 구현 단계 ③
+- 관련 항목: BL-008 / 기준선 `docs/perf/2026-11-17-pg-reconciliation-baseline.md` / 명세 `docs/specs/pg-reconciliation-batch.md`
 
 ## 목표
-대사일 하루치 대량 시드(`payments` 행 + PG CSV)를 재현 가능하게 만드는 생성기를 추가하고, 로컬 docker compose에서 `pgReconciliationJob`의 기준선(소요 시간·처리량·Step별 시간·재시작 절약 시간)을 측정해 기록한 뒤, 그 수치로 BL-008 착수 여부를 판단한다.
+대사 Job의 비교 Step 두 개(우리→PG, PG→우리)가 건마다 상대편을 1회씩 조회하던 것을 chunk 단위 `IN` 조회 1회로 바꿔 처리 시간을 줄이고, 그 뒤 chunk 크기를 측정으로 다시 정한다. 판정 결과는 바뀌지 않아야 한다.
 
 ## 성공 기준
-- [ ] 시드 생성기가 같은 인자(대사일·건수·seed)로 두 번 실행하면 바이트 단위로 같은 SQL·CSV를 만든다 (파일 해시 비교)
-- [ ] 10만·100만 두 규모에서 대사 결과의 유형별 불일치 건수가 생성기가 심은 기대 건수(생성기가 출력하는 요약)와 정확히 같다 (`reconciliation_mismatches` GROUP BY 조회)
-- [ ] 두 규모 각각 3회 이상 반복 측정해 Job 소요 시간·초당 처리 이벤트·Step별 시간의 중앙값(최소~최대)을 `docs/perf/2026-11-17-pg-reconciliation-baseline.md`에 기록 (`BATCH_JOB_EXECUTION`/`BATCH_STEP_EXECUTION` 조회)
-- [ ] 100만 규모에서 Step 4(ours→PG) 중간에 serverC를 kill → 재기동 → API 재시작(mode=RESTART)으로 남은 시간·재처리 없음(read count)·최종 불일치 건수 동일을 기록
-- [ ] BL-008 판단을 결과 문서에 근거와 함께 적고 백로그에 반영, BL-002 완료·포트폴리오 처리량·arch-snapshot 반영
+- [ ] 판정 로직 불변: `ReconciliationMatcherTest`·`ReconciliationJobTest`·재현 테스트 3종(`*ReproTest`)·`ReconciliationMetricsTest` 통과 (`.\gradlew.bat :serverC:test --tests "promotion.serverC.batch.*"`)
+- [ ] 새 일괄 조회 메서드 테스트 통과 (`PgSettlementLineRepositoryTest`, `PaymentRepositoryTest`)
+- [ ] 100만(2026-10-04, seed 47) 3회: 유형별 불일치 993/988/1004/982 일치 + Job·비교 Step 시간을 기준선(재실행 713.8초, 비교 Step 268.2·267.1초)과 비교해 기록. 쿼리 수 감소를 COMMIT_COUNT·chunk 크기로 설명
+- [ ] 10만(2026-10-02) chunk 500/1000/2000/5000 각 3회 → 기본값 결정 근거(시간 + 실패 시 재처리 분량) 기록, `application.yaml` 반영
+- [ ] 결과 문서 `docs/perf/2026-11-17-pg-reconciliation-batch-lookup.md` + 포트폴리오 반영 판단
 
 ## 비범위 (Out of Scope)
-- 배치 실행 중 실시간 API 간섭(p95) 측정 — 사용자 결정, BL-008 판단 시 필요하면 별도 측정
-- 레거시 스케줄러(한 트랜잭션·OFFSET·건별) vs Batch, 키셋 vs OFFSET 속도 비교 — 측정용 코드가 필요해 다음 항목(새 BL)으로 (2026-11-17 사용자 합의)
-- 멀티스레드·파티셔닝 비교 — 로컬 serverC CPU 1개라 의미 있는 비교 불가 (기록만)
-- chunk 크기·커넥션 풀 튜닝 등 성능 개선 — BL-008
-- 프로덕션 코드 변경 (측정 중 버그 발견 시 6-2에 따라 정지·보고)
-- 클라우드(EC2/EKS) 측정
+- 재실행 시 대량 DELETE 개선 — 매일 03:00 첫 실행엔 해당 없음, 수동 재실행만. 새 조건부 BL로 분리 (사용자 결정)
+- 실시간 간섭(p95) 측정 — 비교 Step은 `payments`를 일반 SELECT로만 읽어 InnoDB 잠금을 걸지 않음. 근거만 기록
+- 멀티스레드·파티셔닝, 배치 전용 커넥션 풀 — 현 규모 불필요
+- 판정 규칙(Matcher)·테이블·마이그레이션 변경
+- BL-052 레거시 비교 — 불필요로 종료 (정확성은 BL-050 재현 테스트, 재시작 이득은 BL-047 실측으로 이미 증명. 2026-11-17 사용자 결정)
 
 ## 단계별 작업 계획
 
-### 단계 1: 시드 생성기
-- 변경 파일: `perf/seed/pg-reconciliation-seed.mjs`(신규, 의존성 없는 Node), `perf/seed/README.md`(신규, 사용법·적용·정리 명령)
-- 변경 내용: 인자 `--date --events --seed --out`. 고정 seed의 PRNG로 결제 행을 만들고 `payments` 다중 행 INSERT SQL(1,000행 단위)과 `pg-transactions-YYYYMMDD.csv`를 쓴다. 구성: 정상 승인 대부분, 승인+취소 약 5%, 자정 경계(PG 23:59:5x / 우리 D+1 00:00:0x — D+1 쪽은 D 대사 대상 아님, 우리가 D 23:59:5x이고 PG도 D인 정상 경계 포함), 불일치 4유형 각 0.1%. `order_id`는 `seed-YYYYMMDD-n`으로 다른 데이터와 구분. 끝에 기대 불일치 건수 요약을 출력한다.
-- 검증: 1만 건 소규모로 생성 → 같은 인자 2회 해시 동일 → mysql-c 적용 → 관리자 API로 대사 → 유형별 건수가 요약과 일치
-- 롤백: 신규 파일 삭제, `DELETE FROM payments WHERE order_id LIKE 'seed-%'`
-- 예상 소요: 보통
-
-### 단계 2: 10만 규모 측정
-- 변경 파일: 없음 (측정)
-- 변경 내용: 시드 적용 → 워밍업 1회 → 같은 날짜로 3회 실행(COMPLETED 후 재실행 = 새 실행·교체). 매회 정확성(유형별 건수) 확인, 메타 테이블에서 Job·Step 시간과 read/write 건수 수집.
-- 검증: 3회 모두 COMPLETED + 건수 일치
-- 롤백: 시드 행 삭제
+### 단계 1: 일괄 조회 메서드
+- 변경 파일: `repository/PgSettlementLineRepository.java`(`findAll(reconDate, eventType, orderIds)` → `Map<orderId, PgLine>`), `repository/PaymentRepository.java`(`findEventTimes(orderIds)` → `Map<orderId, PaymentEventTimes>`), 각 테스트
+- 변경 내용: `WHERE recon_date = ? AND event_type = ? AND order_id IN (...)` / `WHERE order_id IN (...)`. 빈 목록이면 쿼리 없이 빈 Map. 기존 단건 메서드는 다른 곳에서 쓰지 않으면 제거
+- 검증: `--tests "*PgSettlementLineRepositoryTest" --tests "*PaymentRepositoryTest"`
+- 롤백: git 되돌리기
 - 예상 소요: 짧음
 
-### 단계 3: 100만 규모 측정 + 재시작 절약 시간
-- 변경 파일: 없음 (측정)
-- 변경 내용: 단계 2와 같은 절차로 3회. 이어서 1회는 Step 4 진행 중(`BATCH_STEP_EXECUTION.READ_COUNT`가 절반쯤일 때) `docker kill promotion-server-c` → `docker start` → 기동 시 정리로 FAILED 확인 → API 재시작(RESTART) → 재시작 후 소요 시간, Step 4 read count가 남은 분량인지, 최종 건수 동일 여부 기록.
-- 검증: RESTART 실행 COMPLETED + 건수 일치
-- 롤백: 시드 행 삭제, serverC 재기동
+### 단계 2: 비교 Step을 chunk 일괄 판정으로
+- 변경 파일: `batch/ReconciliationJobConfig.java`(비교 Step 3개의 processor 제거, writer가 chunk의 키를 모아 일괄 조회 → `ReconciliationMatcher`로 판정 → 불일치만 저장), 필요 시 테스트 보조 코드
+- 변경 내용: 판정·저장이 같은 chunk 트랜잭션이라 재시작·중복 없음 보장 유지. Step의 WRITE_COUNT 의미가 "불일치 수" → "처리 건수"로 바뀜(메트릭·리포트는 결과 테이블에서 세므로 영향 없음 — 확인함)
+- 검증: `.\gradlew.bat :serverC:test --tests "promotion.serverC.batch.*"` (Testcontainers, docker 기동 중)
+- 롤백: git 되돌리기
 - 예상 소요: 보통
 
-### 단계 3-1: 설정 비교 — 일괄 쓰기·chunk 크기 (2026-11-17 사용자 승인으로 추가)
-- 변경 파일: 없음 (측정. serverC 환경변수만 임시 override, 끝나면 원복)
-- 변경 내용: 10만 규모(2026-10-02)로 설정 하나씩 바꿔 3회씩: ① `rewriteBatchedStatements=false`(일괄 쓰기 끔) ② chunk 100 ③ chunk 2000. 기준(500, 켬)은 단계 2 값을 같은 날 측정값으로 사용. 컨테이너 재생성 시 `/app/pg-files`가 사라지므로 CSV 다시 복사.
+### 단계 3: 100만 전후 측정
+- 변경 파일: 없음 (측정). serverC 이미지 재빌드·재생성(`docker compose build server-c` → `up -d server-c`, 백그라운드)
+- 변경 내용: 시드 재생성(같은 인자, 해시 동일) → 적용 → 3회 → 건수·Step 시간 수집. 개선 전은 오늘 기준선 재사용(같은 날·시드·환경)
 - 검증: 매회 COMPLETED + 건수 일치
-- 롤백: override 없이 serverC 재생성
+- 롤백: 시드 삭제
 - 예상 소요: 보통
 
-### 단계 4: 결과 기록 + BL-008 판단
-- 변경 파일: `docs/perf/2026-11-17-pg-reconciliation-baseline.md`(신규), `.claude/skills/perf-compare/project.md`(배치 지표 조회 쿼리 확정)
-- 변경 내용: perf-compare 기록 형식(전후 대신 규모별 기준선). 판단 기준: 100만(일 거래 10배 여유)이 03:00 실행 후 업무 시작 전까지 넉넉히 끝나는지, Step별 병목이 한쪽에 몰리는지. 결론을 BL-008 조건 칸에 반영.
-- 검증: 리뷰
-- 예상 소요: 짧음
+### 단계 4: chunk 크기 비교 (10만) + 기본값 반영 — **생략 (2026-11-17 사용자 결정)**: 일괄 조회 후엔 chunk가 `IN` 쿼리 횟수만 좌우해 효과가 작을 것으로 예상, 500으로 100만 약 5분이라 충분. 500 유지
+- 변경 파일: `serverC/src/main/resources/application.yaml`(`reconciliation.chunk-size`), 측정은 compose override로
+- 변경 내용: 500/1000/2000/5000 각 워밍업 1 + 3회. 기본값은 "충분히 빠르면서 실패 시 재처리 분량이 작은 값"으로 결정
+- 검증: 매회 건수 일치, 결정값으로 `batch.*` 테스트 재실행
+- 롤백: yaml 되돌리기
+- 예상 소요: 보통
 
-### 단계 5: 마무리 문서
-- 변경 파일: `docs/portfolio.md`(처리량 칸), `docs/architecture/arch-snapshot.md`(serverC 배치·대사 테이블·관리자 API 발췌 반영), 명세 완료 기준 체크, `docs/backlog.md`
+### 단계 5: 문서
+- 변경 파일: `docs/perf/2026-11-17-pg-reconciliation-batch-lookup.md`(신규), 명세 변경 이력(chunk 크기·일괄 판정), arch-snapshot 대사 절(chunk 값), 백로그(BL-008 완료 준비, DELETE 조건부 새 BL), 포트폴리오(판단 후)
 - 검증: 리뷰
 - 예상 소요: 짧음
 
 ## 리스크 및 대응
-- 100만 건 SQL 파일(약 250MB) 적용이 느리거나 `max_allowed_packet` 초과 → 1,000행 단위 INSERT, 파일을 나눠 적용. 적용 시간은 측정 대상 아님
-- 기존 로컬 데이터와 충돌 → 데이터가 없는 과거 대사일 사용 + `seed-` 접두사, 측정 후 시드 행 삭제(사용자 확인 후)
-- 같은 머신 다른 컨테이너 부하로 편차 → 측정 중 다른 부하 없음 확인, 반복 간 편차를 함께 기록
-- serverC kill 시 다른 진행 중 작업 영향 → 로컬 전용, 측정 시점에 다른 부하 없음
-- 측정 중 버그(건수 불일치 등) 발견 → 정지 후 보고 (프로덕션 코드 변경은 계획 밖)
+- writer에서 판정하면 재시작 시 판정 누락·중복 → 판정과 저장이 같은 chunk 트랜잭션, 유니크 키 중복 무시는 그대로. `ReconciliationRestartReproTest`로 확인
+- `IN` 목록이 커져 쿼리가 느림(chunk 5000) → 측정으로 확인, 기본값 선택에 반영
+- 경계 판정에 필요한 정보(D-1 꼬리 줄·D 밖 시각)를 일괄 조회가 빠뜨림 → 단건 조회와 같은 WHERE 조건(recon_date 기준, 시각 조건 없음) 유지, `ReconciliationJobTest` 경계 시나리오로 확인
+- 위험 변경(대사 정확성) → PR 후 `/pr-review` 필수
 
 ## 의존성
-- docker compose의 serverC(`promotion-server-c`, WORKDIR `/app`, 파일 경로 `/app/pg-files`) + mysql-c — 현재 기동 중
-- Node (의존성 없음), 새 Gradle 의존성 없음
+- docker compose serverC·mysql-c (기동 중), Testcontainers
+- 새 Gradle 의존성·마이그레이션 없음
