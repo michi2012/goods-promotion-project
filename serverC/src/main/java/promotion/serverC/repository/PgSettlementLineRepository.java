@@ -8,8 +8,12 @@ import promotion.serverC.batch.PgLine;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 /**
  * 대사일별로 적재한 PG 거래 파일 사본 (pg_settlement_lines).
@@ -42,11 +46,23 @@ public class PgSettlementLineRepository {
                 });
     }
 
-    public Optional<PgLine> find(LocalDate reconDate, String orderId, String eventType) {
-        return jdbcTemplate.query(
+    // 같은 대사일로 적재된 줄(D 파일 + D-1 꼬리) 중 한 이벤트 종류의 줄을 chunk 단위로 한 번에 조회한다.
+    // 결과에 없는 orderId는 그 이벤트의 PG 줄이 없는 것. (recon_date, order_id, event_type) 유일 키라 주문당 최대 1줄.
+    public Map<String, PgLine> findAll(LocalDate reconDate, String eventType, Collection<String> orderIds) {
+        Map<String, PgLine> found = new HashMap<>();
+        if (orderIds.isEmpty()) {
+            return found;
+        }
+        List<Object> args = new ArrayList<>(orderIds.size() + 2);
+        args.add(reconDate);
+        args.add(eventType);
+        args.addAll(orderIds);
+        jdbcTemplate.query(
                 "SELECT order_id, event_type, amount, occurred_at FROM pg_settlement_lines " +
-                "WHERE recon_date = ? AND order_id = ? AND event_type = ?",
-                ROW_MAPPER, reconDate, orderId, eventType).stream().findFirst();
+                "WHERE recon_date = ? AND event_type = ? AND order_id IN ("
+                        + String.join(",", Collections.nCopies(orderIds.size(), "?")) + ")",
+                ROW_MAPPER, args.toArray()).forEach(line -> found.put(line.orderId(), line));
+        return found;
     }
 
     public int deleteByReconDate(LocalDate reconDate) {

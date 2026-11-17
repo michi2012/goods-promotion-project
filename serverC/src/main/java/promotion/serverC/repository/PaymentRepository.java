@@ -10,7 +10,11 @@ import promotion.serverC.dto.PurchaseMessage;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -75,17 +79,25 @@ public class PaymentRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
-    // 대사용: 결제 건의 금액과 승인·취소 기록 시각. 결제 건이 없으면 empty (PG만 있음 판정).
-    public Optional<PaymentEventTimes> findEventTimes(String orderId) {
-        List<PaymentEventTimes> results = jdbcTemplate.query(
-                "SELECT order_id, amount, approved_at, cancelled_at FROM payments WHERE order_id = ?",
-                (rs, rowNum) -> new PaymentEventTimes(
-                        rs.getString("order_id"),
-                        rs.getObject("amount", Long.class),
-                        rs.getObject("approved_at", LocalDateTime.class),
-                        rs.getObject("cancelled_at", LocalDateTime.class)),
-                orderId);
-        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    // 대사용: 결제 건의 금액과 승인·취소 기록 시각을 chunk 단위로 한 번에 조회한다 (건마다 조회하면 100만 건에 쿼리 100만 번).
+    // 결과에 없는 orderId는 결제 건이 없는 것 (PG만 있음 판정).
+    public Map<String, PaymentEventTimes> findEventTimes(Collection<String> orderIds) {
+        Map<String, PaymentEventTimes> found = new HashMap<>();
+        if (orderIds.isEmpty()) {
+            return found;
+        }
+        jdbcTemplate.query(
+                "SELECT order_id, amount, approved_at, cancelled_at FROM payments WHERE order_id IN ("
+                        + String.join(",", Collections.nCopies(orderIds.size(), "?")) + ")",
+                rs -> {
+                    found.put(rs.getString("order_id"), new PaymentEventTimes(
+                            rs.getString("order_id"),
+                            rs.getObject("amount", Long.class),
+                            rs.getObject("approved_at", LocalDateTime.class),
+                            rs.getObject("cancelled_at", LocalDateTime.class)));
+                },
+                orderIds.toArray());
+        return found;
     }
 
     public record PaymentEventTimes(String orderId, Long amount, LocalDateTime approvedAt, LocalDateTime cancelledAt) {

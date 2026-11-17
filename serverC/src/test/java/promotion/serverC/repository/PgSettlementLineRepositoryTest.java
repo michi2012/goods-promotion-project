@@ -15,6 +15,7 @@ import promotion.serverC.support.AbstractRepositoryTest;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,15 +60,26 @@ class PgSettlementLineRepositoryTest extends AbstractRepositoryTest {
     }
 
     @Test
-    @DisplayName("대사일·주문·이벤트로 줄을 찾는다 — 금액 없는 줄은 null")
-    void find() {
+    @DisplayName("대사일·이벤트 종류로 여러 주문의 줄을 한 번에 찾는다 — 다른 이벤트·다른 대사일 줄은 제외, 금액 없는 줄은 null")
+    void findAll() {
         LocalDateTime at = D.atTime(23, 59, 59, 123_456_000);
-        repository.insertIgnore(D, List.of(new PgLine("order-1", "CANCEL", null, at)));
+        repository.insertIgnore(D, List.of(
+                new PgLine("order-1", "CANCEL", null, at),
+                new PgLine("order-2", "CANCEL", 2_000L, at),
+                new PgLine("order-3", "APPROVE", 3_000L, at)));
+        repository.insertIgnore(D.plusDays(1), List.of(new PgLine("order-4", "CANCEL", 4_000L, at)));
 
-        assertThat(repository.find(D, "order-1", "CANCEL"))
-                .contains(new PgLine("order-1", "CANCEL", null, at));
-        assertThat(repository.find(D, "order-1", "APPROVE")).isEmpty();
-        assertThat(repository.find(D.plusDays(1), "order-1", "CANCEL")).isEmpty();
+        Map<String, PgLine> found = repository.findAll(D, "CANCEL", List.of("order-1", "order-2", "order-3", "order-4", "order-x"));
+
+        assertThat(found).containsOnly(
+                Map.entry("order-1", new PgLine("order-1", "CANCEL", null, at)),
+                Map.entry("order-2", new PgLine("order-2", "CANCEL", 2_000L, at)));
+    }
+
+    @Test
+    @DisplayName("빈 목록이면 조회 없이 빈 결과")
+    void findAll_빈목록() {
+        assertThat(repository.findAll(D, "APPROVE", List.of())).isEmpty();
     }
 
     @Test
