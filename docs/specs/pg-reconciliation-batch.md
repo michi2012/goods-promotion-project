@@ -225,4 +225,5 @@ CREATE TABLE reconciliation_mismatches (
 |------|------|------|
 | 2026-11-17 | P-4 ①·④를 이벤트 단위로 구체화: ① = 우리 이벤트에 대응하는 PG 이벤트 없음, ④ = PG 이벤트는 있고 우리 결제 건도 있으나 D에 그 이벤트가 없음 | 파일이 하루치라 "PG에 orderId가 없음"을 다른 날짜까지 확인할 수 없음. 판정을 D 안에서 닫아야 재실행 결과가 같음 |
 | 2026-11-17 | 이벤트 시각은 DB `NOW(6)`가 아니라 앱 시계(`LocalDateTime.now()`)를 파라미터로 기록 | 모의 PG 원장과 같은 JVM 시계여야 "PG 시각 ≤ 우리 기록 시각" 불변식이 시계 어긋남과 무관하게 성립 (BL-045 /plan) |
+| 2026-11-17 | 이벤트 시각은 JVM 기본 타임존이 아니라 KST로 고정(`ReconciliationTime.now()`). 거래 파일은 serverC 로컬 디렉터리 — 단일 인스턴스 전제, 다중 파드 저장소는 BL-048 | PR #62 리뷰 C2·C3: 파드 TZ 미설정 시 대사 범위(P-1 KST)와 9시간 어긋남, 파일이 파드마다 따로 생김 |
 | 2026-11-17 | 마이그레이션 번호: PR①은 V4(시각)·V5(`mock_pg_transactions`), PR②는 V6(`pg_settlement_lines`·`reconciliation_mismatches`)·V7(Batch 메타) | PR 분할에 맞춤 |

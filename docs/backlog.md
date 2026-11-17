@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-16
-- **다음 ID: BL-048** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-050** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -34,6 +34,8 @@
 | BL-018 | 배포 후 스모크 테스트 job 추가 (`deploy` 뒤, 백엔드 E2E `backend-e2e/` 재사용 — 대상 주소만 변경) | M | BL-015 | E2E 회고 |
 | BL-016 | Debezium serverA 커넥터 감시 DB `order` 변경 반영 — 기존 커넥터 오프셋·schema history 초기화 필요 여부 확인 | S | | PR #22 |
 | BL-017 | K8s DiscoveryClient 정적 등록의 실제 Service DNS 연결: serverA 결제조회, cs-bot 조회, aiops → codebot | S | | PR #21 |
+| BL-048 | **모의 PG 거래 파일의 다중 파드 저장소**: 파일이 각 파드 로컬 `./pg-files`(`MOCK_PG_FILE_DIR`)에 생겨 대사 배치(BL-046)가 다른 파드의 파일을 못 읽음. 공유 볼륨(EFS)·오브젝트 저장소(S3)·단일 레플리카 전제 중 결정 (로컬 compose는 단일 인스턴스라 무관) | S~M | | PR #62 리뷰 C3 (2026-11-17) |
+| BL-049 | **helm 백엔드 파드 TZ 미설정**: compose는 `TZ: Asia/Seoul`인데 helm serverA·B·C 등에는 없어 파드가 UTC로 뜸 → `LocalDateTime.now()`·`@Scheduled` 기본 존이 9시간 어긋남. 대사 기준 시각은 PR #62에서 코드로 KST 고정(`ReconciliationTime`), 나머지 서비스 전체는 helm `TZ` 추가로 맞출지 검토 | S | | PR #62 리뷰 C2 (2026-11-17) |
 | BL-023 | `ci-cd.yaml`에 Git Flow 흔적: `branches: [dev, main]`, dev 환경 분기, `create-pr`(dev 배포 후 main PR 생성) job — 브랜치 전략은 GitHub Flow(main + 기능 브랜치). 배포 환경(staging/prod) 설계와 함께 정리 | M | | BL-019 작업 중 발견 |
 
 ## 조건부 (조건 충족 시 "진행 예정"으로 이동 — 선행 조건이 있거나 특정 변경이 생길 때만 필요한 항목)
