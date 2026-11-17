@@ -30,7 +30,8 @@ public class MockPgLedger {
                 orderId, eventType, amount, occurredAt);
     }
 
-    // [from, to) 거래를 발생 순서대로 한 건씩 넘긴다. 하루치를 메모리에 모으지 않는다.
+    // [from, to) 거래를 발생 순서대로 한 건씩 넘긴다. MySQL 드라이버 기본값이라 결과는 메모리에 한 번에 올라온다
+    // (스트리밍 아님) — 모의 PG 원장은 작고, 대량 시드(BL-047)는 원장을 거치지 않고 파일을 직접 만든다.
     @Transactional(readOnly = true)
     public void forEachBetween(LocalDateTime from, LocalDateTime to, Consumer<Entry> consumer) {
         jdbcTemplate.query(

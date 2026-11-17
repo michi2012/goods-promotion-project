@@ -12,7 +12,6 @@ import promotion.serverC.dto.PurchaseMessage;
 import promotion.serverC.exception.PgAmbiguousResponseException;
 import promotion.serverC.exception.PgPaymentException;
 
-import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -127,7 +126,7 @@ public class MockPgClient implements PgClient {
     // 원장 기록 실패가 결제·취소를 막지 않는다 (실제 PG 내부 사정은 우리 흐름과 무관). 빠진 건은 대사에서 드러난다.
     private void recordLedger(String orderId, String eventType, Long amount) {
         try {
-            ledger.record(orderId, eventType, amount, LocalDateTime.now());
+            ledger.record(orderId, eventType, amount, ReconciliationTime.now());
         } catch (Exception e) {
             log.error("🚨 [MockPgClient] 원장 기록 실패: orderId={}, eventType={}", orderId, eventType, e);
         }

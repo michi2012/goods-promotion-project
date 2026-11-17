@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import promotion.serverC.service.MockPgLedger;
+import promotion.serverC.service.ReconciliationTime;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -14,7 +15,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -27,7 +27,6 @@ import java.time.format.DateTimeFormatter;
 public class MockPgFileExporter {
 
     static final String HEADER = "order_id,event_type,amount,occurred_at";
-    private static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter FILE_DATE = DateTimeFormatter.BASIC_ISO_DATE;
     // 초·소수점이 0이어도 자릿수를 고정한다 (LocalDateTime.toString은 "10:00"처럼 줄여 쓴다).
     private static final DateTimeFormatter OCCURRED_AT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSS");
@@ -42,7 +41,7 @@ public class MockPgFileExporter {
 
     @Scheduled(cron = "${mock-pg.export.cron:0 10 0 * * *}", zone = "Asia/Seoul")
     public void exportYesterday() {
-        LocalDate yesterday = LocalDate.now(ZONE).minusDays(1);
+        LocalDate yesterday = LocalDate.now(ReconciliationTime.ZONE).minusDays(1);
         try {
             Path file = export(yesterday);
             log.info("[MockPgFile] 거래 파일 생성: {}", file);

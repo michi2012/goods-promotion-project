@@ -96,7 +96,7 @@ public class PaymentService {
 
         boolean success = result.isApproved();
         if (success) {
-            paymentRepository.markPaid(msg.orderId(), LocalDateTime.now());
+            paymentRepository.markPaid(msg.orderId(), ReconciliationTime.now());
         } else {
             paymentRepository.updateOrderStatus(List.of(msg.orderId()), "FAILED");
         }
@@ -153,9 +153,9 @@ public class PaymentService {
         log.error("🚨 [Payment] 승인 금액 불일치, 망취소: orderId={}, orderAmount={}, approvedAmount={}",
                 msg.orderId(), msg.totalAmount(), result.approvedAmount());
         paymentErrorAmountMismatch.increment();
-        LocalDateTime approvedAt = LocalDateTime.now();
+        LocalDateTime approvedAt = ReconciliationTime.now();
         pgClient.cancelPayment(msg.orderId());
-        paymentRepository.markFailedAfterNetCancel(msg.orderId(), approvedAt, LocalDateTime.now());
+        paymentRepository.markFailedAfterNetCancel(msg.orderId(), approvedAt, ReconciliationTime.now());
         outboxEventService.save(msg.orderId(), RESULT_TOPIC,
                 new PaymentResultMessage(msg.orderId(), false, "금액 불일치"));
     }

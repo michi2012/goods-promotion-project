@@ -86,20 +86,16 @@ class MockPgClientTest {
     @DisplayName("멱등 키로 다시 요청하면 원장에 다시 기록하지 않는다")
     void idempotentRetryDoesNotRecordAgain() {
         String orderId = "order-retry";
-        try {
-            pgClient.processPayment(message(orderId));
-        } catch (PgAmbiguousResponseException ignored) {
-        }
-        boolean approved = pgClient.queryTransaction(orderId).isApproved();
-        try {
-            pgClient.processPayment(message(orderId));
-        } catch (PgAmbiguousResponseException ignored) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                pgClient.processPayment(message(orderId));
+            } catch (PgAmbiguousResponseException ignored) {
+            }
         }
 
-        // 첫 요청에서 승인됐다면 두 번째 요청은 캐시된 결과만 돌려준다
-        if (approved) {
-            verify(ledger, times(1)).record(eq(orderId), eq(MockPgLedger.APPROVE), any(), any());
-        }
+        // 몇 번 요청하든 PG가 승인으로 기억하면 정확히 1건, 아니면 0건 (분기와 무관하게 결정적으로 검증)
+        boolean approved = pgClient.queryTransaction(orderId).isApproved();
+        verify(ledger, times(approved ? 1 : 0)).record(eq(orderId), eq(MockPgLedger.APPROVE), any(), any());
     }
 
     @Test
