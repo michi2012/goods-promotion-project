@@ -75,6 +75,22 @@ public class PaymentRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
+    // 대사용: 결제 건의 금액과 승인·취소 기록 시각. 결제 건이 없으면 empty (PG만 있음 판정).
+    public Optional<PaymentEventTimes> findEventTimes(String orderId) {
+        List<PaymentEventTimes> results = jdbcTemplate.query(
+                "SELECT order_id, amount, approved_at, cancelled_at FROM payments WHERE order_id = ?",
+                (rs, rowNum) -> new PaymentEventTimes(
+                        rs.getString("order_id"),
+                        rs.getObject("amount", Long.class),
+                        rs.getObject("approved_at", LocalDateTime.class),
+                        rs.getObject("cancelled_at", LocalDateTime.class)),
+                orderId);
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
+    public record PaymentEventTimes(String orderId, Long amount, LocalDateTime approvedAt, LocalDateTime cancelledAt) {
+    }
+
     public List<PaymentResponse> findByUserId(Long userId, int page, int size) {
         String sql = "SELECT order_id, user_id, goods_id, quantity, amount, currency, payment_method, status, created_at " +
                      "FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?";

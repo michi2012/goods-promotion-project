@@ -195,6 +195,23 @@ class PaymentRepositoryTest {
         assertThat(row.get("cancelled_at")).isEqualTo(cancelledAt);
     }
 
+    @Test
+    @DisplayName("대사용 조회는 금액과 승인·취소 시각을 반환하고, 결제 건이 없으면 empty다")
+    void findEventTimes() {
+        paymentRepository.claimOrder(message("order-events"));
+        LocalDateTime approvedAt = LocalDateTime.of(2026, 11, 16, 10, 0);
+        LocalDateTime cancelledAt = LocalDateTime.of(2026, 11, 17, 0, 0, 1);
+        paymentRepository.markPaid("order-events", approvedAt);
+        paymentRepository.markCancelled("order-events", cancelledAt);
+
+        PaymentRepository.PaymentEventTimes found = paymentRepository.findEventTimes("order-events").orElseThrow();
+
+        assertThat(found.amount()).isEqualTo(30_000L);
+        assertThat(found.approvedAt()).isEqualTo(approvedAt);
+        assertThat(found.cancelledAt()).isEqualTo(cancelledAt);
+        assertThat(paymentRepository.findEventTimes("order-none")).isEmpty();
+    }
+
     private Map<String, Object> eventRow(String orderId) {
         return jdbcTemplate.queryForMap(
                 "SELECT status, approved_at, cancelled_at FROM payments WHERE order_id = ?", orderId);

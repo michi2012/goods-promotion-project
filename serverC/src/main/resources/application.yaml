@@ -27,6 +27,11 @@ spring:
     hibernate:
       ddl-auto: validate
     show-sql: false
+  batch:
+    job:
+      enabled: false # 기동 시 Job 자동 실행 금지 (대사는 스케줄·관리자 API로만 실행)
+    jdbc:
+      initialize-schema: never # BATCH_* 메타 테이블은 Flyway(V7)가 관리
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -62,6 +67,11 @@ mock-pg:
   file-dir: ${MOCK_PG_FILE_DIR:./pg-files}
   export:
     cron: "0 10 0 * * *"
+
+# PG 대사 배치 (docs/specs/pg-reconciliation-batch.md). chunk 크기 튜닝은 기준선 측정 후 BL-008.
+reconciliation:
+  chunk-size: 500
+  boundary-tolerance: 5m # 우리·PG 기록 시각 차이 허용치 — 이내면 날짜 경계 건으로 보고 불일치에서 제외 (P-5)
 
 resilience4j.circuitbreaker:
   configs:
