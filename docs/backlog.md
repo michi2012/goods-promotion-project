@@ -16,7 +16,7 @@
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
 |----|------|------|---------|------|------|------|
-| BL-047 | **BL-002 PR③ 시드 + 기준선 측정**: 시드 생성기, perf-compare 기준선 → BL-008 판단 (명세 ③) | 로드맵 | 높음 | S | | BL-002 /spec (2026-11-17) |
+| BL-047 | **BL-002 PR③ 시드 + 기준선 측정**: 시드 생성기(`payments` 행 + CSV 직접 생성), perf-compare 기준선 → BL-008 판단 (명세 ③). 마지막 PR이라 BL-002 완료, 포트폴리오 사례 처리량 채우기, arch-snapshot 반영 포함 (명세 "마지막 PR에서 할 일") | 로드맵 | 높음 | S | | BL-002 /spec (2026-11-17) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
 | BL-038 | **환불 완료 처리 실패 알람 없음**: serverA `payment-cancelled` 처리가 Kafka 재시도를 소진하면 `business_refund_complete_failed_total`만 오르고 알람 규칙이 없다. 주문이 REFUND_REQUESTED("환불 처리 중")에 남은 채 아무도 모름 — `monitoring/`·`helm/` 알람 규칙 2벌에 추가 (PR #51 교훈: `or`로 묶지 말고 별도 규칙) | 후속 작업 | 중간 | S | | BL-029 PR②-b 작업 중 발견 (2026-11-16) |
