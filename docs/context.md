@@ -1,6 +1,6 @@
 # 맥락 노트: PG 대사 PR① — 대사 기반 데이터 (BL-045)
 
-## [진행 중] BL-002 PR① — BL-045
+## [완료] BL-002 PR① — BL-045 (PR #62)
 
 ### 왜 이 방식을 선택했는가
 - 요구사항·설계는 `docs/specs/pg-reconciliation-batch.md`에서 확정. 이 PR은 "구현 단계" ①.

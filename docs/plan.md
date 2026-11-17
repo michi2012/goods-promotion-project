@@ -3,7 +3,7 @@
 - 작성일: 2026-11-17
 - 관련 이슈/티켓: BL-045 (BL-002의 하위 항목, `docs/backlog.md`), 명세 `docs/specs/pg-reconciliation-batch.md` (설계 확인 ☑)
 
-## [진행 중] BL-002 PR① — BL-045
+## [완료] BL-002 PR① — BL-045 (PR #62)
 
 ### 목표
 대사 배치(PR②)가 비교할 양쪽 데이터를 만든다: 우리 쪽은 `payments`의 승인·취소 시각, PG 쪽은 모의 PG 원장과 거기서 만든 일자별 CSV 파일.
