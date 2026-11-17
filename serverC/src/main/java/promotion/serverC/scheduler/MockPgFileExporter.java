@@ -51,8 +51,13 @@ public class MockPgFileExporter {
         }
     }
 
+    // 대사 배치도 같은 이름으로 파일을 찾는다.
+    public static String fileName(LocalDate date) {
+        return "pg-transactions-" + date.format(FILE_DATE) + ".csv";
+    }
+
     public Path export(LocalDate date) {
-        Path target = fileDir.resolve("pg-transactions-" + date.format(FILE_DATE) + ".csv");
+        Path target = fileDir.resolve(fileName(date));
         Path temp = fileDir.resolve(target.getFileName() + ".tmp");
         try {
             Files.createDirectories(fileDir);
