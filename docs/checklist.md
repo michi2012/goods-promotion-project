@@ -26,7 +26,10 @@
 - [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인 (API·스케줄·메트릭·알람 없음)
 - [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인
 - [x] E2E(API 호출)는 진입점이 생기는 BL-051에서 — 이 PR은 Job 테스트 + 서버 기동 확인 (사용자 합의)
-- [ ] (위험 변경: Batch 도입·마이그레이션·정합성) PR 생성 후 `/pr-review` 1회 — [필수] 반영·재리뷰
+- [x] (위험 변경: Batch 도입·마이그레이션·정합성) PR 생성 후 `/pr-review` 1회 — [필수] 반영·재리뷰
+  - 1차(리뷰어 Sonnet): 머지 가능, [필수] 0 / [제안] 2 — https://github.com/michi2012/goods-promotion-project/pull/63#pullrequestreview-5931979939
+  - C1(INSERT IGNORE → ON DUPLICATE KEY)·C2(취소 불일치 Job 테스트) 반영 7494985
+  - 재리뷰: 머지 가능, [필수] 0 — https://github.com/michi2012/goods-promotion-project/pull/63#pullrequestreview-5932021856
 - [ ] 포트폴리오 후보 판단 — BL-002 묶음의 중간 PR이라 기록은 마지막 PR(BL-047) 후 (명세 "마지막 PR에서 할 일")
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
