@@ -1,6 +1,6 @@
 # 계획서: 대사 배치 성능 개선 — 건별 조회 → chunk 일괄 조회 + chunk 크기 (BL-008)
 
-## [진행 중] BL-008
+## [완료] BL-008 (PR #66)
 
 - 작성일: 2026-11-17
 - 관련 항목: BL-008 / 기준선 `docs/perf/2026-11-17-pg-reconciliation-baseline.md` / 명세 `docs/specs/pg-reconciliation-batch.md`
