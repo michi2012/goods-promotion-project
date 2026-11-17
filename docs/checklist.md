@@ -1,35 +1,28 @@
-# 체크리스트: PG 대사 PR②-b — 대사 운영 연결 (BL-051)
+# 체크리스트: PG 대사 PR③ — 시드 생성기 + 기준선 측정 (BL-047)
 
-## [완료] BL-002 PR②-b — BL-051 (PR #64)
+## [진행 중] BL-002 PR③ — BL-047
 
-- 마지막 업데이트: 2026-11-17 (전체 완료, PR #64 — `/pr-review` 대기)
+- 마지막 업데이트: 2026-11-17 15:55
 
 ## 진행 상황
-- [x] 단계 1: 메타 조회 Repository + 실행 서비스 + 400/409 예외
-  - [x] 검증 통과 (`--tests "*ReconciliationRun*"`: Repository 3 + Service 9)
-- [x] 단계 2: 관리자 API
-  - [x] 검증 통과 (`--tests "*ReconciliationAdminControllerTest"`: 5)
-- [x] 단계 3: 메트릭 리스너 + 기동 시 정리
-  - [x] 검증 통과 (Metrics 4 + Cleaner 2, 기존 Job·재현 테스트 모두 통과)
-- [x] 단계 4: 03:00 스케줄러
-  - [x] 검증 통과 (`--tests "*ReconciliationSchedulerTest"`: 2)
-- [x] 단계 5: 알람 2벌 (인프라 — 단계별 승인)
-  - [x] promtool check rules(prom/prometheus:v2.45.0: monitoring 30, helm 39 rules SUCCESS), `helm template` 통과
-- [x] 단계 6: 백엔드 E2E
-  - [x] serverC 재빌드(bootJar → compose up --build server-c) 후 `npx playwright test reconciliation-admin payment-cancel-admin` 2 passed. 실패 메트릭 0 → 2(첫 실행), 재시작 시 clear Step이 다시 돌지 않음(로그)
-- [x] 단계 7: 명세 변경 이력·문서 (게이지 기준, 400 기준·스케줄 건너뜀·비동기)
+- [x] 단계 1: 시드 생성기 (`perf/seed/` — 스크립트, README, `.gitignore`(out/))
+  - [x] 같은 인자 2회 해시 동일 (SQL·CSV sha256 일치)
+  - [x] 1만 건 적용 → 대사(실행 7) → OURS_ONLY 5·PG_ONLY 7·AMOUNT 5·STATUS 7 = 요약, 15.6초
+- [x] 단계 2: 10만 규모 측정 (2026-10-02, 실행 8 워밍업 + 9·10·11) — 57.4/59.5/60.5초, 매회 90/106/92/86 일치
+- [x] (1만 검증 날짜 2026-10-01은 2026-10-02의 D-1 꼬리 파일로 쓰여 꼬리 46줄 적재 — 측정 조건으로 기록)
+- [x] 단계 3: 100만 규모 측정 (2026-10-04, 실행 12 첫 실행 618.7초 / 13·14 재실행 713.8·717.2초, 매회 993/988/1004/982 일치) + 재시작 (실행 15를 ours승인 50.6만 읽은 시점 kill → 기동 28초, FAILED 정리 → 실행 16 RESTART 411.2초, 읽기 506,000+491,538=997,538 중복 없음, 건수 일치)
+- [x] 단계 3-1: 설정 비교 (10만) — 일괄 쓰기 끔 72.9초(+23%) / chunk 100 79.7초(+34%) / chunk 2000 48.6초(−18%), 각 3회 건수 일치, 원복 확인 (1차 시도는 재생성 컨테이너에 `/app/pg-files` 없어 실패 → mkdir 추가, perf-compare project.md 기록)
+- [x] 단계 4: `docs/perf/2026-11-17-pg-reconciliation-baseline.md` + BL-008 판단(운영상 급하지 않음, 후보 3개 → 진행 예정, 선행 BL-052) + perf-compare `project.md`(배치 조회 쿼리)
+- [x] 단계 5: 포트폴리오 처리량, arch-snapshot(대사 배치 절·테이블·API·스케줄러), 명세 완료 기준, 백로그(BL-052 레거시 비교, BL-008 이동, BL-053)
 
 ## 최종 검증
-- [x] serverC 테스트 통과 (`.\gradlew.bat :serverC:test` — 150 tests, 실패 0)
-- [x] 변경 사항이 plan.md "비범위"를 침범하지 않았는지 확인 (조회 API·다중 파드·성공 경로 E2E 없음)
-- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (변경 12 + 신규 16 = 28개, 모두 계획 범위)
-- [x] 사용자에게 E2E 결과(리포트 URL + 메트릭 전후)를 보여주고 확인받은 뒤 커밋
-- [x] 실제 서버 성공 경로 데모 (사용자 요청): 2026-11-10, 우리 8건 + CSV 9줄 → 4유형 각 1건, 정상·경계 제외, 재실행 시 교체. 결과는 명세 3-1절
-- [x] (위험 변경: 배치 재시작·운영 알람) PR 생성 후 `/pr-review` 1회 — 판정 머지 가능, [필수] 0 / [제안] 2 (C1 스케줄의 ABANDONED 건너뜀, C2 E2E 정확 비교). https://github.com/michi2012/goods-promotion-project/pull/64#pullrequestreview-5932542545
-  - C1 반영(c7eac8d, 스케줄도 ABANDONED면 새 실행) → 재리뷰 머지 가능, 지적 0: https://github.com/michi2012/goods-promotion-project/pull/64#pullrequestreview-5932585004 / C2는 정확 비교 유지 이유 답글
-- [x] 포트폴리오 — 사용자 요청으로 이 PR에서 기록: BL-045·050·051을 묶어 "PG 대사 배치 정합성" 한 줄 (`docs/portfolio.md`). BL-047 기준선은 성능 표에 별도
+- [x] 프로덕션 코드 변경 없음 (`git status` — docs·perf·skill project.md만)
+- [x] 변경 사항이 plan.md의 "비범위"를 침범하지 않았는지 확인
+- [x] 의도하지 않은 파일 변경이 없는지 git diff로 최종 확인 (시드 산출물 SQL·CSV는 커밋하지 않음)
+- [ ] 측정 후 로컬 시드 행 정리 (사용자 확인 후)
+- [ ] 사용자에게 측정 결과(수치·BL-008 판단) 보여주고 확인받은 뒤 커밋
+- [ ] `/pr-review` — 위험 변경 아님(문서·스크립트)이라 선택
+- [ ] 포트폴리오 후보 판단 — 새 사례가 아니라 기존 "하루치 PG 대사 배치" 사례의 처리량 칸 채움 (명세 지정)
 
 ## 발견 사항 (작업 중 별도 처리 필요한 것)
-- [이 PR에 포함] serverC `GlobalExceptionHandler`: 쿼리·경로 파라미터 누락·형식 오류가 `Exception` 핸들러에서 500이 되던 것을 400으로 바꿈 (새 API의 `date` 검증에 필요). 부수 효과로 기존 `GET /api/v1/payments/users/{userId}?page=abc` 같은 형식 오류도 500 → 400
-- [이 PR에 포함] 데모에서 발견: 같은 날짜를 다시 실행하면 불일치 카운터가 다시 더해짐(명세대로 "대사 1회마다 증가"). `ReconciliationMismatch` 알람 설명에 "실제 건수는 테이블 기준" 추가
-- 원장 시각이 결제 시각보다 하루 앞선 기존 데이터 2건(2026-11-17 결제) — 코드상 같은 시계라 이전 수동 검증의 흔적으로 보임. 사용자 판단: 조사 불필요
+- D-1 파일 늦게 온 뒤 재시작 시 경계 건 오탐 → 백로그 BL-053으로 이전 완료
