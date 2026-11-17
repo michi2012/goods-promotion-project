@@ -2,7 +2,7 @@
 
 로드맵·후속 작업·범위 밖 발견 사항의 단일 목록. 관리 규칙은 `CLAUDE.md` "백로그 관리".
 - 마지막 업데이트: 2026-11-16
-- **다음 ID: BL-045** (항목 추가 시 이 번호를 쓰고 1 올린다)
+- **다음 ID: BL-050** (항목 추가 시 이 번호를 쓰고 1 올린다)
 - 분류: 로드맵 / 후속 작업 / 버그·정합성 / 기술 부채 / 검증 대기 / 정리
 - 우선순위: 높음 / 중간 / 낮음
 - 규모: S(파일 몇 개, 반나절 이내) / M(PR 하나, 하루~며칠) / L(여러 PR 또는 새 모듈)
@@ -12,11 +12,12 @@
 ## 진행 중
 | ID | 항목 | 문서 |
 |----|------|------|
-
+| BL-002 | **PG 거래 내역 대사 배치**: 기본 구현에 정합성 요건 포함 — chunk 단위 커밋 + 실패 지점부터 재시작, 컷오프 시각 고정(같은 기간 재실행 시 결과 동일), 키셋 페이징(처리 중 상태 변경으로 인한 row 누락 방지). 각 요건은 단순 구현에서 깨지는 재현 테스트 → 설계로 통과로 증명(포트폴리오는 "가정"이 아니라 재현 기준). 이후 시드 데이터로 기준선 측정(perf-compare), 실시간 간섭·성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | `docs/specs/pg-reconciliation-batch.md` (설계 확정, 하위 BL-045 → BL-046 → BL-047) |
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
 |----|------|------|---------|------|------|------|
-| BL-002 | **PG 거래 내역 대사 배치**: 최소 구현 + 시드 데이터로 기준선 측정(perf-compare). 성능 개선은 BL-008(조건부). Spring Batch는 새 의존성(승인 필요) | 로드맵 | 높음 | L | BL-029 | 결제 로드맵 (2026-11-12), 쇼핑몰 기준 재조정 (2026-11-14) |
+| BL-046 | **BL-002 PR② 대사 Job**: Spring Batch 도입(승인됨 2026-11-17), Step 1~5, 수동 실행 API, 메트릭·알람, 재현 테스트 3종 (명세 ②) | 로드맵 | 높음 | M | BL-045 | BL-002 /spec (2026-11-17) |
+| BL-047 | **BL-002 PR③ 시드 + 기준선 측정**: 시드 생성기, perf-compare 기준선 → BL-008 판단 (명세 ③) | 로드맵 | 높음 | S | BL-046 | BL-002 /spec (2026-11-17) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
 | BL-038 | **환불 완료 처리 실패 알람 없음**: serverA `payment-cancelled` 처리가 Kafka 재시도를 소진하면 `business_refund_complete_failed_total`만 오르고 알람 규칙이 없다. 주문이 REFUND_REQUESTED("환불 처리 중")에 남은 채 아무도 모름 — `monitoring/`·`helm/` 알람 규칙 2벌에 추가 (PR #51 교훈: `or`로 묶지 말고 별도 규칙) | 후속 작업 | 중간 | S | | BL-029 PR②-b 작업 중 발견 (2026-11-16) |
@@ -33,12 +34,14 @@
 | BL-018 | 배포 후 스모크 테스트 job 추가 (`deploy` 뒤, 백엔드 E2E `backend-e2e/` 재사용 — 대상 주소만 변경) | M | BL-015 | E2E 회고 |
 | BL-016 | Debezium serverA 커넥터 감시 DB `order` 변경 반영 — 기존 커넥터 오프셋·schema history 초기화 필요 여부 확인 | S | | PR #22 |
 | BL-017 | K8s DiscoveryClient 정적 등록의 실제 Service DNS 연결: serverA 결제조회, cs-bot 조회, aiops → codebot | S | | PR #21 |
+| BL-048 | **모의 PG 거래 파일의 다중 파드 저장소**: 파일이 각 파드 로컬 `./pg-files`(`MOCK_PG_FILE_DIR`)에 생겨 대사 배치(BL-046)가 다른 파드의 파일을 못 읽음. 공유 볼륨(EFS)·오브젝트 저장소(S3)·단일 레플리카 전제 중 결정 (로컬 compose는 단일 인스턴스라 무관) | S~M | | PR #62 리뷰 C3 (2026-11-17) |
+| BL-049 | **helm 백엔드 파드 TZ 미설정**: compose는 `TZ: Asia/Seoul`인데 helm serverA·B·C 등에는 없어 파드가 UTC로 뜸 → `LocalDateTime.now()`·`@Scheduled` 기본 존이 9시간 어긋남. 대사 기준 시각은 PR #62에서 코드로 KST 고정(`ReconciliationTime`), 나머지 서비스 전체는 helm `TZ` 추가로 맞출지 검토 | S | | PR #62 리뷰 C2 (2026-11-17) |
 | BL-023 | `ci-cd.yaml`에 Git Flow 흔적: `branches: [dev, main]`, dev 환경 분기, `create-pr`(dev 배포 후 main PR 생성) job — 브랜치 전략은 GitHub Flow(main + 기능 브랜치). 배포 환경(staging/prod) 설계와 함께 정리 | M | | BL-019 작업 중 발견 |
 
 ## 조건부 (조건 충족 시 "진행 예정"으로 이동 — 선행 조건이 있거나 특정 변경이 생길 때만 필요한 항목)
 | ID | 항목 | 조건 | 규모 | 출처 |
 |----|------|------|------|------|
-| BL-008 | 대사 배치 성능 개선 (키셋 페이징, chunk 크기, 배치 전용 커넥션 풀 등) — perf-compare로 개선 하나씩 전후 측정, `docs/portfolio.md`에 요약. 병목별로 항목을 나눠 진행 | BL-002 기준선 측정에서 해당 병목이 확인될 때 | 병목별 S~M | 결제 로드맵, 쇼핑몰 기준 재조정 (2026-11-14) |
+| BL-008 | 대사 배치 성능·실시간 간섭 개선 (chunk 크기, 배치 전용 커넥션 풀·동시 실행 제한, 처리 속도 조절 등. 정합성 요건은 BL-002에 포함) — 배치 실행 중 실시간 API p95 등 perf-compare로 개선 하나씩 전후 측정, `docs/portfolio.md`에 요약. 병목별로 항목을 나눠 진행. Read Replica·배치 인스턴스 분리는 현 규모에서 불필요 | BL-002 기준선 측정에서 해당 병목이 확인될 때 | 병목별 S~M | 결제 로드맵, 쇼핑몰 기준 재조정 (2026-11-14) |
 | BL-004 | 금액 필수화 (확장-축소 마지막 단계): 금액 없는 `payment-request` 거부 | 운영에서 `business_payment_legacy_without_amount_total`이 계속 0 | S | PR #22 |
 | BL-025 | `.claude/` 명령·훅의 OS 의존 제거. **훅 우선**: `settings.json`의 안전 훅(`git push --force`·`DROP` 차단)이 `powershell -File ...ps1`이라 Mac/Linux에서는 조용히 실패해 안전장치가 꺼짐. 그 외 `/coverage`·`/release-notes`는 계산 로직이 PowerShell, `/db-migration`·`incident`·`pr`은 표기·지시가 Windows 기준. 논의된 방식: 계산이 있는 것(coverage·release-notes·훅)은 Node 스크립트(`.claude/scripts/`, 내장 기능만), git 명령뿐인 것은 OS 중립 지시. `/coverage` 기본 모듈의 `mcp`는 존재하지 않는 모듈 | Windows 외 OS를 쓰는 팀원 합류, 또는 개발 환경 OS 변경 | M | BL-013 작업 중 발견, 조건부 이동 #41 |
 | BL-021 | 백엔드 E2E를 REST Assured(Gradle 모듈)로 전환 | `docs/design-notes.md` "E2E 두 층과 도구"의 전환 조건 | M | BL-001 작업 중 논의 |
@@ -51,6 +54,7 @@
 ## 완료
 | 항목 | PR |
 |------|----|
+| BL-045 BL-002 PR① 대사 기반 데이터 — `payments.approved_at`/`cancelled_at`(V4, 앱 시계), 모의 PG 원장 `mock_pg_transactions`(V5, REQUIRES_NEW), 매일 00:10 전일분 CSV 생성기 | #62 |
 | BL-029 사용자 환불 + 환불 실패 재처리 (기능 묶음 완료) — 환불 API 한 곳(serverA)·PG 취소 멱등·실패 자동 재시도/관리자 재처리·환불 완료 시 재고 1회 복구·환불 후 재구매 불가. PR: ① #48, BL-034 #51, ②-a #52, ②-b #55, BL-041 #56, ③ BL-043 #59. 명세 `docs/specs/user-refund.md` | #48·#51·#52·#55·#56·#59 |
 | BL-043 BL-029 PR③ — cs-bot 환불을 serverA API로(직접 발행·Kafka 제거)·상태는 serverB, FAQ 7일·주문 전체, 주문 상세 환불 버튼·상태 문구, `refund_fatal` 문서 갱신 | #59 |
 | BL-041 PR #55 리뷰 반영 — 환불 완료 시 구매 표시 영구화(P-12, 구매 표시 TTL 1시간 문제), 환불 완료 재시도 시 Redis 재고 1회 복구(방어 키), `paid_at` 없으면 `updated_at`으로 기간 판단 + `/pr-review` 미리보기 형식 | #56 |

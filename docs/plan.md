@@ -1,65 +1,75 @@
-# 계획서: 사용자 환불 PR③ — cs-bot·FAQ·프론트가 serverA 환불 API를 쓴다 (BL-029 마지막 PR)
+# 계획서: PG 대사 PR① — 대사 기반 데이터 (BL-045)
 
-- 작성일: 2026-11-16
-- 관련 이슈/티켓: BL-043 (BL-029의 하위 항목, `docs/backlog.md`), 명세 `docs/specs/user-refund.md` (설계 확인 ☑)
-- 새 규칙 적용 (PR #58 — PR을 나누면 백로그 하위 항목, 상태는 백로그에만): 이 PR부터 BL-029 PR③을 BL-043으로 관리하고, 명세 "구현 단계" 표의 상태 칸을 백로그/PR 칸으로 바꾼다
+- 작성일: 2026-11-17
+- 관련 이슈/티켓: BL-045 (BL-002의 하위 항목, `docs/backlog.md`), 명세 `docs/specs/pg-reconciliation-batch.md` (설계 확인 ☑)
 
-## [완료] BL-029 PR③ — BL-043 (PR #59)
+## [완료] BL-002 PR① — BL-045 (PR #62)
 
 ### 목표
-환불 요청 경로를 serverA 환불 API 하나로 모은다(P-1): cs-bot의 `payment-cancel` 직접 발행을 없애고 serverA API를 호출하게 하고, 환불 상태는 serverB 주문 상태로 답한다. FAQ를 정책(결제 후 7일·주문 전체만)에 맞추고, 주문 상세 화면에 환불 버튼·상태 문구를 추가한다. BL-029 마지막 PR이라 아키텍처 문서의 `refund_fatal` 설명을 갱신한다.
+대사 배치(PR②)가 비교할 양쪽 데이터를 만든다: 우리 쪽은 `payments`의 승인·취소 시각, PG 쪽은 모의 PG 원장과 거기서 만든 일자별 CSV 파일.
 
 ### 성공 기준
-- [ ] cs-bot `requestRefund`가 serverA `POST /api/v1/orders/{orderId}/refund`(`X-User-Id`=로그인 ID)를 호출하고, 200은 접수 안내·4xx/5xx는 serverA 문구를 그대로 안내한다. cs-bot에 Kafka 코드·의존성·설정이 없다 (`CsBotToolsTest`, `CsBotClientTest`, `:cs-bot:build`)
-- [ ] cs-bot `trackRefundStatus`가 본인 주문 확인 후 serverB 주문 상태로 "환불 처리 중 / 환불 완료"를 답한다 (`CsBotToolsTest`)
-- [ ] FAQ(`refund-policy.yaml`)가 "결제 후 7일, 주문 전체 환불만"으로 안내하고 선착순 3일·부분 환불·미개봉 조건이 없다
-- [ ] 주문 상세 화면: PAID면 로그인 ID 입력 + 환불 버튼 + 확인(`window.confirm`) 후 요청, 성공 시 "환불 처리 중", 거절 시 serverA 문구. 상태 REFUND_REQUESTED/REFUNDED는 "환불 처리 중"/"환불 완료"로 표시 (Vitest + RTL + MSW, `npm run test`·tsc·lint)
-- [ ] 로컬 백엔드에 붙인 실제 화면으로 PAID → 환불 → 처리 중 → 완료 흐름을 캡처해 사용자 확인
-- [ ] arch-snapshot·`flows/purchase-saga-flow.md`·design-notes의 `refund_fatal` 설명 갱신, 명세 구현 단계 ③·포트폴리오 문구(BL-029 전체를 한 줄) 갱신
+- [ ] PAID 전환 시 `approved_at`, PAID→CANCELLED 전환 시 `cancelled_at`, 금액 불일치 망취소 시 둘 다 기록된다 — `PaymentRepositoryTest`, `PaymentServiceTest`, `PaymentCancelServiceTest`
+- [ ] 모의 PG가 승인(애매한 응답이지만 내부 처리된 건 포함)·신규 취소를 `mock_pg_transactions`에 기록하고, 바깥 트랜잭션이 롤백돼도 남는다 — `MockPgLedgerTest`, `MockPgClientTest`
+- [ ] 생성기가 지정 날짜의 원장을 `pg-transactions-YYYYMMDD.csv`(헤더 + `order_id,event_type,amount,occurred_at`)로 임시 파일 → 이름 변경 방식으로 쓴다 — `MockPgFileExporterTest`
+- [ ] serverC 전체 테스트 통과 — `.\gradlew.bat :serverC:test`
+- [ ] 로컬 E2E: 구매·환불 후 `payments` 시각 컬럼과 원장 행 확인, 생성기 실행 후 CSV 확인
 
-### 비범위 (Out of Scope)
-- 챗봇 실제 대화 E2E (LLM API 키 없음 — 사용자 결정: 단위 테스트로 충분)
-- 프론트 UI E2E·시각 회귀 (명세 결정: P0 아님 → 단위 테스트만)
-- 프론트 로그인 (명세 범위 밖 — 로그인 ID 직접 입력)
-- docker-compose·Helm의 cs-bot Kafka 환경변수 정리 (남아도 무해 — 발견 사항으로 기록)
-- BL-038(환불 완료 실패 알람)·BL-042(1인 1회 유효 기간)
+### 비범위
+- 대사 Job·Spring Batch·대사 테이블(V6·V7)·수동 실행 API·알람 → BL-046
+- CSV 파일 수동 재생성 API → BL-046 수동 실행 API에서 함께 검토 (S-10 복구)
+- 시드 생성기·기준선 측정 → BL-047
+- 기존 `payments` 행 시각 채우기 (명세: 하지 않음)
+- docker-compose·helm 볼륨 (EKS 재가동 시)
+- `MockPgClient`의 인메모리 저장소 교체
 
 ### 단계별 작업 계획
 
-#### 단계 1: cs-bot — serverA 환불 API 호출 + 상태는 serverB + Kafka 제거 — 🔶 의존성 제거, 단계별 승인
-- 변경 파일: `cs-bot/.../client/CsBotClient.java`(`requestRefund`), `client/dto/RefundResponse.java`(신규), `client/dto/PaymentCancelMessage.java`(삭제), `tools/CsBotTools.java`, `router/CsChatAgentService.java`(프롬프트), `cs-bot/build.gradle`(spring-kafka 제거), `src/main/resources/application.yaml`(kafka 설정 제거), 테스트 `CsBotToolsTest`, `CsBotClientTest`
-- 변경 내용: 가정 1~3 (context.md). 정책 판단은 serverA에만 둔다.
-- 검증: `.\gradlew.bat :cs-bot:test --tests "*CsBotToolsTest" --tests "*CsBotClientTest"` → `:cs-bot:build`
-- 롤백: `git checkout -- <파일>`, 삭제 파일 복원
-- 예상 소요: 보통
-
-#### 단계 2: FAQ 정책 맞춤
-- 변경 파일: `cs-bot/src/main/resources/faq/refund-policy.yaml`
-- 검증: 육안 + `:cs-bot:test` (FAQ 로딩 테스트가 있으면 함께)
+#### 단계 1: 마이그레이션 V4·V5
+- 변경 파일: `serverC/src/main/resources/db/migration/V4__payment_event_times.sql`, `V5__mock_pg_transactions.sql`
+- 내용: 명세 DDL 그대로 (`payments` 시각 2컬럼 + 인덱스 2개, `mock_pg_transactions`)
+- 검증: 단계 2 리포지토리 테스트에서 Flyway가 적용되는지(Testcontainers) 확인
+- 롤백: 파일 삭제 (아직 어느 DB에도 미적용)
 - 예상 소요: 짧음
 
-#### 단계 3: 프론트 — 환불 버튼·상태 문구
-- 변경 파일: `frontend/src/api/generated/server-a-types.ts`(재생성), `frontend/src/app/orders/[orderId]/RefundForm.tsx`(신규), `RefundForm.test.tsx`(신규), `page.tsx`(상태 문구 + PAID일 때 RefundForm)
-- 변경 내용: 가정 5. `clientA`(브라우저는 `/api-a` 프록시)로 호출. `frontend` skill 규칙 따름.
-- 검증: `npm run test` · `npx tsc --noEmit` · `npm run lint`
-- 롤백: `git checkout -- <파일>`, 신규 삭제
+#### 단계 2: `PaymentRepository` 시각 기록 메서드
+- 변경 파일: `PaymentRepository.java`, `PaymentRepositoryTest.java`
+- 내용: `markPaid(orderId, approvedAt)`, `markCancelled(orderId, cancelledAt)`(PAID일 때만, 바뀐 행 수 반환), `markFailedAfterNetCancel(orderId, approvedAt, cancelledAt)` 추가. `updateStatusIfCurrent` 제거(유일 사용처가 `markCancelled`로 대체)
+- 검증: `.\gradlew.bat :serverC:test --tests "*PaymentRepositoryTest"`
+- 롤백: git checkout
+- 예상 소요: 짧음
+
+#### 단계 3: 서비스에서 시각 기록
+- 변경 파일: `PaymentService.java`, `PaymentCancelService.java`, 각 테스트
+- 내용: 승인 → `markPaid(now)`, 금액 불일치 망취소 → `markFailedAfterNetCancel(승인 직후 now, 취소 직후 now)`, `completeCancel` → `markCancelled(now)`. 시각은 앱 시계(`LocalDateTime.now()`)
+- 검증: `--tests "*PaymentServiceTest" --tests "*PaymentCancelServiceTest" --tests "*PaymentCancelRetryIntegrationTest"`
+- 롤백: git checkout
 - 예상 소요: 보통
 
-#### 단계 4: 화면 확인 (로컬 백엔드)
-- 검증: `npm run dev` + 로컬 백엔드(서버 기동 상태 유지) → 구매로 PAID 주문 생성 → 주문 상세에서 환불 → "환불 처리 중" → 새로고침 후 "환불 완료"를 Playwright 스크린샷으로 캡처해 사용자에게 보여줌
+#### 단계 4: 모의 PG 원장
+- 변경 파일: `MockPgLedger.java`(신규, `REQUIRES_NEW`, `INSERT IGNORE`, 날짜 범위 조회), `MockPgClient.java`, `MockPgLedgerTest.java`(신규), `MockPgClientTest.java`
+- 내용: 승인 확정·신규 취소 시 원장 기록. 기록 실패는 결제 흐름을 막지 않고 로그만 (명세 장애 시 동작)
+- 검증: `--tests "*MockPgLedgerTest" --tests "*MockPgClientTest"`
+- 롤백: git checkout + 신규 파일 삭제
 - 예상 소요: 보통
 
-#### 단계 5: 문서 (마지막 PR에서 할 일)
-- 변경 파일: `docs/architecture/arch-snapshot.md`, `docs/architecture/flows/purchase-saga-flow.md`, `docs/design-notes.md`(`refund_fatal` = 자동 재시도 진입, 관리자 처리 필요 = `business_payment_cancel_retry_exhausted_total`), `docs/specs/user-refund.md`("구현 단계" 표: 상태 칸 → 백로그/PR 칸(①#48·BL-034 #51·②-a #52·②-b #55·BL-041 #56·③ BL-043), 포트폴리오 문구), `docs/backlog.md`(BL-043 진행 중 — 등록 완료)
-- 검증: 육안 (키워드 grep으로 옛 설명이 남지 않았는지)
+#### 단계 5: CSV 파일 생성기
+- 변경 파일: `MockPgFileExporter.java`(신규), `MockPgFileExporterTest.java`(신규), `application.yml`(`mock-pg.file-dir`, `mock-pg.export.cron`)
+- 내용: 매일 00:10(Asia/Seoul) 전일분 export. `export(LocalDate)`는 public — 임시 파일에 쓰고 `ATOMIC_MOVE`로 이름 변경, 이미 있으면 교체
+- 검증: `--tests "*MockPgFileExporterTest"` (`@TempDir`)
+- 롤백: git checkout + 신규 파일 삭제
 - 예상 소요: 보통
+
+#### 단계 6: 전체 테스트 + 로컬 E2E
+- 검증: `.\gradlew.bat :serverC:test` (백그라운드), E2E는 e2e skill 기준 — 서버 기동 전 V4·V5 자동 적용 사용자 확인
+- 예상 소요: 김
 
 ### 리스크 및 대응
-- 리스크: Spring Kafka 자동 설정이 의존성 제거 후 다른 빈과 엮여 기동 실패 → 대응: `:cs-bot:build`(컨텍스트 로드 테스트 포함)로 확인
-- 리스크: cs-bot이 serverA 4xx를 예외로 받아 "오류 발생"으로 뭉뚱그림 → 대응: `RestClient` 4xx 응답 본문(`ErrorResponse.message`)을 꺼내 그대로 안내, `CsBotClientTest`로 404·409 고정
-- 리스크: 브라우저 `window.confirm`은 테스트 환경에서 막힘 → 대응: `vi.spyOn(window, 'confirm')`
-- 리스크: 화면 확인 중 모의 PG 거절(1%)로 PAID가 안 됨 → 대응: 구매를 다시 해서 새 주문으로 진행
+- `MockPgClient` 안에서 원장 기록이 바깥 트랜잭션에 묶임 → 별도 빈 + `REQUIRES_NEW`, 롤백 후에도 남는지 테스트로 확인
+- 원장 기록 예외가 결제를 실패시킴 → try/catch 로그, 테스트로 확인
+- 커넥션 추가 사용(REQUIRES_NEW는 커넥션 하나 더 씀) → 모의 PG 한정, 풀 영향은 BL-047 측정에서 관찰
+- Flyway V4·V5가 로컬 payment DB에 자동 적용 → E2E 기동 전 사용자 확인
 
 ### 의존성
-- 의존성 **제거**: cs-bot `spring-kafka` (사용자 승인 2026-11-16). 추가 없음
-- serverA 환불 API(#55)·serverB 상태 enum(#52) 머지됨
+- Docker (Testcontainers·E2E)
+- 새 Gradle 의존성 없음 (Spring Batch는 BL-046)

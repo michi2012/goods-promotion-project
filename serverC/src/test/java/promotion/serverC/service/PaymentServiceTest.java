@@ -87,7 +87,7 @@ class PaymentServiceTest {
 
         // then
         verify(paymentRepository).claimOrder(any());
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "PAID");
+        verify(paymentRepository).markPaid(eq(ORDER_ID), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, true, null)));
         verify(pgClient, never()).cancelPayment(anyString());
@@ -122,8 +122,8 @@ class PaymentServiceTest {
 
         // then
         verify(pgClient).cancelPayment(ORDER_ID);
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "FAILED");
-        verify(paymentRepository, never()).updateOrderStatus(List.of(ORDER_ID), "PAID");
+        verify(paymentRepository).markFailedAfterNetCancel(eq(ORDER_ID), any(LocalDateTime.class), any(LocalDateTime.class));
+        verify(paymentRepository, never()).markPaid(anyString(), any());
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, false, "금액 불일치")));
         assertThat(counter("business_payment_error_total", "type", "amount_mismatch")).isEqualTo(1.0);
@@ -142,7 +142,7 @@ class PaymentServiceTest {
 
         // then
         verify(pgClient).cancelPayment(ORDER_ID);
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "FAILED");
+        verify(paymentRepository).markFailedAfterNetCancel(eq(ORDER_ID), any(LocalDateTime.class), any(LocalDateTime.class));
     }
 
     @Test
@@ -157,7 +157,7 @@ class PaymentServiceTest {
 
         // then
         verify(pgClient, never()).cancelPayment(anyString());
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "PAID");
+        verify(paymentRepository).markPaid(eq(ORDER_ID), any(LocalDateTime.class));
         assertThat(counter("business_payment_legacy_without_amount_total")).isEqualTo(1.0);
     }
 
@@ -173,6 +173,7 @@ class PaymentServiceTest {
         // then
         verify(pgClient, never()).processPayment(any());
         verify(paymentRepository, never()).updateOrderStatus(anyList(), any());
+        verify(paymentRepository, never()).markPaid(anyString(), any());
         verify(outboxEventService, never()).save(any(), any(), any());
     }
 
@@ -191,7 +192,7 @@ class PaymentServiceTest {
 
         // then
         verify(pgClient, times(2)).processPayment(any());
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "PAID");
+        verify(paymentRepository).markPaid(eq(ORDER_ID), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, true, null)));
     }
@@ -209,7 +210,7 @@ class PaymentServiceTest {
 
         // then
         verify(pgClient, times(1)).processPayment(any());
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "PAID");
+        verify(paymentRepository).markPaid(eq(ORDER_ID), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, true, null)));
     }
@@ -227,7 +228,7 @@ class PaymentServiceTest {
 
         // then
         verify(pgClient).cancelPayment(ORDER_ID);
-        verify(paymentRepository).updateOrderStatus(List.of(ORDER_ID), "FAILED");
+        verify(paymentRepository).markFailedAfterNetCancel(eq(ORDER_ID), any(LocalDateTime.class), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-result"),
                 eq(new PaymentResultMessage(ORDER_ID, false, "금액 불일치")));
     }

@@ -47,11 +47,25 @@ public class PaymentRepository {
         jdbcTemplate.update(sql, params.toArray());
     }
 
-    // 현재 상태가 expected일 때만 바꾼다. 바뀐 행 수(0 또는 1)를 돌려준다.
-    public int updateStatusIfCurrent(String orderId, String expected, String next) {
+    // PG 승인 확정. approvedAt은 대사 기준 시각(앱 시계 — 모의 PG 원장과 같은 시계).
+    public void markPaid(String orderId, LocalDateTime approvedAt) {
+        jdbcTemplate.update(
+                "UPDATE payments SET status = 'PAID', approved_at = ? WHERE order_id = ?",
+                approvedAt, orderId);
+    }
+
+    // PAID일 때만 CANCELLED로 바꾸고 취소 시각을 남긴다. 바뀐 행 수(0 또는 1)를 돌려준다.
+    public int markCancelled(String orderId, LocalDateTime cancelledAt) {
         return jdbcTemplate.update(
-                "UPDATE payments SET status = ? WHERE order_id = ? AND status = ?",
-                next, orderId, expected);
+                "UPDATE payments SET status = 'CANCELLED', cancelled_at = ? WHERE order_id = ? AND status = 'PAID'",
+                cancelledAt, orderId);
+    }
+
+    // PG는 승인했지만 금액 불일치로 즉시 망취소한 결제. PG에는 승인·취소가 모두 남으므로 두 시각을 함께 기록한다.
+    public void markFailedAfterNetCancel(String orderId, LocalDateTime approvedAt, LocalDateTime cancelledAt) {
+        jdbcTemplate.update(
+                "UPDATE payments SET status = 'FAILED', approved_at = ?, cancelled_at = ? WHERE order_id = ?",
+                approvedAt, cancelledAt, orderId);
     }
 
     public Optional<PaymentResponse> findByOrderId(String orderId) {

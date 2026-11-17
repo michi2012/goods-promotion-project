@@ -57,6 +57,12 @@ logging:
   level:
     root: INFO
 
+# 모의 PG의 일자별 거래 파일 (PG 대사 배치 입력). 매일 00:10(KST)에 전일분을 만든다.
+mock-pg:
+  file-dir: ${MOCK_PG_FILE_DIR:./pg-files}
+  export:
+    cron: "0 10 0 * * *"
+
 resilience4j.circuitbreaker:
   configs:
     default:

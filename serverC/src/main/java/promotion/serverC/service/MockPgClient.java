@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MockPgClient implements PgClient {
 
     private final MeterRegistry meterRegistry;
+    private final MockPgLedger ledger;
 
     // 멱등 키(orderId) 재사용 — 한 번 확정된 결과를 영구히 기억해 재시도 시 중복 처리를 막는다.
     // 결제 결과는 재고 품절 캐시(Caffeine)처럼 만료시킬 이유가 없어 TTL 없는 맵으로 충분하다.
@@ -70,6 +71,7 @@ public class MockPgClient implements PgClient {
             // 결과를 알 수 없다는 걸 그대로 흉내 내기 위해 처리 완료 여부 자체를 50:50으로 결정한다.
             if (Math.random() < 0.5) {
                 transactionStore.put(orderId, approved);
+                recordLedger(orderId, MockPgLedger.APPROVE, approved.approvedAmount());
                 log.warn("🚨 [MockPgClient] 애매한 응답(내부적으로는 처리됨): orderId={}", orderId);
             } else {
                 log.warn("🚨 [MockPgClient] 애매한 응답(내부적으로도 미처리): orderId={}", orderId);
@@ -82,9 +84,11 @@ public class MockPgClient implements PgClient {
         transactionStore.put(orderId, result);
 
         if (!success) {
+            // 거절은 돈이 움직이지 않아 원장(거래 파일)에 남기지 않는다.
             log.warn("🚨 [MockPgClient] 결제 실패: orderId={}", orderId);
             return result;
         }
+        recordLedger(orderId, MockPgLedger.APPROVE, result.approvedAmount());
         log.debug("✅ [MockPgClient] 결제 승인 성공: orderId={}, approvedAmount={}", orderId, result.approvedAmount());
         return result;
     }
@@ -113,6 +117,18 @@ public class MockPgClient implements PgClient {
         refundDuration.record(() -> {
             try { Thread.sleep(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         });
+        // 전액 취소만 있으므로 취소 금액 = 승인 금액. 재기동으로 승인 결과를 잊었으면 null.
+        PgTransactionResult approved = transactionStore.get(orderId);
+        recordLedger(orderId, MockPgLedger.CANCEL, approved == null ? null : approved.approvedAmount());
         return PgCancelResult.CANCELLED;
+    }
+
+    // 원장 기록 실패가 결제·취소를 막지 않는다 (실제 PG 내부 사정은 우리 흐름과 무관). 빠진 건은 대사에서 드러난다.
+    private void recordLedger(String orderId, String eventType, Long amount) {
+        try {
+            ledger.record(orderId, eventType, amount, ReconciliationTime.now());
+        } catch (Exception e) {
+            log.error("🚨 [MockPgClient] 원장 기록 실패: orderId={}, eventType={}", orderId, eventType, e);
+        }
     }
 }

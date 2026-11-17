@@ -115,6 +115,8 @@ class PaymentCancelRetryIntegrationTest extends AbstractRepositoryTest {
         assertThat(failureRepository.findByOrderId(ORDER_ID).orElseThrow().getStatus())
                 .isEqualTo(CancelFailureStatus.RESOLVED);
         assertThat(paymentStatus()).isEqualTo("CANCELLED");
+        assertThat(jdbcTemplate.queryForObject("SELECT cancelled_at FROM payments WHERE order_id = ?",
+                LocalDateTime.class, ORDER_ID)).isNotNull(); // 대사 기준 취소 시각
         assertThat(outboxEventRepository.findAll())
                 .singleElement()
                 .satisfies(e -> {
