@@ -75,32 +75,36 @@ public class ReconciliationRunService {
         if (status.isRunning()) {
             throw new ReconciliationAlreadyRunningException(reconDate);
         }
-        if (isFinishedSuccessfully(status)) {
-            JobParameters params = baseParams(reconDate)
-                    .addLocalDateTime(REQUESTED_AT, ReconciliationTime.now())
-                    .toJobParameters();
-            return launch(reconDate, params, Mode.NEW);
+        if (status == BatchStatus.COMPLETED || status == BatchStatus.ABANDONED) {
+            return rerun(reconDate);
         }
         return restart(reconDate, last.get());
     }
 
-    // 매일 스케줄: 실행 중이거나 이미 COMPLETED면 건너뛴다
+    // 매일 스케줄: 실행 중이거나 이미 COMPLETED면 건너뛴다.
+    // ABANDONED(재시작 불가로 표시)는 대사가 안 된 날이라 새 실행 — 건너뛰면 알람 없이 묻힌다 (PR #64 리뷰 C1).
     public synchronized Optional<Run> runScheduled(LocalDate reconDate) {
         Optional<RunRecord> last = runRepository.findLatest(reconDate);
         if (last.isEmpty()) {
             return Optional.of(launch(reconDate, baseParams(reconDate).toJobParameters(), Mode.NEW));
         }
         BatchStatus status = last.get().status();
-        if (status.isRunning() || isFinishedSuccessfully(status)) {
+        if (status.isRunning() || status == BatchStatus.COMPLETED) {
             log.info("[Reconciliation] {} 스케줄 실행 건너뜀: 마지막 실행 {}", reconDate, status);
             return Optional.empty();
+        }
+        if (status == BatchStatus.ABANDONED) {
+            return Optional.of(rerun(reconDate));
         }
         return Optional.of(restart(reconDate, last.get()));
     }
 
-    // COMPLETED 외에 ABANDONED(재시작 불가로 표시된 실행)도 새 실행 대상이다.
-    private static boolean isFinishedSuccessfully(BatchStatus status) {
-        return status == BatchStatus.COMPLETED || status == BatchStatus.ABANDONED;
+    // 새 JobInstance로 다시 계산 (결과 교체). COMPLETED·ABANDONED 인스턴스는 같은 파라미터로 다시 실행할 수 없다.
+    private Run rerun(LocalDate reconDate) {
+        JobParameters params = baseParams(reconDate)
+                .addLocalDateTime(REQUESTED_AT, ReconciliationTime.now())
+                .toJobParameters();
+        return launch(reconDate, params, Mode.NEW);
     }
 
     // 실패한 실행의 파라미터(requestedAt 포함) 그대로 → 같은 JobInstance 재시작

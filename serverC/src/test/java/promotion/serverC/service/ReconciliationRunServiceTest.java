@@ -148,6 +148,16 @@ class ReconciliationRunServiceTest {
     }
 
     @Test
+    @DisplayName("스케줄: ABANDONED → 건너뛰지 않고 requestedAt을 붙여 새 실행 (대사 안 된 날이 알람 없이 묻히지 않게)")
+    void scheduled_abandoned_newWithRequestedAt() throws Exception {
+        when(runRepository.findLatest(YESTERDAY)).thenReturn(Optional.of(new RunRecord(5L, BatchStatus.ABANDONED)));
+        launchedWith(23L);
+
+        assertThat(service.runScheduled(YESTERDAY)).contains(new Run(23L, Mode.NEW));
+        assertThat(launchedParams().getLocalDateTime(ReconciliationRunService.REQUESTED_AT)).isNotNull();
+    }
+
+    @Test
     @DisplayName("스케줄: COMPLETED·실행 중 → 건너뜀")
     void scheduled_completedOrRunning_skip() throws Exception {
         when(runRepository.findLatest(YESTERDAY))
