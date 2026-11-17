@@ -170,10 +170,10 @@ sequenceDiagram
 | 이벤트 시각 | `payments.approved_at/cancelled_at` | PAID·CANCELLED 전환 시 앱 시계(KST, `ReconciliationTime`)로 기록. 대사 범위의 기준 |
 | 모의 PG 원장 | `MockPgClient` → `mock_pg_transactions` (REQUIRES_NEW) | 실제 PG사 내부 흉내. 우리 트랜잭션이 롤백돼도 남음 |
 | PG 거래 파일 | `MockPgFileExporter` 매일 00:10 | 전일 원장 → `{mock-pg.file-dir}/pg-transactions-YYYYMMDD.csv` (임시 파일 → 이름 변경). 파드 로컬 디렉터리 — 단일 인스턴스 전제(BL-048) |
-| 대사 Job | `pgReconciliationJob` (Spring Batch, 메타 `BATCH_*` V7) | clear → loadPrevTail → loadDay → oursApprove → oursCancel → pgToOurs → report. chunk 500, 키셋 페이징, 유니크 키 중복 무시 → 실패 Step의 마지막 커밋부터 재시작 |
+| 대사 Job | `pgReconciliationJob` (Spring Batch, 메타 `BATCH_*` V7) | clear → loadPrevTail → loadDay → oursApprove → oursCancel → pgToOurs → report. chunk 500, 키셋 페이징, 비교 Step은 writer가 chunk마다 상대편을 `IN` 1회로 조회해 판정(BL-008), 유니크 키 중복 무시 → 실패 Step의 마지막 커밋부터 재시작 |
 | 실행 | `ReconciliationScheduler` 매일 03:00(어제) / 관리자 API | `ReconciliationRunService`: 기록 없음 NEW, FAILED RESTART, COMPLETED는 수동만 NEW(결과 교체), 실행 중 409 |
 | 결과·알람 | `reconciliation_mismatches` + `ReconciliationMetrics` | 불일치 4유형(OURS_ONLY/PG_ONLY/AMOUNT/STATUS) 기록만(자동 보정 없음). P1 `ReconciliationMismatch`·`ReconciliationJobFailed`·`ReconciliationNotRun`. 기동 시 `ReconciliationStartupCleaner`가 끊긴 실행을 FAILED로 정리 |
-| 기준선 | `docs/perf/2026-11-17-pg-reconciliation-baseline.md` | 로컬 10만 건 59.5초 / 100만 건 713.8초, 재시작 42% 단축 |
+| 성능 | `docs/perf/2026-11-17-pg-reconciliation-baseline.md`, `docs/perf/2026-11-17-pg-reconciliation-batch-lookup.md` | 로컬 100만 건 재실행 713.8초 → 일괄 조회 후 310.7초, 재시작 42% 단축 |
 
 ---
 

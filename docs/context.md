@@ -1,34 +1,40 @@
-# 맥락 노트: PG 대사 PR③ — 시드 생성기 + 기준선 측정 (BL-047)
+# 맥락 노트: 대사 배치 성능 개선 (BL-008)
 
-## [완료] BL-002 PR③ — BL-047 (PR #65)
+## [진행 중] BL-008
 
 ## 왜 이 방식을 선택했는가
-- 명세가 "시드 생성기는 `payments` 행과 CSV를 직접 만든다(원장 경유 X)"로 확정. 대량 결제를 실제 결제 흐름으로 만들면 측정 대상이 아닌 Saga·PG 지연이 섞인다.
-- **Node 스크립트(의존성 없음)** — 사용자 결정. 로컬·CI 공유 스크립트는 셸이 아니라 프로젝트 런타임으로 작성한다는 규칙(`.claude/skills/e2e`)에 맞고 새 의존성이 없다. DB 드라이버 없이 SQL 파일을 만들어 `docker cp` + `mysql <`로 적용(로컬 PowerShell 따옴표 함정 회피).
-- **규모 10만 + 100만** — 사용자 결정. 단일 판매자 쇼핑몰의 현실 상한과 10배 여유. 두 점으로 선형성 확인.
-- **배치 단독 측정 + 재시작 절약 시간** — 사용자 결정. 실시간 간섭은 BL-008 판단 시 필요하면 별도.
-- 반복은 같은 날짜 재실행(COMPLETED → `requestedAt` 새 실행, Step 1이 이전 결과 삭제)으로 한다. 시드 한 번으로 같은 데이터 반복 측정 가능.
-- 재시작은 `docker kill`로 실제 장애를 흉내낸다 — 기동 시 정리(`ReconciliationStartupCleaner`)가 STARTED를 FAILED로 바꾸고, API가 RESTART로 실패 Step의 마지막 커밋부터 잇는 실제 운영 경로 그대로.
+- 기준선(BL-047)에서 비교 Step 두 개가 전체의 약 75%. 원인은 `ItemProcessor`가 건마다 상대편을 1회 조회(100만 기준 약 200만 쿼리). processor는 한 건씩 받으므로 묶을 수 없고, chunk 전체를 받는 writer에서 `IN` 조회 1회로 바꾼다.
+- 판정은 기존 `ReconciliationMatcher`를 그대로 호출 — 정확성 근거(재현 테스트·Job 테스트)를 바꾸지 않고 속도만 바꾼다.
+- chunk 크기는 일괄 조회 후 다시 측정 — 조회가 묶이면 chunk가 쿼리 횟수까지 좌우해 기존 측정(chunk 2000 −18%)과 결과가 달라진다.
+- 개선 전 수치는 오늘 기준선 재사용: 같은 날·같은 시드(seed 47, 결정적)·같은 환경 (perf-compare "같은 날" 조건 충족). 사용자 확인.
+- 측정 규모: 일괄 조회 전후는 100만(포트폴리오 수치), chunk 비교는 10만 (사용자 결정).
+- 재실행 DELETE 개선은 분리 — 매일 03:00 실행은 첫 실행이라 삭제 대상 없음 (사용자 결정).
+- BL-052(레거시 비교)는 불필요로 종료 — Spring Batch는 성능이 아니라 진행 위치·재시작·중복 실행 방지를 위한 선택이고, 그 이득은 재현 테스트·재시작 실측으로 이미 증명 (사용자 결정).
 
 ## 검토했으나 채택하지 않은 대안
-### serverC 테스트 쪽 Java 생성기
-- 무엇: JdbcTemplate로 mysql-c에 바로 batch insert
-- 왜 안 썼나: 테스트 소스에 운영용 도구가 섞이고, CSV를 컨테이너에 넣는 단계는 어차피 별도
+### chunk 크기만 올리기
+- 무엇: 설정만 2000으로 (−18%)
+- 왜 안 썼나: 건별 쿼리는 그대로 — 근본 원인이 아님. 일괄 조회 후 2단계 튜닝으로
 
-### SQL 재귀 CTE로 `payments` 생성
-- 무엇: DB 안에서 행 생성, CSV는 따로
-- 왜 안 썼나: 불일치 유형을 심으려면 양쪽이 같은 규칙을 공유해야 해 생성 로직이 두 곳으로 갈라짐
+### processor 안에서 캐시/선조회
+- 무엇: `ItemReadListener`·`beforeChunk`로 미리 조회해 processor가 캐시를 봄
+- 왜 안 썼나: 읽기와 조회 시점이 갈라져 재시작 시 상태 관리가 늘어남. writer 한 곳에서 조회·판정·저장하는 게 단순
+
+### 실시간 간섭 측정
+- 무엇: 배치 중 결제 API p95
+- 왜 안 썼나: 비교 Step은 `payments`를 일반 SELECT(잠금 없는 일관된 읽기)로만 읽는다. 쓰기는 대사 테이블에만
 
 ## 기존 코드베이스 컨벤션
-- k6 스크립트 `perf/k6/`, 결과 `docs/perf/YYYY-MM-DD-{주제}.md` (`.claude/skills/perf-compare/project.md`)
-- 배치 지표 출처: `BATCH_JOB_EXECUTION`, `BATCH_STEP_EXECUTION` (Spring Batch 5, V7)
-- CSV 형식: `order_id,event_type,amount,occurred_at` 헤더 1줄 (`MockPgFileExporter`)
+- 대사 저장소는 JdbcTemplate (`repository/PgSettlementLineRepository.java`, `PaymentRepository.findEventTimes`)
+- 저장소 테스트: `@JdbcTest` + `AbstractRepositoryTest`(Testcontainers MySQL) — `test/.../repository/PgSettlementLineRepositoryTest.java`
+- Job 테스트: `test/.../batch/ReconciliationJobTest.java` + `ReconciliationJobTestSupport`
+- 측정: `perf/seed/README.md`, 결과 `docs/perf/`
 
 ## 관련 파일/위치
-- `serverC/src/main/java/promotion/serverC/batch/ReconciliationJobConfig.java` — Step 구성(clear, prevTail, loadDay, ours→PG 3a·3b, PG→ours, report), chunk 500
-- `serverC/src/main/resources/application.yaml` — `mock-pg.file-dir`(`./pg-files` → 컨테이너 `/app/pg-files`), `reconciliation.chunk-size`
-- `serverC/src/main/resources/db/migration/V1~V7` — `payments`(amount·approved_at·cancelled_at), 대사 테이블
-- 관리자 API `POST /api/v1/payments/admin/reconciliations?date=` (`X-User-Role` 관리자)
+- `serverC/src/main/java/promotion/serverC/batch/ReconciliationJobConfig.java` — Step·reader·processor·writer
+- `serverC/src/main/java/promotion/serverC/batch/ReconciliationMatcher.java` — 판정 (변경 없음)
+- `serverC/src/main/java/promotion/serverC/repository/{PgSettlementLineRepository,PaymentRepository}.java` — 조회
+- `serverC/src/main/resources/application.yaml` — `reconciliation.chunk-size`
 
 ## 외부 참조
-- 명세 `docs/specs/pg-reconciliation-batch.md`, perf-compare `SKILL.md`
+- 기준선 `docs/perf/2026-11-17-pg-reconciliation-baseline.md`
