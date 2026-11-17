@@ -61,8 +61,10 @@ public class ReconciliationJobConfig {
     @Bean
     public Job pgReconciliationJob(JobRepository jobRepository, Step reconClearStep, Step reconLoadPrevTailStep,
                                    Step reconLoadDayStep, Step reconOursApproveStep, Step reconOursCancelStep,
-                                   Step reconPgToOursStep, Step reconReportStep) {
+                                   Step reconPgToOursStep, Step reconReportStep,
+                                   ReconciliationMetrics reconciliationMetrics) {
         return new JobBuilder(JOB_NAME, jobRepository)
+                .listener(reconciliationMetrics)
                 .start(reconClearStep)
                 .next(reconLoadPrevTailStep)
                 .next(reconLoadDayStep)
@@ -149,7 +151,7 @@ public class ReconciliationJobConfig {
                 .build();
     }
 
-    // Step 5: 유형별 건수 요약 (메트릭·알람은 BL-051).
+    // Step 5: 유형별 건수 요약 로그. 메트릭은 Job 종료 리스너(ReconciliationMetrics)가 갱신한다.
     @Bean
     public Step reconReportStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
                                 ReconciliationMismatchRepository mismatchRepository) {

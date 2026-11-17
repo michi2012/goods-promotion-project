@@ -70,6 +70,7 @@ mock-pg:
 
 # PG 대사 배치 (docs/specs/pg-reconciliation-batch.md). chunk 크기 튜닝은 기준선 측정 후 BL-008.
 reconciliation:
+  cron: "0 0 3 * * *" # 매일 03:00 KST 전일분 (P-1)
   chunk-size: 500
   boundary-tolerance: 5m # 우리·PG 기록 시각 차이 허용치 — 이내면 날짜 경계 건으로 보고 불일치에서 제외 (P-5)
 

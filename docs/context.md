@@ -1,33 +1,40 @@
-# 맥락 노트: PG 대사 PR②-a — 대사 Job 본체 (BL-050)
+# 맥락 노트: PG 대사 PR②-b — 대사 운영 연결 (BL-051)
 
-## [완료] BL-002 PR②-a — BL-050 (PR #63)
+## [완료] BL-002 PR②-b — BL-051 (PR #64)
 
 ## 왜 이 방식을 선택했는가
-- 요구사항·설계는 명세(`docs/specs/pg-reconciliation-batch.md`, 설계 확인 ☑)가 전제. 여기에는 /plan에서 정한 구현 세부만 적는다.
-- **PR 분할 (2026-11-17 사용자 결정)**: 명세 PR②(BL-046)를 ②-a Job 본체(BL-050)와 ②-b 운영 연결(BL-051: 수동 실행 API·스케줄·기동 시 정리·메트릭·알람)로 나눴다. 예상 변경 파일 22~25개로 리뷰 기준(약 20개)을 넘고, 위험 변경(Batch 도입·마이그레이션·정합성)과 운영 연결을 분리하면 리뷰가 선명해진다.
-- **chunk 크기 500** (설정값 `reconciliation.chunk-size`, page size 동일): Spring Batch에는 기본값이 없어 정해야 했다. 튜닝은 BL-047 측정 후 BL-008.
-- **D-1 파일 없음 → 경고 후 진행**: D-1 파일은 날짜 경계 확인(P-5)용일 뿐이고, 마이그레이션 직후 첫날엔 원래 없다. D 파일 없음만 실패(S-10).
-- **Step 3을 3a(승인)·3b(취소)로 분리**: 키셋 정렬 키가 `(approved_at, id)`·`(cancelled_at, id)`로 달라 한 reader로 묶을 수 없다.
-- **S-11 재현 설계**: 지난 날짜의 이벤트 시각은 바뀌지 않아 이벤트 시각 조건이면 OFFSET이어도 누락이 안 난다. 단순 구현은 "상태 조건 + OFFSET"(`status='PAID'` 등)으로 두고 페이지 사이에 앞쪽 행을 취소해 밀림 누락을 재현, Job(이벤트 시각 + 키셋)은 누락 없음을 보인다.
-- **경계 보정 판정**: Step 3 "우리만" 후보는 같은 `recon_date`로 적재된 D-1 꼬리 줄에서 `우리 시각 - PG 시각 ≤ 5분`이면 제외. Step 4 "PG만/상태" 후보는 `payments`에서 같은 이벤트 시각이 `[PG 시각, PG 시각 + 5분]`이면 제외. Step 4는 `occurred_at`이 D 안인 줄만 읽는다(D-1 꼬리는 비교 대상 아님).
-- **경계 쌍은 금액도 비교하지 않는다 (구현 중 결정)**: 경계 쌍에서 금액을 비교하면 D·D+1 양쪽 대사가 같은 쌍을 각자 ③으로 기록해 이중 보고된다. 명세 P-5 문구대로 "불일치에서 제외"를 양쪽 모두 적용. 금액 비교는 같은 날 안에서 짝지어진 이벤트에만 하고, Step 4는 존재 여부만 본다(금액은 Step 3 담당 — 같은 쌍을 두 번 기록하지 않게).
+- 명세(`docs/specs/pg-reconciliation-batch.md`, 설계 확인 ☑)의 API·스케줄·메트릭·알람을 그대로 구현한다. /plan에서 사용자가 정한 것 (2026-11-17):
+  - **400 기준은 "date ≥ 오늘(KST)"**. 오늘 파일은 내일 00:10에 생성되므로, 오늘을 실행하면 FAILED + P1 알람만 난다.
+  - **E2E는 실패·재시작 경로만** 다룬다. HTTP만 쓰는 E2E로는 컨테이너 안에 PG 파일을 넣을 수 없다. 성공 경로와 불일치 메트릭은 Testcontainers 테스트가 맡는다.
+  - **스케줄 실행 시 이미 COMPLETED면 건너뛴다.** FAILED면 재시작, 실행 중이면 건너뛴다 — 같은 파라미터로 실행할 때 Spring Batch가 보이는 동작과 같다.
+- **비동기 실행기는 Bean으로 등록하지 않는다**: 202로 실행 ID를 바로 돌려주려면 비동기 실행이 필요하다. 그런데 Boot 3.5의 Batch 자동 설정은 `JobLauncher` Bean이 이미 있는지 보지 않고 자기 것을 등록하므로, Bean을 하나 더 만들면 같은 타입이 둘이 되어 `JobLauncherTestUtils`의 주입이 깨진다. 그래서 서비스 안에서 `TaskExecutorJobLauncher`를 직접 만든다. 스케줄도 같은 실행기를 쓴다 — 스케줄러 스레드는 2개뿐이고(`SchedulingConfig`) 다른 스케줄과 같이 쓰므로, 대사 작업이 오래 붙잡으면 안 된다.
+- **날짜별 실행 조회는 메타 테이블 JDBC**: `JobExplorer`는 파라미터로 실행을 찾지 못한다. COMPLETED 뒤의 재실행은 `requestedAt`이 붙은 별개 인스턴스라, 날짜 기준으로 묶어 "가장 최근 실행"을 찾아야 한다.
+- **메트릭은 Job 종료 리스너에서**: Step 5에서 세면 Step 재시도·재시작 때 두 번 셀 수 있다. Job 종료는 실행마다 한 번이다.
+- **게이지 = 대사일 D의 끝(D+1 00:00 KST) epoch 초**: 명세 문구대로 "대사일"(D 00:00)로 잡으면, 정상이어도 다음 날 03:00 실행 직전에 `time() - 값`이 51시간이 되어 30시간 알람이 매일 울린다. D+1 00:00이면 정상일 때 최대 약 27시간이다.
+- 성공 기록이 없으면 게이지는 NaN이다 — 새 환경에서 알람이 계속 울리지 않게. 대신 "한 번도 실행된 적 없음"은 이 알람으로 잡지 못한다.
 
 ## 검토했으나 채택하지 않은 대안
-### 한 PR로 진행 (명세 원안)
-- 왜 안 썼나: 파일 수 초과, 리뷰 초점 분산.
-### Step 3을 UNION 쿼리 하나로
-- 왜 안 썼나: `JdbcPagingItemReader` 키셋은 단일 테이블 정렬 키 전제. UNION 서브쿼리는 키셋 조건이 인덱스를 못 탄다.
+### 비동기 `JobLauncher` Bean 등록 (`@Primary`나 이름으로 구분)
+- 왜 안 썼나: 기존 Job 테스트와 Boot 자동 설정의 주입에 손을 대야 한다. 쓰는 곳이 서비스 한 곳뿐이다.
+### `JobOperator.restart(executionId)`
+- 왜 안 썼나: Operator 안의 실행기(동기)를 쓰므로 비동기 요구와 맞지 않는다. 실패한 실행의 파라미터를 그대로 넘겨 `run`해도 Spring Batch가 같은 방식으로 재시작한다.
+### 스케줄러가 Job을 동기로 실행
+- 왜 안 썼나: 스케줄러 스레드 2개를 다른 스케줄과 같이 쓴다.
 
 ## 기존 코드베이스 컨벤션
-- 패키지: 계층형(`controller/service/repository/scheduler`). 배치 전용 클래스는 `promotion.serverC.batch`에 모은다(Job 구성·reader·processor·writer).
-- 저장소: JdbcTemplate 직접 사용 (`repository/PaymentRepository.java`)
-- 시각: `ReconciliationTime.ZONE`/`now()` (KST 고정)
-- 테스트: Testcontainers 싱글턴 `support/AbstractRepositoryTest`, 커밋이 필요한 흐름은 `@DataJpaTest` + `@Transactional(NOT_SUPPORTED)` + `@Import` (`service/PaymentCancelRetryIntegrationTest.java`)
+- 관리자 보호: `X-User-Role == ROLE_ADMIN`, 아니면 `AdminForbiddenException` → 403 (`controller/PaymentAdminController.java`)
+- 예외 → `exception/GlobalExceptionHandler.java`, 본문은 문자열 메시지
+- 메트릭: `Counter.builder("business_..._total")`를 생성자에서 등록 (`service/PaymentCancelService.java`)
+- 스케줄: `@Scheduled(cron = "${...}", zone = "Asia/Seoul")`, 날짜는 `ReconciliationTime.ZONE` (`scheduler/MockPgFileExporter.java`)
+- Batch 테스트: `batch/ReconciliationJobTestSupport.java` (Testcontainers, `JobLauncherTestUtils`)
+- 알람: `monitoring/prometheus/alert-rules.yml` Tier1 그룹, `labels: severity / tier`. helm 사본은 `helm/promotion-monitoring/files/alert-rules.yml`
+- E2E: `backend-e2e/payment-cancel-admin.spec.ts` (serverC 직접 호출, `X-User-Role` 헤더)
 
 ## 관련 파일/위치
-- `serverC/src/main/java/promotion/serverC/scheduler/MockPgFileExporter.java` — CSV 형식·파일명(`pg-transactions-YYYYMMDD.csv`), `mock-pg.file-dir`
-- `serverC/src/main/java/promotion/serverC/repository/PaymentRepository.java` — `approved_at`/`cancelled_at` 기록
-- `serverC/src/main/resources/db/migration/` — V1~V5, 이번 V6·V7
+- `serverC/.../batch/ReconciliationJobConfig.java` — Job 정의, 리스너 등록 위치
+- `serverC/.../repository/ReconciliationMismatchRepository.java` — `countByType(date)` (메트릭 건수)
+- `serverC/src/main/resources/db/migration/V7__*` — Batch 메타 테이블
+- `serverC/src/main/resources/application.yaml` — `spring.batch.job.enabled: false`, `reconciliation.*`
 
 ## 외부 참조
-- Spring Batch 5 `schema-mysql.sql` (spring-batch-core jar `org/springframework/batch/core/schema-mysql.sql`)
+- 명세 `docs/specs/pg-reconciliation-batch.md` "배치 Job"·"API"·"메트릭·알람"·"장애 시 동작"

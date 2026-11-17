@@ -60,3 +60,18 @@
 - `X-User-Id`는 운영에서 게이트웨이가 JWT로 검증해 넣는다. 여기서는 serverA를 직접 호출한다.
 - "중복 요청에도 PG 취소 1회"는 블랙박스로 볼 수 없어 재고가 정확히 1회 복구됐는지(⑨)로 확인한다. PG 취소 멱등 자체는 serverC 단위 테스트가 담당한다.
 - 모의 PG 거절(1%) 대비 1회 재시도, 재시도마다 사용자·상품을 새로 만든다.
+
+## 시나리오 4: PG 대사 수동 실행 관리자 API (`reconciliation-admin.spec.ts`)
+명세: `docs/specs/pg-reconciliation-batch.md` (P-8·P-9·S-10, "API")
+
+| 단계 | 요청 | 기대 결과 |
+|---|---|---|
+| ① 관리자 아님 | serverC `POST /api/v1/payments/admin/reconciliations?date={과거 날짜}` (헤더 없음 / `ROLE_USER`) | **403** |
+| ② 오늘 날짜 | 같은 요청, `date=오늘(KST)`, `X-User-Role: ROLE_ADMIN` | **400** |
+| ③ 첫 실행 | `date=실행마다 무작위 과거 날짜(PG 파일 없음)`, 관리자 | **202**, `mode: NEW`, `jobExecutionId` |
+| ④ 실패 확인 | serverC `GET /actuator/prometheus` 최대 60초 폴링 | `business_reconciliation_job_failed_total`이 ③ 전보다 **+1** |
+| ⑤ 다시 실행 | ③과 같은 요청 | **202**, `mode: RESTART`, 더 큰 `jobExecutionId` |
+| ⑥ 재시작 실패 확인 | ④와 같이 폴링 | ③ 전보다 **+2** |
+
+- 실행이 비동기라 결과는 serverC가 노출한 메트릭으로 확인한다 (실행 상태 조회 API는 명세 범위 밖).
+- PG 파일을 컨테이너에 넣을 수단이 없어 성공·불일치 경로와 409(실행 중)는 serverC 테스트(`ReconciliationMetricsTest`·`ReconciliationRunServiceTest` 등)가 담당한다.

@@ -41,15 +41,15 @@ PG사가 날짜별로 주는 거래 내역과 우리 결제 기록(serverC `paym
 없음 (관리자 재실행은 API, 불일치는 결과 테이블·메트릭·알람으로 확인)
 
 ### 완료 기준
-- [ ] 일치·4가지 불일치 유형이 시드 데이터로 판정된다 (S-1, S-3~S-6)
-- [ ] 컷오프 이후 변경이 D 결과에 영향을 주지 않는다 — 재현 테스트: 현재 상태로 비교하는 구현에서는 실패, 컷오프 비교로 통과 (S-2, S-8)
-- [ ] 날짜 경계 건이 불일치에서 제외된다 (S-7)
-- [ ] 같은 날짜 재실행 시 결과가 동일하고 한 벌만 남는다 (S-8)
-- [ ] 중간 실패 후 재시작하면 실패 지점부터 처리하고 최종 결과가 한 번에 성공한 것과 같다 — 재현 테스트: 한 트랜잭션 구현에서는 전체 롤백, chunk 커밋 + 재시작으로 통과 (S-9)
-- [ ] 처리 중 상태 변경이 있어도 대상이 누락되지 않는다 — 재현 테스트: OFFSET 페이징에서 누락, 키셋 페이징으로 통과 (S-11)
-- [ ] PG 파일이 없으면 실패하고 P1 알람 규칙이 있다 (S-10)
-- [ ] 불일치 1건 이상이면 P1 알람 규칙이 있다 (P-10)
-- [ ] 시드 데이터로 기준선(소요 시간·처리량)을 측정해 기록한다 (BL-008 판단 근거)
+- [x] 일치·4가지 불일치 유형이 시드 데이터로 판정된다 (S-1, S-3~S-6) — `ReconciliationJobTest`(#63), 실제 서버 데모(#64, 3-1절)
+- [x] 컷오프 이후 변경이 D 결과에 영향을 주지 않는다 — 재현 테스트: 현재 상태로 비교하는 구현에서는 실패, 컷오프 비교로 통과 (S-2, S-8)
+- [x] 날짜 경계 건이 불일치에서 제외된다 (S-7)
+- [x] 같은 날짜 재실행 시 결과가 동일하고 한 벌만 남는다 (S-8)
+- [x] 중간 실패 후 재시작하면 실패 지점부터 처리하고 최종 결과가 한 번에 성공한 것과 같다 — 재현 테스트: 한 트랜잭션 구현에서는 전체 롤백, chunk 커밋 + 재시작으로 통과 (S-9)
+- [x] 처리 중 상태 변경이 있어도 대상이 누락되지 않는다 — 재현 테스트: OFFSET 페이징에서 누락, 키셋 페이징으로 통과 (S-11)
+- [x] PG 파일이 없으면 실패하고 P1 알람 규칙이 있다 (S-10) — `ReconciliationJobFailed`(#64)
+- [x] 불일치 1건 이상이면 P1 알람 규칙이 있다 (P-10) — `ReconciliationMismatch`(#64)
+- [ ] 시드 데이터로 기준선(소요 시간·처리량)을 측정해 기록한다 (BL-008 판단 근거) — BL-047
 
 ### 범위 밖
 - 불일치 자동 보정 — 실시간 보정은 serverA 재대사 스케줄러 담당, 잘못된 자동 보정은 돈이 움직여 위험 (P-6)
@@ -219,7 +219,49 @@ CREATE TABLE reconciliation_mismatches (
 
 진행 상태는 백로그 하위 항목에서 관리한다 (이 표에 적지 않는다).
 
-마지막 PR에서 할 일: BL-002 완료 처리, `docs/portfolio.md` 정합성 3종(재현 테스트 전후) 기록 제안, `docs/architecture/arch-snapshot.md` 배치·테이블 반영
+마지막 PR(BL-047)에서 할 일: BL-002 완료 처리, `docs/portfolio.md` "하루치 PG 대사 배치" 사례의 성과 "처리량: 측정 예정"을 측정값으로 채움(사례는 #64에서 작성), `docs/architecture/arch-snapshot.md` 배치·테이블 반영
+
+## 3-1. 전체 흐름 (구현 기준, BL-045·050·051)
+
+```
+[실시간 — 결제·취소 순간]
+  MockPgClient (PG사 역할)                         PaymentService (우리)
+  ├ 승인 → mock_pg_transactions APPROVE (REQUIRES_NEW)  ├ PAID      + payments.approved_at
+  ├ 취소 → mock_pg_transactions CANCEL                 ├ CANCELLED + payments.cancelled_at
+  └ 거절 → 원장에 없음 (돈이 안 움직임)                    └ FAILED
+  ※ 원장은 우리 트랜잭션이 롤백돼도 남는다 → "PG 승인 / 우리 FAILED" 같은 실제 불일치가 생길 수 있다
+  ※ 두 시각 모두 같은 JVM의 KST 시계(ReconciliationTime) → "PG 시각 ≤ 우리 기록 시각"
+
+[매일 00:10] MockPgFileExporter — 어제 원장 → pg-files/pg-transactions-YYYYMMDD.csv (임시 파일 → 이름 변경)
+             = 실제 PG사가 보내주는 일자별 거래 파일 흉내. 배치는 원장을 읽지 않고 파일만 본다
+
+[매일 03:00 ReconciliationScheduler / 관리자 POST /api/v1/payments/admin/reconciliations?date=D]
+  ReconciliationRunService — 그 날짜의 마지막 실행(BATCH_* 메타)을 보고 결정, 비동기 실행
+    기록 없음 → NEW / 실행 중 → 409(스케줄은 건너뜀) / FAILED → 같은 파라미터로 RESTART
+    COMPLETED → 수동은 requestedAt 붙여 NEW(결과 교체), 스케줄은 건너뜀
+
+  pgReconciliationJob (reconDate = D)
+    1 clear        D의 이전 결과 삭제 (P-7 교체)
+    2 prevTail     D-1 파일의 마지막 5분 줄 → pg_settlement_lines (없어도 진행)
+    3 loadDay      D 파일 전체 → pg_settlement_lines (없으면 FAILED, S-10)
+    4 ours→PG      approved_at / cancelled_at ∈ [D, D+1) 를 키셋 페이징 → ① OURS_ONLY ③ AMOUNT
+    5 PG→ours      D 안의 PG 줄 → payments 조회 → ② PG_ONLY ④ STATUS
+                   (4·5 모두 한쪽에만 있으면 상대편 5분 이내 같은 이벤트를 찾아 경계 건은 제외, P-5)
+    6 report       유형별 건수 로그
+    chunk 커밋 + 유니크 키 중복 무시 → 실패 시 실패 Step의 마지막 커밋 위치부터 재시작 (S-9)
+
+  Job 종료 리스너(ReconciliationMetrics)
+    COMPLETED → business_reconciliation_mismatch_total{type} += 건수, last_success_date_seconds = D+1 00:00 KST
+    FAILED    → business_reconciliation_job_failed_total += 1
+  기동 시 ReconciliationStartupCleaner — STARTED로 남은 실행을 FAILED로 정리 (재시작 가능하게)
+
+[결과 처리]
+  reconciliation_mismatches (recon_date, order_id, event_type, mismatch_type, our_amount, pg_amount) — 날짜당 한 벌
+  → P1 알람 ReconciliationMismatch / ReconciliationJobFailed / ReconciliationNotRun
+  → 사람이 테이블을 보고 수기 처리 (자동 보정 없음, P-6. 조회 API·화면은 범위 밖)
+```
+
+**실제 서버 확인 (2026-11-17, BL-051)**: 대사일 2026-11-10에 우리 결제 8건 + PG CSV 9줄(정상 승인 3, 승인·취소 1쌍, 자정 경계 1, 불일치 4유형 각 1)로 관리자 API 실행 → COMPLETED, 불일치 4건(AMOUNT·OURS_ONLY·PG_ONLY·STATUS 각 1)만 기록, 정상·경계 건 제외, 게이지 2026-11-11 00:00 KST. 같은 날짜 재실행 → 결과 4건 유지(교체).
 
 ## 4. 변경 이력 (확인 이후)
 | 날짜 | 변경 | 이유 |
@@ -230,3 +272,5 @@ CREATE TABLE reconciliation_mismatches (
 | 2026-11-17 | 마이그레이션 번호: PR①은 V4(시각)·V5(`mock_pg_transactions`), PR②는 V6(`pg_settlement_lines`·`reconciliation_mismatches`)·V7(Batch 메타) | PR 분할에 맞춤 |
 | 2026-11-17 | PR②를 ②-a(Job 본체, BL-050)·②-b(운영 연결, BL-051)로 분할. chunk 크기 500(설정값), D-1 파일 없음은 경고 후 진행, Step 3은 승인·취소 정렬 키가 달라 3a·3b로 분리 | 변경 파일 20개 초과 예상, 위험 변경과 운영 연결의 리뷰 분리 (BL-046 /plan) |
 | 2026-11-17 | 대사 테이블 쓰기를 `INSERT IGNORE` → `ON DUPLICATE KEY UPDATE id = id` | PR #63 리뷰 C1: IGNORE는 유니크 충돌 외 데이터 오류도 경고로 바꿔 대사 대상이 조용히 빠짐. 중복만 무시하고 나머지는 Step 실패로 드러냄 |
+| 2026-11-17 | `business_reconciliation_last_success_date_seconds` 값 = 마지막 COMPLETED 대사일 D의 **끝(D+1 00:00 KST)** epoch 초. 성공 기록이 없으면 NaN | 대사일(D 00:00)로 잡으면 정상 운영이어도 다음 날 03:00 실행 직전 `time() - 값`이 51시간이 되어 30시간 알람이 매일 울림. D+1 00:00이면 정상 시 최대 약 27시간 (BL-051 /plan) |
+| 2026-11-17 | API 400 기준 = `date ≥ 오늘(KST)` (어제까지만 실행 가능). 스케줄 실행은 그 날짜가 이미 COMPLETED면 건너뜀(FAILED면 재시작). 수동·스케줄 모두 비동기 실행 | 오늘 파일은 다음 날 00:10에 생성됨. 스케줄 재실행은 결과가 같아(P-3) 낭비. 스케줄러 스레드(2개, 다른 스케줄과 공유)를 붙잡지 않음 (BL-051 /plan) |
