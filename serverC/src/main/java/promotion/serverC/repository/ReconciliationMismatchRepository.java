@@ -23,12 +23,13 @@ public class ReconciliationMismatchRepository {
     private final JdbcTemplate jdbcTemplate;
 
     // 같은 (날짜, 주문, 이벤트)를 다시 써도 한 벌만 남는다 (chunk 재시도·재시작).
+    // 유니크 충돌만 무시하고 다른 오류는 그대로 던진다 (INSERT IGNORE는 데이터 오류까지 삼킴).
     public void insertIgnore(List<? extends Mismatch> mismatches) {
         LocalDateTime now = ReconciliationTime.now();
         jdbcTemplate.batchUpdate(
-                "INSERT IGNORE INTO reconciliation_mismatches " +
+                "INSERT INTO reconciliation_mismatches " +
                 "(recon_date, order_id, event_type, mismatch_type, our_amount, pg_amount, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id",
                 mismatches, mismatches.size(),
                 (ps, m) -> {
                     ps.setObject(1, m.reconDate());

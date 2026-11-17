@@ -41,7 +41,7 @@ import java.util.Map;
  *
  * clear → loadPrevTail → loadDay → oursApprove → oursCancel → pgToOurs → report
  * - 비교 대상은 이벤트 시각으로만 고른다 (컷오프 P-3, 처리 중 상태 변경에 흔들리지 않음 S-11).
- * - DB 조회는 키셋 페이징(JdbcPagingItemReader), 쓰기는 INSERT IGNORE라 chunk 재시도·재시작에도 한 벌 (S-9).
+ * - DB 조회는 키셋 페이징(JdbcPagingItemReader), 쓰기는 유니크 충돌 무시(ON DUPLICATE KEY)라 chunk 재시도·재시작에도 한 벌 (S-9).
  */
 @Configuration
 @Slf4j

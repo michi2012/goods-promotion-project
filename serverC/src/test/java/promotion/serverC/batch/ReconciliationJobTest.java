@@ -55,6 +55,28 @@ class ReconciliationJobTest extends ReconciliationJobTestSupport {
     }
 
     @Test
+    @DisplayName("취소 이벤트도 우리만·금액·상태 불일치를 기록한다 (취소 Step·취소 시각 분기 배선 확인)")
+    void 취소_불일치() throws Exception {
+        payment("o-c-ours", "CANCELLED", 10_000L, D.atTime(9, 0, 1), D.atTime(12, 0, 1));    // PG에 취소 없음
+        payment("o-c-amount", "CANCELLED", 30_000L, D.atTime(11, 0, 1), D.atTime(14, 0, 1)); // 취소 금액 다름
+        payment("o-c-status", "PAID", 20_000L, D.atTime(10, 0, 1), null);                    // PG만 취소
+        pgFile(D,
+                approve("o-c-ours", 10_000L, D.atTime(9, 0)),
+                approve("o-c-status", 20_000L, D.atTime(10, 0)),
+                approve("o-c-amount", 30_000L, D.atTime(11, 0)),
+                cancelLine("o-c-status", 20_000L, D.atTime(13, 0)),
+                cancelLine("o-c-amount", 29_000L, D.atTime(14, 0)));
+
+        JobExecution execution = run(D);
+
+        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(mismatches(D)).containsExactly(
+                new Mismatch(D, "o-c-amount", "CANCEL", MismatchType.AMOUNT, 30_000L, 29_000L),
+                new Mismatch(D, "o-c-ours", "CANCEL", MismatchType.OURS_ONLY, 10_000L, null),
+                new Mismatch(D, "o-c-status", "CANCEL", MismatchType.STATUS, 20_000L, 20_000L));
+    }
+
+    @Test
     @DisplayName("S-7: PG D 23:59:59 승인 / 우리 D+1 00:00:01 승인은 D·D+1 대사 모두에서 제외")
     void s7_날짜경계() throws Exception {
         payment("o-edge", "PAID", 10_000L, D.plusDays(1).atTime(0, 0, 1), null);

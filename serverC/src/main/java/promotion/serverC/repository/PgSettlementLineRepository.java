@@ -26,11 +26,12 @@ public class PgSettlementLineRepository {
 
     private final JdbcTemplate jdbcTemplate;
 
-    // 같은 줄을 다시 써도 한 벌만 남는다 (chunk 재시도·재시작).
+    // 같은 줄을 다시 써도 한 벌만 남는다 (chunk 재시도·재시작). INSERT IGNORE는 길이 초과·형 변환 오류까지
+    // 경고로 삼켜 대사 대상이 조용히 빠지므로, 유니크 충돌만 무시하고 다른 오류는 Step 실패로 드러낸다.
     public void insertIgnore(LocalDate reconDate, List<? extends PgLine> lines) {
         jdbcTemplate.batchUpdate(
-                "INSERT IGNORE INTO pg_settlement_lines (recon_date, order_id, event_type, amount, occurred_at) " +
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO pg_settlement_lines (recon_date, order_id, event_type, amount, occurred_at) " +
+                "VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id",
                 lines, lines.size(),
                 (ps, line) -> {
                     ps.setObject(1, reconDate);

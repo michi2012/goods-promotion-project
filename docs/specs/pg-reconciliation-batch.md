@@ -142,7 +142,7 @@ CREATE TABLE reconciliation_mismatches (
   UNIQUE KEY uk_mismatch (recon_date, order_id, event_type)
 );
 ```
-- `uk_pg_line`·`uk_mismatch` + `INSERT IGNORE`: chunk 재시도·재시작 시 같은 줄을 두 번 써도 한 벌 (S-9).
+- `uk_pg_line`·`uk_mismatch` + `ON DUPLICATE KEY UPDATE id = id`: chunk 재시도·재시작 시 같은 줄을 두 번 써도 한 벌 (S-9). `INSERT IGNORE`는 길이 초과·형 변환 오류까지 경고로 삼켜 쓰지 않는다 (변경 이력).
 - **V6 — Spring Batch 메타 테이블** (`BATCH_*`, 공식 `schema-mysql.sql`). `spring.batch.jdbc.initialize-schema: never` — 스키마는 Flyway가 관리.
 
 ### 모의 PG 파일
@@ -229,3 +229,4 @@ CREATE TABLE reconciliation_mismatches (
 | 2026-11-17 | 이벤트 시각은 JVM 기본 타임존이 아니라 KST로 고정(`ReconciliationTime.now()`). 거래 파일은 serverC 로컬 디렉터리 — 단일 인스턴스 전제, 다중 파드 저장소는 BL-048 | PR #62 리뷰 C2·C3: 파드 TZ 미설정 시 대사 범위(P-1 KST)와 9시간 어긋남, 파일이 파드마다 따로 생김 |
 | 2026-11-17 | 마이그레이션 번호: PR①은 V4(시각)·V5(`mock_pg_transactions`), PR②는 V6(`pg_settlement_lines`·`reconciliation_mismatches`)·V7(Batch 메타) | PR 분할에 맞춤 |
 | 2026-11-17 | PR②를 ②-a(Job 본체, BL-050)·②-b(운영 연결, BL-051)로 분할. chunk 크기 500(설정값), D-1 파일 없음은 경고 후 진행, Step 3은 승인·취소 정렬 키가 달라 3a·3b로 분리 | 변경 파일 20개 초과 예상, 위험 변경과 운영 연결의 리뷰 분리 (BL-046 /plan) |
+| 2026-11-17 | 대사 테이블 쓰기를 `INSERT IGNORE` → `ON DUPLICATE KEY UPDATE id = id` | PR #63 리뷰 C1: IGNORE는 유니크 충돌 외 데이터 오류도 경고로 바꿔 대사 대상이 조용히 빠짐. 중복만 무시하고 나머지는 Step 실패로 드러냄 |
