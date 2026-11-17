@@ -1,78 +1,85 @@
-# 계획서: PG 대사 PR②-a — 대사 Job 본체 (BL-050)
+# 계획서: PG 대사 PR②-b — 대사 운영 연결 (BL-051)
 
-## [완료] BL-002 PR②-a — BL-050 (PR #63)
+## [진행 중] BL-002 PR②-b — BL-051
 
 - 작성일: 2026-11-17
-- 관련 이슈/티켓: BL-050 (BL-046의 하위, BL-002 묶음, `docs/backlog.md`), 명세 `docs/specs/pg-reconciliation-batch.md` (설계 확인 ☑)
+- 관련 항목: BL-051 (BL-046 하위, 상위 BL-002) / 명세 `docs/specs/pg-reconciliation-batch.md` 구현 단계 ②-b
 
 ## 목표
-serverC에 Spring Batch `pgReconciliationJob`(Step 1~5)을 도입해, 지정한 대사일의 우리 결제 이벤트와 PG 거래 파일을 비교하고 4가지 불일치를 `reconciliation_mismatches`에 기록한다. 정합성 요건 3종(컷오프·재시작·키셋)을 단순 구현과 비교하는 재현 테스트로 증명한다.
+PR②-a에서 만든 `pgReconciliationJob`을 실제로 돌릴 수 있게 한다: 관리자 수동 실행 API, 매일 03:00 스케줄, 기동 시 끊긴 실행 정리, 메트릭 3종과 P1 알람 3종.
 
 ## 성공 기준
-- [ ] S-1, S-3~S-7 시드로 일치·4가지 불일치·날짜 경계 제외가 판정된다 (`ReconciliationJobTest`, Testcontainers MySQL)
-- [ ] S-10: D 파일이 없으면 Job FAILED, D-1 파일이 없으면 경고 후 진행 (`ReconciliationJobTest`)
-- [ ] 재현 ① S-2·S-8 컷오프: 현재 상태 비교 단순 구현은 실패, Job은 재실행해도 결과 동일·한 벌 (`ReconciliationCutoffReproTest`)
-- [ ] 재현 ② S-9 재시작: 한 트랜잭션 단순 구현은 전체 롤백, Job은 N번째 chunk 실패 후 같은 파라미터 재실행 시 실패 chunk부터 이어 최종 결과가 한 번에 성공한 것과 같다 (`ReconciliationRestartReproTest`)
-- [ ] 재현 ③ S-11 누락: 상태 조건 + OFFSET 단순 구현은 처리 중 취소로 누락, Job(이벤트 시각 + 키셋)은 누락 없음 (`ReconciliationPagingReproTest`)
-- [ ] `gradlew :serverC:test` 전체 통과, 로컬 compose serverC 기동 시 V6·V7 적용 + 컨텍스트 정상 기동
+- [ ] `POST /api/v1/payments/admin/reconciliations?date=` — 관리자 아님 403, date ≥ 오늘(KST) 400, 실행 중 409, 실행 기록 없음 202 NEW, FAILED 202 RESTART(그 실행의 파라미터로), COMPLETED 202 NEW(`requestedAt` 추가). `@WebMvcTest` + 서비스 단위 테스트 통과
+- [ ] 03:00 스케줄: 어제 날짜 기준으로 실행 기록 없음 → 실행, FAILED → 재시작, COMPLETED·실행 중 → 건너뜀. 단위 테스트 통과
+- [ ] 기동 시 STARTED·STOPPING 상태로 남은 실행(Job·Step)을 FAILED로 바꾸고 실패 카운터를 올린다. Testcontainers 테스트 통과
+- [ ] 메트릭: Job COMPLETED → `business_reconciliation_mismatch_total{type}`이 유형별 건수만큼 증가하고 게이지가 D+1 00:00 KST(epoch 초)로 갱신된다. FAILED → `business_reconciliation_job_failed_total` +1. 게이지는 재기동 시 메타 테이블에서 복원된다. Testcontainers 테스트 통과
+- [ ] 알람 3종이 `monitoring/`·`helm/` 두 벌 모두에 있다. promtool로 검사(가능하면)하고, `helm template`이 통과한다
+- [ ] 백엔드 E2E: 403 → 400 → 파일 없는 과거 날짜 202 NEW → 실패 카운터 증가 → 같은 날짜 202 RESTART
 
 ## 비범위 (Out of Scope)
-- 수동 실행 API, `@Scheduled` 03:00 실행, 기동 시 STARTED 실행 정리, 메트릭·알람 → **BL-051 (PR②-b)**
-- 시드 생성기·기준선 측정 → BL-047
-- chunk 크기 튜닝·커넥션 풀 분리 → BL-008 (조건부)
-- 다중 파드 파일 저장소 → BL-048
-- 불일치 조회·해결 API, 자동 보정 (명세 범위 밖)
+- 실행 상태·불일치 조회 API (명세 "범위 밖") — 상태는 메트릭·로그로 확인
+- 다중 파드 동시 실행 방지·파일 공유 저장소 — BL-048 (단일 인스턴스 전제)
+- E2E 성공 경로(PG 파일을 컨테이너에 넣기) — Testcontainers 테스트가 담당 (사용자 결정)
+- 시드·기준선 측정 — BL-047, 성능 튜닝 — BL-008
+- arch-snapshot 반영, BL-002 완료, 포트폴리오 — 마지막 PR(BL-047)
 
 ## 단계별 작업 계획
 
-### 단계 1: 의존성·설정·마이그레이션
-- 변경 파일: `serverC/build.gradle`, `application.yaml`, `db/migration/V6__reconciliation_tables.sql`, `V7__spring_batch_schema.sql`
-- 변경 내용: `spring-boot-starter-batch`·`spring-batch-test`(승인됨). `spring.batch.job.enabled: false`, `spring.batch.jdbc.initialize-schema: never`, `reconciliation.chunk-size: 500`, `reconciliation.boundary-tolerance: 5m`. V6 = `pg_settlement_lines`·`reconciliation_mismatches`(명세 DDL), V7 = Spring Batch 공식 `schema-mysql.sql`(사용 중인 spring-batch-core 버전 jar에서 복사).
-- 검증: `gradlew :serverC:compileJava`, 기존 Testcontainers 테스트 1개(`PaymentRepositoryTest`)로 Flyway V6·V7 적용 확인
-- 롤백: 파일 되돌리기 (DB 미적용 상태)
-- 예상 소요: 짧음
-
-### 단계 2: 대사 저장소 (JDBC)
-- 변경 파일: `repository/PgSettlementLineRepository`, `repository/ReconciliationMismatchRepository`, `PaymentRepository`(이벤트 조회 메서드 추가), 각 테스트
-- 변경 내용: PG 줄 `INSERT IGNORE`·키 조회·날짜 삭제, 불일치 `INSERT IGNORE`·날짜 삭제·조회, 결제 건 존재·이벤트 시각 조회.
-- 검증: `gradlew :serverC:test --tests "*PgSettlementLineRepositoryTest" --tests "*ReconciliationMismatchRepositoryTest" --tests "*PaymentRepositoryTest"`
-- 롤백: 새 파일 삭제, `PaymentRepository` 되돌리기
-- 예상 소요: 보통
-
-### 단계 3: Job 구성 — Step 1 clear, Step 2 load
-- 변경 파일: `batch/ReconciliationJobConfig`, `batch/PgFileLineReader`(D 파일 + D-1 파일 마지막 5분), `batch/ReconciliationJobTest`
-- 변경 내용: `reconDate` 파라미터, clear tasklet, `FlatFileItemReader` chunk 적재. D 파일 없음 → Step 실패, D-1 파일 없음 → 경고 로그 후 D 파일만.
-- 검증: `gradlew :serverC:test --tests "*ReconciliationJobTest"` (적재·S-10)
-- 롤백: 새 파일 삭제
-- 예상 소요: 보통
-
-### 단계 4: Step 3a·3b ours→PG, Step 4 PG→ours, Step 5 요약
-- 변경 파일: `ReconciliationJobConfig`, `batch/OursToPgProcessor`, `batch/PgToOursProcessor`, `batch/MismatchWriter`, `batch/ReconciliationJobTest`
-- 변경 내용: 3a 승인(`approved_at, id`)·3b 취소(`cancelled_at, id`) `JdbcPagingItemReader` 키셋 → ①③, 4는 D 범위 PG 줄 키셋 → ②④. 경계 보정(P-5, 허용 5분, "PG 시각 ≤ 우리 시각"). Step 5는 유형별 건수 로그(메트릭은 BL-051).
-- 검증: `ReconciliationJobTest` S-1, S-3~S-7
-- 롤백: 단계 3 상태로 되돌리기
+### 단계 1: 메타 조회 + 실행 서비스
+- 변경 파일: `repository/ReconciliationRunRepository.java`(신규, `BATCH_*` 테이블 JDBC 조회: 날짜별 마지막 실행 / 마지막 COMPLETED 대사일), `service/ReconciliationRunService.java`(신규, 모드 판단 + 비동기 실행 + `synchronized`), 예외 `ReconciliationAlreadyRunningException`·`InvalidReconciliationDateException` + `GlobalExceptionHandler`(409·400), 테스트(Repository Testcontainers, Service Mockito)
+- 변경 내용: 실행 기록 없음 → NEW(`reconDate`) / 실행 중 → 409 / FAILED·STOPPED → 같은 파라미터로 RESTART / COMPLETED → API면 NEW(`requestedAt`), 스케줄이면 건너뜀. 비동기 실행기는 서비스 안에서 만든다 (Bean으로 등록하지 않음 — 맥락 노트 참고).
+- 검증: `.\gradlew.bat :serverC:test --tests "*ReconciliationRun*"`
+- 롤백: 신규 파일 삭제, 핸들러 변경 되돌리기
 - 예상 소요: 김
 
-### 단계 5: 재현 테스트 3종
-- 변경 파일: `batch/ReconciliationCutoffReproTest`, `ReconciliationRestartReproTest`, `ReconciliationPagingReproTest` (단순 구현은 테스트 안에만)
-- 변경 내용: 성공 기준의 재현 ①②③. 재시작은 불일치 저장소 spy로 N번째 chunk에서 예외 → FAILED → 예외 해제 후 같은 파라미터로 재실행.
-- 검증: `gradlew :serverC:test --tests "*ReproTest"`
-- 롤백: 테스트 파일 삭제
+### 단계 2: 관리자 API
+- 변경 파일: `controller/ReconciliationAdminController.java`(신규), `dto/ReconciliationRunResponse.java`(신규), `ReconciliationAdminControllerTest`(신규)
+- 변경 내용: `X-User-Role` 확인 → 서비스 호출 → 202 `{jobExecutionId, mode}`. 기존 `PaymentAdminController`와 같은 보호 방식.
+- 검증: `--tests "*ReconciliationAdminControllerTest"`
+- 롤백: 신규 파일 삭제
+- 예상 소요: 짧음
+
+### 단계 3: 메트릭 리스너 + 기동 시 정리
+- 변경 파일: `batch/ReconciliationMetrics.java`(신규, `JobExecutionListener` + 카운터 2종 + 게이지), `batch/ReconciliationStartupCleaner.java`(신규, `ApplicationReadyEvent`), `ReconciliationJobConfig`(리스너 등록, Step 5 주석), 테스트
+- 변경 내용: COMPLETED → 불일치 유형별 카운터 증가 + 게이지 = (D+1 00:00 KST) epoch 초. FAILED → 실패 카운터. 게이지 초기값은 메타 테이블의 마지막 COMPLETED 대사일, 없으면 NaN. 기동 시 끊긴 실행을 FAILED로 바꾸고 실패 카운터 +1.
+- 검증: `--tests "*ReconciliationMetrics*" --tests "*ReconciliationStartupCleaner*" --tests "*ReconciliationJobTest"` (기존 Job 테스트도 다시 돌린다)
+- 롤백: 신규 파일 삭제, JobConfig 되돌리기
 - 예상 소요: 보통
 
-### 단계 6: 전체 검증·문서
-- 변경 파일: `docs/checklist.md`, `docs/backlog.md`, (필요 시) `.claude/skills/*/project.md`
-- 변경 내용: 전체 테스트, 로컬 serverC 재기동(V6·V7 적용 — **기동 전 사용자 확인**), 발견 사항 백로그 이전.
-- 검증: `gradlew :serverC:test` (background), serverC 기동 로그·`flyway_schema_history`
-- 롤백: 해당 없음
+### 단계 4: 스케줄러
+- 변경 파일: `scheduler/ReconciliationScheduler.java`(신규), `application.yaml`(`reconciliation.cron: "0 0 3 * * *"`), 테스트
+- 변경 내용: `@Scheduled(cron, zone = Asia/Seoul)` → `runService.runScheduled(어제)`. 예외는 로그만 남긴다 (실패는 리스너가 메트릭으로 알린다).
+- 검증: `--tests "*ReconciliationSchedulerTest"`
+- 롤백: 신규 파일 삭제, yaml 되돌리기
+- 예상 소요: 짧음
+
+### 단계 5: 알람 규칙 (2벌)
+- 변경 파일: `monitoring/prometheus/alert-rules.yml`, `helm/promotion-monitoring/files/alert-rules.yml`
+- 변경 내용: `ReconciliationMismatch`(`increase(...[1d]) > 0`), `ReconciliationJobFailed`(`increase(...[1h]) > 0`), `ReconciliationNotRun`(`time() - gauge > 30h`). 모두 P1.
+- 검증: promtool `check rules`(docker prometheus 이미지), `helm template helm/promotion-monitoring`
+- 롤백: git 되돌리기
+- 예상 소요: 짧음 (**인프라 변경 — 단계별 승인**)
+
+### 단계 6: 백엔드 E2E + 서버 기동 검증
+- 변경 파일: `backend-e2e/reconciliation-admin.spec.ts`(신규), `backend-e2e/SCENARIOS.md`
+- 변경 내용: 403 → 400(오늘) → 파일 없는 무작위 과거 날짜 202 NEW → `/actuator/prometheus`에서 실패 카운터 증가를 기다림 → 같은 날짜 202 RESTART.
+- 검증: serverC 재빌드·기동 후 `backend-e2e/ npm test -- reconciliation-admin`
+- 롤백: 신규 파일 삭제
 - 예상 소요: 보통
+
+### 단계 7: 문서
+- 변경 파일: 명세 변경 이력(게이지 = D+1 00:00, 400 = 오늘 포함, 스케줄은 COMPLETED면 건너뜀), 3종 문서, 백로그
+- 검증: 리뷰
+- 예상 소요: 짧음
 
 ## 리스크 및 대응
-- Boot 자동 구성 Batch + JPA 트랜잭션 매니저 공존 → `@EnableBatchProcessing` 쓰지 않음(쓰면 Boot 자동 구성이 꺼짐). JdbcTemplate는 같은 DataSource라 chunk 트랜잭션에 참여.
-- 슬라이스 테스트에서 Batch 컨텍스트 구성 → `@DataJpaTest` + `@ImportAutoConfiguration(BatchAutoConfiguration)` + Job 구성 Import 방식(기존 `PaymentCancelRetryIntegrationTest` 패턴). 안 되면 정지 후 보고.
-- `JdbcPagingItemReader`가 MySQL에서 정렬 키 2개 키셋 조건을 만드는지 → 단계 4에서 생성 SQL 확인, 재현 ③이 증명.
-- PR②-a만으로는 Job을 띄울 진입점(API·스케줄)이 없음 → E2E(API 호출)는 BL-051에서. 이 PR은 Testcontainers Job 테스트 + 서버 기동 확인으로 검증.
+- `JobLauncher` Bean이 둘이 되어 기존 Job 테스트의 주입이 깨짐 → 비동기 실행기를 Bean으로 등록하지 않고 서비스 안에서 만든다
+- 게이지 기준을 D 00:00으로 잡으면 정상 운영에서도 NotRun 알람이 매일 울림 → D+1 00:00 기준, 테스트로 고정
+- 기동 시 정리가 다른 파드에서 실제로 돌고 있는 실행을 FAILED로 만듦 → 단일 인스턴스 전제(BL-048)를 코드 주석과 명세에 적는다
+- 같은 날짜로 API를 동시에 호출해 NEW 실행이 2개 생김 → 서비스 `synchronized` + 같은 파라미터는 JobRepository가 거부
+- 메타 테이블의 파라미터 저장 형식(Batch 5: `PARAMETER_VALUE` 문자열) 의존 → Repository Testcontainers 테스트로 고정
 
 ## 의존성
-- BL-045(머지됨): `payments.approved_at/cancelled_at`, `MockPgFileExporter` CSV 형식, `ReconciliationTime.ZONE`
-- Docker(Testcontainers MySQL), 로컬 compose `promotion-mysql-c`·`promotion-server-c`
+- PR②-a의 `pgReconciliationJob`·V7 Batch 메타 테이블 (main에 머지됨)
+- 새 Gradle 의존성 없음
+- E2E: docker compose 스택(serverC + mysql-c)

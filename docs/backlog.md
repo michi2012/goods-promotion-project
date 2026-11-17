@@ -17,7 +17,7 @@
 ## 진행 예정 (우선순위순 — 추가 시 우선순위 위치에 삽입, 후속 항목은 선행 항목 아래)
 | ID | 항목 | 분류 | 우선순위 | 규모 | 선행 | 출처 |
 |----|------|------|---------|------|------|------|
-| BL-051 | **BL-046 PR②-b 대사 운영 연결** (다음 작업): 수동 실행 API(`POST /api/v1/payments/admin/reconciliations`, FAILED 재시작/COMPLETED 새 실행, 409), `@Scheduled` 03:00, 기동 시 STARTED 실행 FAILED 정리, 메트릭 3종 + P1 알람 3종(`monitoring/`·`helm/` 2벌), API E2E | 로드맵 | 높음 | M | | BL-046 /plan 분할 (2026-11-17) |
+| BL-051 | **BL-046 PR②-b 대사 운영 연결** (진행 중): 수동 실행 API(`POST /api/v1/payments/admin/reconciliations`, FAILED 재시작/COMPLETED 새 실행, 409), `@Scheduled` 03:00, 기동 시 STARTED 실행 FAILED 정리, 메트릭 3종 + P1 알람 3종(`monitoring/`·`helm/` 2벌), API E2E | 로드맵 | 높음 | M | | BL-046 /plan 분할 (2026-11-17) |
 | BL-047 | **BL-002 PR③ 시드 + 기준선 측정**: 시드 생성기, perf-compare 기준선 → BL-008 판단 (명세 ③) | 로드맵 | 높음 | S | | BL-002 /spec (2026-11-17) |
 | BL-030 | **serverA `/api/v1/admin/**` 역할 검사 없음**: 게이트웨이 경유 시 일반 사용자도 DLT 재처리 등 호출 가능. `X-User-Role=ROLE_ADMIN` 검사 추가 시 내부 호출하는 cs-bot(`CsBotClient` DLT 조회·재처리)도 함께 수정 | 버그·정합성 | 중간 | S | | BL-029 /spec 중 발견 (2026-11-14) |
 | BL-035 | **serverA·serverB DLT 핸들러 실패 시 무알람 유실 여부 확인**: 두 서버 `KafkaConsumerConfig`의 DLT 팩토리도 `FixedBackOff(0,0)` + 로그만이라, DLT 핸들러가 DB에 쓰다 실패하면 기록·알람 없이 오프셋이 넘어간다. 각 DLT 핸들러가 DB에 쓰는지 확인하고, 쓰면 serverC(BL-034)와 같은 방식(백오프 + 미리 등록한 실패 메트릭 + P0/P1) 적용 | 버그·정합성 | 중간 | S | | BL-034 작업 중 발견 (2026-11-16) |
