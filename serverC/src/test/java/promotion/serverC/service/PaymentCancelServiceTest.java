@@ -257,7 +257,7 @@ class PaymentCancelServiceTest {
         service.cancel(ORDER_ID);
 
         verify(pgClient).cancelPayment(ORDER_ID);
-        verify(paymentRepository).updateStatusIfCurrent(ORDER_ID, "PAID", "CANCELLED");
+        verify(paymentRepository).markCancelled(eq(ORDER_ID), any(LocalDateTime.class));
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-cancelled"), payload.capture());
         assertThat(((PaymentCancelledMessage) payload.getValue()).orderId()).isEqualTo(ORDER_ID);
@@ -271,7 +271,7 @@ class PaymentCancelServiceTest {
 
         service.cancel(ORDER_ID);
 
-        verify(paymentRepository).updateStatusIfCurrent(ORDER_ID, "PAID", "CANCELLED");
+        verify(paymentRepository).markCancelled(eq(ORDER_ID), any(LocalDateTime.class));
         verify(outboxEventService).save(eq(ORDER_ID), eq("payment-cancelled"), any());
     }
 
@@ -307,7 +307,7 @@ class PaymentCancelServiceTest {
 
         assertThatThrownBy(() -> service.cancel(ORDER_ID)).isInstanceOf(PgPaymentException.class);
 
-        verify(paymentRepository, never()).updateStatusIfCurrent(anyString(), anyString(), anyString());
+        verify(paymentRepository, never()).markCancelled(anyString(), any());
         verify(outboxEventService, never()).save(anyString(), anyString(), any());
     }
 

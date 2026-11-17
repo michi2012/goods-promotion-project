@@ -187,7 +187,7 @@ public class PaymentCancelService {
 
     private void completeCancel(String orderId) {
         transactionTemplate.executeWithoutResult(tx -> {
-            paymentRepository.updateStatusIfCurrent(orderId, PAID, CANCELLED);
+            paymentRepository.markCancelled(orderId, LocalDateTime.now());
             outboxEventService.save(orderId, CANCELLED_TOPIC, new PaymentCancelledMessage(orderId, LocalDateTime.now()));
             failureRepository.findByOrderId(orderId)
                     .filter(f -> f.getStatus() != CancelFailureStatus.RESOLVED)

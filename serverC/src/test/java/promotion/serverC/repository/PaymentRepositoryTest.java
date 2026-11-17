@@ -16,6 +16,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import promotion.serverC.dto.PaymentResponse;
 import promotion.serverC.dto.PurchaseMessage;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -134,6 +135,69 @@ class PaymentRepositoryTest {
 
         assertThat(found.amount()).isNull();
         assertThat(found.currency()).isNull();
+    }
+
+    @Test
+    @DisplayName("승인 확정 시 PAID와 승인 시각을 기록한다")
+    void markPaid_승인시각기록() {
+        paymentRepository.claimOrder(message("order-paid"));
+        LocalDateTime approvedAt = LocalDateTime.of(2026, 11, 16, 23, 59, 59, 123_456_000);
+
+        paymentRepository.markPaid("order-paid", approvedAt);
+
+        Map<String, Object> row = eventRow("order-paid");
+        assertThat(row.get("status")).isEqualTo("PAID");
+        assertThat(row.get("approved_at")).isEqualTo(approvedAt);
+        assertThat(row.get("cancelled_at")).isNull();
+    }
+
+    @Test
+    @DisplayName("PAID 결제를 취소하면 CANCELLED와 취소 시각을 기록하고 1을 반환한다")
+    void markCancelled_PAID만_취소() {
+        paymentRepository.claimOrder(message("order-cancel"));
+        paymentRepository.markPaid("order-cancel", LocalDateTime.of(2026, 11, 16, 10, 0));
+        LocalDateTime cancelledAt = LocalDateTime.of(2026, 11, 17, 1, 0);
+
+        int updated = paymentRepository.markCancelled("order-cancel", cancelledAt);
+
+        Map<String, Object> row = eventRow("order-cancel");
+        assertThat(updated).isEqualTo(1);
+        assertThat(row.get("status")).isEqualTo("CANCELLED");
+        assertThat(row.get("cancelled_at")).isEqualTo(cancelledAt);
+    }
+
+    @Test
+    @DisplayName("PAID가 아닌 결제는 취소하지 않고 취소 시각도 남기지 않는다 (이미 취소된 건의 시각을 덮어쓰지 않음)")
+    void markCancelled_PAID아니면_변경없음() {
+        paymentRepository.claimOrder(message("order-cancel-twice"));
+        paymentRepository.markPaid("order-cancel-twice", LocalDateTime.of(2026, 11, 16, 10, 0));
+        LocalDateTime first = LocalDateTime.of(2026, 11, 16, 11, 0);
+        paymentRepository.markCancelled("order-cancel-twice", first);
+
+        int updated = paymentRepository.markCancelled("order-cancel-twice", LocalDateTime.of(2026, 11, 17, 9, 0));
+
+        assertThat(updated).isZero();
+        assertThat(eventRow("order-cancel-twice").get("cancelled_at")).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("금액 불일치 망취소는 FAILED와 승인·취소 시각을 모두 기록한다")
+    void markFailedAfterNetCancel_두시각기록() {
+        paymentRepository.claimOrder(message("order-net-cancel"));
+        LocalDateTime approvedAt = LocalDateTime.of(2026, 11, 16, 10, 0, 0);
+        LocalDateTime cancelledAt = LocalDateTime.of(2026, 11, 16, 10, 0, 1);
+
+        paymentRepository.markFailedAfterNetCancel("order-net-cancel", approvedAt, cancelledAt);
+
+        Map<String, Object> row = eventRow("order-net-cancel");
+        assertThat(row.get("status")).isEqualTo("FAILED");
+        assertThat(row.get("approved_at")).isEqualTo(approvedAt);
+        assertThat(row.get("cancelled_at")).isEqualTo(cancelledAt);
+    }
+
+    private Map<String, Object> eventRow(String orderId) {
+        return jdbcTemplate.queryForMap(
+                "SELECT status, approved_at, cancelled_at FROM payments WHERE order_id = ?", orderId);
     }
 
     private PurchaseMessage message(String orderId) {

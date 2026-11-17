@@ -61,3 +61,6 @@ port.md
 /docs/qa/interview-qa-01-tps.md
 /docs/qa/interview-qa-03-k8s-helm-gateway.md
 /docs/qa/
+
+# 모의 PG 일자별 거래 파일 (serverC 로컬 실행 시 생성)
+pg-files/
