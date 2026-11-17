@@ -1,6 +1,6 @@
 # 계획서: PG 대사 PR③ — 시드 생성기 + 기준선 측정 (BL-047)
 
-## [진행 중] BL-002 PR③ — BL-047
+## [완료] BL-002 PR③ — BL-047 (PR #65)
 
 - 작성일: 2026-11-17
 - 관련 항목: BL-047 (상위 BL-002, 마지막 PR) / 명세 `docs/specs/pg-reconciliation-batch.md` 구현 단계 ③
