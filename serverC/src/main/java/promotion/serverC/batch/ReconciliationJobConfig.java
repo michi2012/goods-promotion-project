@@ -40,7 +40,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * PG 거래 내역 대사 Job (docs/specs/pg-reconciliation-batch.md "배치 Job").
@@ -244,7 +243,8 @@ public class ReconciliationJobConfig {
                 .build();
     }
 
-    // 우리 이벤트 chunk → 같은 대사일로 적재된 PG 줄을 이벤트 종류별로 한 번에 조회 → 판정 → 불일치만 저장
+    // 우리 이벤트 chunk → 같은 대사일로 적재된 PG 줄을 한 번에 조회 → 판정 → 불일치만 저장.
+    // 승인·취소 Step이 이 writer를 함께 쓰지만, 각 Step의 reader가 한 이벤트 종류만 읽어 chunk 안의 종류는 하나다.
     @Bean
     @StepScope
     public ItemWriter<OurEvent> reconOursWriter(
@@ -254,15 +254,13 @@ public class ReconciliationJobConfig {
             ReconciliationMismatchRepository mismatchRepository) {
         ReconciliationMatcher matcher = new ReconciliationMatcher(reconDate, tolerance);
         return chunk -> {
+            List<? extends OurEvent> events = chunk.getItems();
+            String eventType = events.get(0).eventType();
+            Map<String, PgLine> pgLines = lineRepository.findAll(reconDate, eventType, orderIds(events, OurEvent::orderId));
             List<Mismatch> mismatches = new ArrayList<>();
-            Map<String, List<OurEvent>> byType = chunk.getItems().stream()
-                    .collect(Collectors.groupingBy(OurEvent::eventType, LinkedHashMap::new, Collectors.toList()));
-            byType.forEach((eventType, events) -> {
-                Map<String, PgLine> pgLines = lineRepository.findAll(reconDate, eventType, orderIds(events, OurEvent::orderId));
-                for (OurEvent ours : events) {
-                    addIfMismatch(mismatches, matcher.oursToPg(ours, Optional.ofNullable(pgLines.get(ours.orderId()))));
-                }
-            });
+            for (OurEvent ours : events) {
+                addIfMismatch(mismatches, matcher.oursToPg(ours, Optional.ofNullable(pgLines.get(ours.orderId()))));
+            }
             saveMismatches(mismatchRepository, mismatches);
         };
     }
