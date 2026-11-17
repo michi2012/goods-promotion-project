@@ -112,6 +112,35 @@
           summary: "⚠️ [P2] 결제 환불 보상 트랜잭션 방어율 하락 (현재 성공률: {{ printf \"%.1f\" $value }}%)"
           description: "PG사 환불 요청 중 일부가 보상 트랜잭션(Fallback)에서 실패하여 자동 환불 방어율이 100% 미만으로 하락한 상태."
 
+      # 7. [P1] PG 대사 불일치 (BL-002) — 사후 감시라 P1. 불일치 기록이 남은 대사일은 24시간 동안 계속 알린다
+      - alert: ReconciliationMismatch
+        expr: sum by (type) (increase(business_reconciliation_mismatch_total[1d])) > 0
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] PG 대사 불일치 {{ $labels.type }} ({{ printf \"%.0f\" $value }}건 / 24h)"
+          description: "우리 결제 기록과 PG 거래 파일이 어긋남. serverC reconciliation_mismatches(recon_date·mismatch_type)에서 건별로 확인 후 수기 처리. 자동 보정 없음 (docs/specs/pg-reconciliation-batch.md P-6). 같은 날짜를 다시 실행하면 건수가 다시 더해지므로 실제 건수는 테이블 기준."
+
+      # 7-1. [P1] PG 대사 Job 실패 — PG 파일 없음, DB 오류, 서버 재기동으로 중단 등
+      - alert: ReconciliationJobFailed
+        expr: sum(increase(business_reconciliation_job_failed_total[1h])) > 0
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] PG 대사 Job 실패 ({{ printf \"%.0f\" $value }}회 / 1h)"
+          description: "serverC 로그 '[Reconciliation]'에서 원인 확인. 원인 해소(예: PG 파일 생성) 후 POST /api/v1/payments/admin/reconciliations?date=YYYY-MM-DD 로 다시 실행하면 실패 지점부터 재시작."
+
+      # 7-2. [P1] PG 대사 미실행 — 마지막 성공 대사일의 끝(D+1 00:00 KST)에서 30시간 경과 (정상이면 최대 약 27시간)
+      - alert: ReconciliationNotRun
+        expr: (time() - max(business_reconciliation_last_success_date_seconds)) > 30 * 3600
+        labels:
+          severity: critical
+          tier: P1
+        annotations:
+          summary: "🔥 [P1] PG 대사 미실행 (마지막 성공 이후 {{ printf \"%.0f\" $value }}초)"
+          description: "매일 03:00 전일분 대사가 성공하지 않았음. ReconciliationJobFailed 동반 여부와 serverC 스케줄 로그 확인 후 해당 날짜를 수동 실행."
   - name: Tier2-Application-Performance
     rules:
       # 7. [P2] 결제 API 지연 시간 폭증
